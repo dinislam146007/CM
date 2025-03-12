@@ -46,7 +46,7 @@ async def analyze_trading_signals(df, finish):
     divergence_convergence_signal = detect_divergence_convergence(df)
 
     # Исправленный вызов async-функции
-    price_action_pattern = asyncio.run(get_pattern_price_action(df[-3:].values.tolist(), "spot"))
+    price_action_pattern = await get_pattern_price_action(df[-3:].values.tolist(), "spot")
 
     signal_data = f"""
     RSI: {last_values['rsi']}
