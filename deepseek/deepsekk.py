@@ -3,10 +3,10 @@ from strategy_logic.price_action import get_pattern_price_action  # async фун
 from strategy_logic.rsi import detect_divergence_convergence
 from news import get_news_text
 
-from openai import AsyncOpenAI
+from openai import OpenAI
 from config import config
 
-client = AsyncOpenAI(
+client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=config.deepseek_api
 )
@@ -25,18 +25,13 @@ async def analyze_with_deepseek(messages) -> str:
 Ответ должен быть строго на русском языке
 Используй базовые HTML теги, которые поддерживает телеграмм. Не используй <p>
     """
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini-2024-07-18",
+    response = client.chat.completions.create(
+        model="openai/chatgpt-4o-latest",
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
         ],
-        response_format={"type": "text"},
-        temperature=1,
         max_tokens=2048,
-        top_p=1,
-        frequency_penalty=0,
-        presence_penalty=0
     )
 
     return response.choices[0].message.content
@@ -82,17 +77,12 @@ async def analyze_trading_signals(df, finish):
     Никаких других слов, только одно из них.
     """
 
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini-2024-07-18",
+    response = client.chat.completions.create(
+        model="openai/chatgpt-4o-latest",
         messages=[
             {"role": "user", "content": prompt}
         ],
-        response_format={"type": "text"},
-        temperature=1,
         max_tokens=2048,
-        top_p=1,
-        frequency_penalty=0,
-        presence_penalty=0
     )
 
     return response.choices[0].message.content
