@@ -9,3 +9,4 @@ cookies.pkl
 *.pyc
 /.idea
 /.vscode
+my_session.session
