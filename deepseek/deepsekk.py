@@ -6,7 +6,10 @@ from news import get_news_text
 from openai import AsyncOpenAI
 from config import config
 
-client = AsyncOpenAI(api_key=config.deepseek_api)
+client = AsyncOpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=config.deepseek_api
+)
 
 async def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
@@ -23,7 +26,7 @@ async def analyze_with_deepseek(messages) -> str:
 Используй базовые HTML теги, которые поддерживает телеграмм. Не используй <p>
     """
     response = await client.chat.completions.create(
-        model="deepseek/deepseek-r1-distill-qwen-32b",
+        model="gpt-4o-mini-2024-07-18",
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
@@ -80,7 +83,7 @@ async def analyze_trading_signals(df, finish):
     """
 
     response = await client.chat.completions.create(
-        model="deepseek/deepseek-r1-distill-qwen-32b",
+        model="gpt-4o-mini-2024-07-18",
         messages=[
             {"role": "user", "content": prompt}
         ],
