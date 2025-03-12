@@ -23,7 +23,7 @@ async def analyze_with_deepseek(messages) -> str:
 Используй базовые HTML теги, которые поддерживает телеграмм. Не используй <p>
     """
     response = await client.chat.completions.create(
-        model="gpt-4o-mini-2024-07-18",
+        model="deepseek/deepseek-r1-distill-qwen-32b",
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
@@ -80,7 +80,7 @@ async def analyze_trading_signals(df, finish):
     """
 
     response = await client.chat.completions.create(
-        model="gpt-4o-mini-2024-07-18",
+        model="deepseek/deepseek-r1-distill-qwen-32b",
         messages=[
             {"role": "user", "content": prompt}
         ],
