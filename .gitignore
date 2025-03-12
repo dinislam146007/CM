@@ -1,0 +1,13 @@
+.env
+.venv
+/.venv
+/venv
+venv
+trading_data.db
+test.py
+signals.xlsx
+cookies.pkl
+*.pyc
+/.idea
+/.env
+/.vscode
