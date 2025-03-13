@@ -1,6 +1,3 @@
-import asyncio
-from strategy_logic.price_action import get_pattern_price_action  # async функция
-from strategy_logic.rsi import detect_divergence_convergence
 from news import get_news_text
 
 from openai import OpenAI
@@ -8,8 +5,9 @@ from config import config
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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"
+    api_key=config.deepseek_api
 )
+model = "openai/chatgpt-4o-latest"
 #
 def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
@@ -27,7 +25,7 @@ def analyze_with_deepseek(messages) -> str:
 Не используй Markdown.
     """
     response = client.chat.completions.create(
-        model="deepseek/deepseek-r1-distill-llama-70b",
+        model=model,
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
@@ -75,7 +73,7 @@ def analyze_trading_signals(df, finish, divergence_convergence_signal, price_act
     """
 
     response = client.chat.completions.create(
-        model="deepseek/deepseek-r1-distill-llama-70b",
+        model=model,
         messages=[
             {"role": "user", "content": prompt}
         ],
