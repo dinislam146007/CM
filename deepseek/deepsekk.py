@@ -8,16 +8,16 @@ from config import config
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key=config.deepseek_api
+    api_key="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"
 )
-
-async def analyze_with_deepseek(messages) -> str:
+#
+def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
 
     inst = """
 ТЫ - трейдер
 Проанализируй эти публикаций и скажи, как они влияют на ситуацию в мире криптовалют:
-От каких сделок стоит воздержаться 
+От каких сделок стоит воздержаться
 Будет ли падение или повышение цены
 
 Не пиши большие сообщения, очень кратко, но информативно
@@ -26,7 +26,7 @@ async def analyze_with_deepseek(messages) -> str:
 Используй базовые HTML теги, которые поддерживает телеграмм. Не используй <p>
     """
     response = client.chat.completions.create(
-        model="openai/chatgpt-4o-latest",
+        model="deepseek/deepseek-r1-distill-llama-70b",
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
@@ -36,15 +36,11 @@ async def analyze_with_deepseek(messages) -> str:
 
     return response.choices[0].message.content
 
-
-async def analyze_trading_signals(df, finish):
+#
+def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
     """Отправляет индикаторы и новости в Deepseek-R1 через Ollama и получает торговый сигнал."""
     news_data = get_news_text()
     last_values = df.iloc[-1]
-    divergence_convergence_signal = detect_divergence_convergence(df)
-
-    # Исправленный вызов async-функции
-    price_action_pattern = await get_pattern_price_action(df[-3:].values.tolist(), "spot")
 
     signal_data = f"""
     RSI: {last_values['rsi']}
@@ -78,7 +74,7 @@ async def analyze_trading_signals(df, finish):
     """
 
     response = client.chat.completions.create(
-        model="openai/chatgpt-4o-latest",
+        model="deepseek/deepseek-r1-distill-llama-70b",
         messages=[
             {"role": "user", "content": prompt}
         ],
@@ -86,3 +82,4 @@ async def analyze_trading_signals(df, finish):
     )
 
     return response.choices[0].message.content
+

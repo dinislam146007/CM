@@ -137,8 +137,11 @@ async def process_timeframe(timeframe):
             df = generate_signals_rsi(df)  # Add signals after EMAs and RSI are calculated
             df = detect_vsa_signals(df)
             finish, last_candle = find_last_extreme(df)
+            price_action_pattern = await get_pattern_price_action(df[-3:].values.tolist(), "spot")
+            divergence_convergence_signal = detect_divergence_convergence(df)
+
             # print(f"df: {df}\n\nfinish: {finish}, ")
-            finish = await analyze_trading_signals(df, finish)
+            finish = analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
             print("Finish: {finish}, ")
             sale_price = last_candle['close']
             buy_price = last_candle['open']
