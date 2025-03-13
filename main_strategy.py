@@ -13,7 +13,6 @@ from strategy_logic.rsi import *
 from strategy_logic.vsa import *
 from strategy_logic.price_action import get_pattern_price_action
 from deepseek.deepsekk import analyze_trading_signals
-from aiohttp import ClientSession
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
@@ -24,22 +23,8 @@ LOOKBACK_T = 50
 LOOKBACK_B = 20
 PCTILE = 90
 
-session = None
-exchange = None  # Объявляем глобальную переменную
+exchange = ccxt.bybit()  # Передаём сессию в CCXT
 
-async def init_exchange():
-    """Инициализирует CCXT с aiohttp-сессией."""
-    global session, exchange
-    session = ClientSession()  # Создаём aiohttp-сессию
-    exchange = ccxt.bybit({'session': session})  # Передаём сессию в CCXT
-
-async def close_exchange():
-    """Закрывает aiohttp-сессию."""
-    global session, exchange
-    if exchange:
-        await exchange.close()  # Закрываем CCXT
-    if session:
-        await session.close()  # Закрываем aiohttp-сессию
 
 timeframes = ['1d', '4h', '1h', '30m']
 
@@ -47,9 +32,7 @@ symbols = get_usdt_pairs()
 
 async def fetch_ohlcv(symbol, timeframe='1h', limit=500):
     """Получение свечных данных."""
-    if not exchange:
-        raise ValueError("Биржа не инициализирована. Вызывайте init_exchange() перед работой.")
-    
+
     ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
     
     # Создание DataFrame вручную, без повторного вызова fetch_ohlcv
@@ -214,7 +197,6 @@ async def process_timeframe(timeframe):
 
 async def cm_main():
     print('start')
-    await init_exchange()  # Инициализируем биржу
     tasks = [process_timeframe(timeframe) for timeframe in timeframes]
     await asyncio.gather(*tasks)
 
