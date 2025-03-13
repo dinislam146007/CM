@@ -30,16 +30,19 @@ timeframes = ['1d', '4h', '1h', '30m']
 
 symbols = get_usdt_pairs()
 
-async def fetch_ohlcv(symbol, timeframe='1h', limit=500):
-    """Получение свечных данных."""
-
-    ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-    
-    # Создание DataFrame вручную, без повторного вызова fetch_ohlcv
-    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['hl2'] = (df['high'] + df['low']) / 2  # Средняя цена свечи
-    
-    return df
+async def fetch_ohlcv(symbol, timeframe='1h', limit=500, retries=3, delay=5):
+    """Получение свечных данных с повторными попытками в случае тайм-аута."""
+    for attempt in range(retries):
+        try:
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['hl2'] = (df['high'] + df['low']) / 2  # Средняя цена свечи
+            return df
+        except ccxt.RequestTimeout:
+            print(f"Timeout fetching {symbol} {timeframe}, retrying {attempt + 1}/{retries}...")
+            await asyncio.sleep(delay)  # Wait before retrying
+    print(f"Failed to fetch {symbol} {timeframe} after {retries} attempts.")
+    return None
 
 
 def laguerre_filter(series, gamma):
@@ -195,9 +198,10 @@ async def process_timeframe(timeframe):
             await update_signal(symbol, timeframe, finish, buy_price, sale_price)
 
 
-async def cm_main():
-    print('start')
-    tasks = [process_timeframe(timeframe) for timeframe in timeframes]
-    await asyncio.gather(*tasks)
+async def main():
+    try:
+        await asyncio.gather(*[process_timeframe(tf) for tf in timeframes])
+    finally:
+        await exchange.close()  # Ensures resources are released
 
-asyncio.run(cm_main())
+asyncio.run(main())
