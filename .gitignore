@@ -10,3 +10,6 @@ cookies.pkl
 /.idea
 /.vscode
 my_session.session
+*.txt
+news/news.txt
+/news/news.txt
