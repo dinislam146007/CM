@@ -9,7 +9,7 @@ cookies.pkl
 *.pyc
 /.idea
 /.vscode
-my_session.session
+*.session
 *.txt
 news/news.txt
 /news/news.txtmy_session.session-journal
