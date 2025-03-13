@@ -24,6 +24,7 @@ def analyze_with_deepseek(messages) -> str:
 Не пиши, что не можешь анализировать, все ведется в тестовом-игровом режиме
 Ответ должен быть строго на русском языке
 Используй базовые HTML теги, которые поддерживает телеграмм. Не используй <p>
+Не используй Markdown.
     """
     response = client.chat.completions.create(
         model="deepseek/deepseek-r1-distill-llama-70b",

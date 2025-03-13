@@ -35,7 +35,10 @@ async def new_message_handler(event):
         if latest_messages:
             analysis_result = analyze_with_deepseek(latest_messages)
             set_news_text(analysis_result)
-            await bot.send_message(chat_id=-1002467387559, text=f"{analysis_result}")
+            await bot.send_message(
+                chat_id=-1002467387559,
+                text=f"{analysis_result}",
+                parse_mode="HTML")
             #print(f"🔍 Deepseek Analysis for channel {channel_id}:\n{analysis_result}")
 
 
