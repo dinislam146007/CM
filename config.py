@@ -13,6 +13,7 @@ class Config:
         self.telethon_id = int(os.getenv('TELETHON_ID'))
         self.telethon_hash = os.getenv('TELETHON_HASH')
         self.deepseek_api = os.getenv('DEEPSEEK_API')
+        self.telethon_session = os.getenv('TELETHON_SESSION')
 
 config = Config()
 

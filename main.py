@@ -7,7 +7,7 @@ from aiogram.client.bot import DefaultBotProperties
 from config import config
 from basic.handlers import router
 from db import create_tables
-from telethon_handler.create_client import client
+from telethon_handler.get_messages import telethon_channels_main
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,9 +27,9 @@ dp.startup.register(on_startup)
 dp.shutdown.register(on_shutdown)
 
 async def main():
-    await client.start()
     await create_tables()
     await dp.start_polling(bot)
+    await telethon_channels_main()
 
 if __name__ == "__main__":
     asyncio.run(main())
