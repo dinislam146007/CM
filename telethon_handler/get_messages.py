@@ -9,7 +9,7 @@ from config import config
 # Инициализация бота
 bot = Bot(token=config.tg_bot_token)
 
-channel_ids = [-1001203560567, -1002208140065]
+channel_ids = [-1001203560567, -1002208140065, -1001268341728, -1001337895647, -1001000499465]
 
 last_message_ids = {channel_id: None for channel_id in channel_ids}
 
