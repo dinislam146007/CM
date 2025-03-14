@@ -7,7 +7,7 @@ from aiogram.client.bot import DefaultBotProperties
 from config import config
 from basic.handlers import router
 from db import create_tables
-from telethon_handler import client
+from telethon_handler.create_client import client
 
 logging.basicConfig(level=logging.INFO)
 

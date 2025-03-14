@@ -7,6 +7,7 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=config.deepseek_api
 )
+
 model = "openai/chatgpt-4o-latest"
 #
 def analyze_with_deepseek(messages) -> str:
