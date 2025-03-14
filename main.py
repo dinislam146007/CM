@@ -27,9 +27,15 @@ dp.startup.register(on_startup)
 dp.shutdown.register(on_shutdown)
 
 async def main():
-    await create_tables()
-    await dp.start_polling(bot)
-    await telethon_channels_main()
+    # Создаем задачи для Telethon и Aiogram
+    telethon_task = asyncio.create_task(telethon_channels_main())
+    db_task = asyncio.create_task(create_tables())
+
+    try:
+        await dp.start_polling(bot)  # Основной процесс бота
+    finally:
+        telethon_task.cancel()  # Останавливаем Telethon при завершении бота
+        await telethon_task
 
 if __name__ == "__main__":
     asyncio.run(main())
