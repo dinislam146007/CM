@@ -74,7 +74,7 @@ def analyze_trading_signals(df, finish, divergence_convergence_signal, price_act
     """
 
     response = client.chat.completions.create(
-        model="deepseek/deepseek-chat:free",
+        model="deepseek/deepseek-r1-distill-qwen-32b:free",
         messages=[
             {"role": "user", "content": prompt}
         ],
