@@ -81,5 +81,7 @@ def analyze_trading_signals(df, finish, divergence_convergence_signal, price_act
         max_tokens=2048,
     )
 
+    print(response)
+
     return response.choices[0].message.content
 
