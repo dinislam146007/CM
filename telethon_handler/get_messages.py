@@ -52,7 +52,7 @@ def escape_markdown(text: str, version: int = 1, entity_type: Optional[str] = No
         elif entity_type in ["text_link", "custom_emoji"]:
             escape_chars = r")"
         else:
-            escape_chars = r"_*[]()~`>#+-=|{}.!#"
+            escape_chars = r"_*[]()~`>#+-=|{}.!"
     else:
         raise ValueError("Markdown version must be either 1 or 2!")
 
@@ -71,12 +71,12 @@ async def telethon_channels_main():
 
             if message_text:  # Проверяем, что сообщение не пустое
                 analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
-                print(analysis_result)
                 if analysis_result != "None":
+                    print(repr(escape_markdown(analysis_result, version=2)))
                     await bot.send_message(
                         chat_id=-1002467387559,
                         text=escape_markdown(analysis_result, version=2),
-                        parse_mode=ParseMode.MARKDOWN_V2  # Указали разметку
+                        parse_mode="MarkdownV2"  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
                     set_file_text('old_news', message_text)
