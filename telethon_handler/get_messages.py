@@ -4,6 +4,7 @@ from deepseek.deepsekk import analyze_with_deepseek
 from news import set_file_text
 from aiogram import Bot
 from config import config
+from aiogram.enums import ParseMode
 
 # Инициализация бота
 bot = Bot(token=config.tg_bot_token)
@@ -34,14 +35,14 @@ async def telethon_channels_main():
 
 
             if message_text:  # Проверяем, что сообщение не пустое
-                analysis_result = analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
+                analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
                 set_file_text('news',analysis_result)
                 set_file_text('old_news', message_text)
 
                 await bot.send_message(
                     chat_id=-1002467387559,
                     text=f"{analysis_result}",
-                    parse_mode="Markdown"
+                    parse_mode=ParseMode.MARKDOWN_V2
                 )
 
         print("✅ Бот запущен и отслеживает каналы...")

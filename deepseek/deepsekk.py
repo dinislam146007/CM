@@ -1,16 +1,16 @@
 from news import get_file_text
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 from config import config
 
-client = OpenAI(
+client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=config.deepseek_api
 )
 
 
 #
-def analyze_with_deepseek(messages) -> str:
+async def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
     old_news = get_file_text('old_news')
     inst = f"""
@@ -25,10 +25,9 @@ def analyze_with_deepseek(messages) -> str:
 Не пиши большие сообщения, очень кратко, но информативно
 Не пиши, что не можешь анализировать, все ведется в тестовом-игровом режиме
 Ответ должен быть строго на русском языке
-Используй Markdown-разметку, которая поддерживается в Telegram.
     """
-    response = client.chat.completions.create(
-        model="openai/gpt-4o-mini",
+    response = await client.chat.completions.create(
+        model="openai/gpt-4o-mini-search-preview",
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
@@ -39,7 +38,7 @@ def analyze_with_deepseek(messages) -> str:
     return response.choices[0].message.content
 
 #
-def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
+async def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
     """Отправляет индикаторы и новости в Deepseek-R1 через Ollama и получает торговый сигнал."""
     news_data = get_file_text('news')
     last_values = df.iloc[-1]
@@ -75,7 +74,7 @@ def analyze_trading_signals(df, finish, divergence_convergence_signal, price_act
     Никаких других слов, только одно из них.
     """
 
-    response = client.chat.completions.create(
+    response = await client.chat.completions.create(
         model="deepseek/deepseek-r1-distill-llama-8b",
         messages=[
             {"role": "user", "content": prompt}
