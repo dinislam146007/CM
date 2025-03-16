@@ -114,6 +114,8 @@ async def process_timeframe(timeframe):
         now = datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
 
 
+
+
         for symbol in symbols:
             print(symbol, timeframe)
             df = await fetch_ohlcv(symbol, timeframe)
@@ -128,7 +130,7 @@ async def process_timeframe(timeframe):
 
             # print(f"df: {df}\n\nfinish: {finish}, ")
             finish = analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
-            print("Finish: {finish}, ")
+            print(f"Finish: {finish}, ")
             sale_price = last_candle['close']
             buy_price = last_candle['open']
 

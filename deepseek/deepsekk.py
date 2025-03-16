@@ -8,25 +8,30 @@ client = OpenAI(
     api_key=config.deepseek_api
 )
 
-model = "openai/chatgpt-4o-latest"
+
 #
 def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
-
-    inst = """
+    news_data = get_news_text()
+    inst = f"""
 ТЫ - трейдер
 Проанализируй эти публикаций и скажи, как они влияют на ситуацию в мире криптовалют:
 От каких сделок стоит воздержаться
 Будет ли падение или повышение цены
+
+Также проанализируй новости которые ты сгенерировал раннее и если они похожи на нынешние то верни просто "None"
+Старые новости: {news_data}
 
 Не пиши большие сообщения, очень кратко, но информативно
 Не пиши, что не можешь анализировать, все ведется в тестовом-игровом режиме
 Ответ должен быть строго на русском языке
 Используй базовые HTML теги, которые поддерживает телеграмм. Не используй <p>
 Не используй Markdown.
+
+
     """
     response = client.chat.completions.create(
-        model=model,
+        model="openai/gpt-4o-mini",
         messages=[
             {"role": "system", "content": inst},
             {"role": "user", "content": combined_text}
