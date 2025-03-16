@@ -1,8 +1,7 @@
-import asyncio
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from deepseek.deepsekk import analyze_with_deepseek
-from news import set_news_text
+from news import set_file_text
 from aiogram import Bot
 from config import config
 
@@ -22,29 +21,28 @@ async def get_channel_messages(client, channel_id, limit=5):
     return messages
 
 
+
+
 async def telethon_channels_main():
     """Основная асинхронная функция"""
-    async with TelegramClient(StringSession(config.telethon_session), config.telethon_id, config.telethon_hash) as client:
-
+    async with TelegramClient(StringSession(config.telethon_session), config.telethon_id,
+                              config.telethon_hash) as client:
         @client.on(events.NewMessage(chats=channel_ids))
         async def new_message_handler(event):
             channel_id = event.chat_id
-            message_id = event.message.id
+            message_text = event.message.text  # Получаем текст нового сообщения
 
-            if last_message_ids[channel_id] is None or message_id > last_message_ids[channel_id]:
-                last_message_ids[channel_id] = message_id  # Обновляем ID последнего сообщения
 
-                latest_messages = await get_channel_messages(client, channel_id, limit=5)
+            if message_text:  # Проверяем, что сообщение не пустое
+                analysis_result = analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
+                set_file_text('news',analysis_result)
+                set_file_text('old_news', message_text)
 
-                if latest_messages:
-                    analysis_result = analyze_with_deepseek(latest_messages)
-                    set_news_text(analysis_result)
-
-                    await bot.send_message(
-                        chat_id=-1002467387559,
-                        text=f"{analysis_result}",
-                        parse_mode="HTML"
-                    )
+                await bot.send_message(
+                    chat_id=-1002467387559,
+                    text=f"{analysis_result}",
+                    parse_mode="HTML"
+                )
 
         print("✅ Бот запущен и отслеживает каналы...")
         await client.run_until_disconnected()  # Ожидание новых сообщений

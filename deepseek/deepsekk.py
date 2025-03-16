@@ -1,4 +1,4 @@
-from news import get_news_text
+from news import get_file_text
 
 from openai import OpenAI
 from config import config
@@ -12,7 +12,7 @@ client = OpenAI(
 #
 def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
-    news_data = get_news_text()
+    old_news = get_file_text('old_news')
     inst = f"""
 ТЫ - трейдер
 Проанализируй эти публикаций и скажи, как они влияют на ситуацию в мире криптовалют:
@@ -20,7 +20,7 @@ def analyze_with_deepseek(messages) -> str:
 Будет ли падение или повышение цены
 
 Также проанализируй новости которые ты сгенерировал раннее и если они похожи на нынешние то верни просто "None"
-Старые новости: {news_data}
+Старые новости: {old_news}
 
 Не пиши большие сообщения, очень кратко, но информативно
 Не пиши, что не можешь анализировать, все ведется в тестовом-игровом режиме
@@ -44,7 +44,7 @@ def analyze_with_deepseek(messages) -> str:
 #
 def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
     """Отправляет индикаторы и новости в Deepseek-R1 через Ollama и получает торговый сигнал."""
-    news_data = get_news_text()
+    news_data = get_file_text('news')
     last_values = df.iloc[-1]
 
     signal_data = f"""
