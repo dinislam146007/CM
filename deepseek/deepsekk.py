@@ -25,8 +25,7 @@ async def analyze_with_deepseek(messages) -> str:
 Не пиши большие сообщения, очень кратко, но информативно
 Не пиши, что не можешь анализировать, все ведется в тестовом-игровом режиме
 Ответ должен быть строго на русском языке
-Используй строго HTML разметку, которую поддерживает Telegram. Никакой Markdown
-Не используй тег <p>
+Используй MarkDownV2 разметку которую поддерживает Телеграмм
     """
     response = await client.chat.completions.create(
         model="openai/chatgpt-4o-latest",
