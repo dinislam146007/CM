@@ -45,15 +45,16 @@ async def telethon_channels_main():
 
             if message_text:  # Проверяем, что сообщение не пустое
                 analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
-                set_file_text('news',analysis_result)
-                set_file_text('old_news', message_text)
+                if analysis_result != "None":
+                    await bot.send_message(
+                        chat_id=-1002467387559,
+                        text=f"{analysis_result}",
+                        parse_mode=ParseMode.HTML  # Указали разметку
 
-                await bot.send_message(
-                    chat_id=-1002467387559,
-                    text=f"{escape_telegram_markdown_v2(analysis_result)}",
-                    parse_mode=ParseMode.MARKDOWN_V2  # Указали разметку
+                    )
+                    set_file_text('news',analysis_result)
+                    set_file_text('old_news', message_text)
 
-                )
 
         print("✅ Бот запущен и отслеживает каналы...")
         await client.run_until_disconnected()  # Ожидание новых сообщений
