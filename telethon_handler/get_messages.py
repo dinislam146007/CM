@@ -41,7 +41,7 @@ async def telethon_channels_main():
                 await bot.send_message(
                     chat_id=-1002467387559,
                     text=f"{analysis_result}",
-                    parse_mode="HTML"
+                    parse_mode="Markdown"
                 )
 
         print("✅ Бот запущен и отслеживает каналы...")
