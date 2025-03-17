@@ -7,7 +7,7 @@ from news import set_file_text
 from aiogram import Bot
 from config import config
 from aiogram.enums import ParseMode
-
+import re
 
 
 # Инициализация бота
@@ -17,16 +17,21 @@ channel_ids = [-1001203560567, -1002208140065, -1001268341728, -1001337895647, -
 
 last_message_ids = {channel_id: None for channel_id in channel_ids}
 
-import re
+
 
 
 def escape_markdown_v2(text):
-    """Экранирует специальные символы для MarkdownV2 в aiogram 3.x, кроме точек в числах."""
-    special_chars = r'_*[]()~`>#+-=|{}!$'
+    """Экранирует все специальные символы для MarkdownV2 в aiogram 3.x."""
+    special_chars = r'_*[]()~`>#+-=|{}!<>'
+
+    # Добавляем \ перед всеми спецсимволами
     text = ''.join(f'\\{char}' if char in special_chars else char for char in text)
 
-    # Экранируем точки, кроме случаев, когда перед ними стоит цифра (например, "85.5" не трогаем)
+    # Экранируем точки, кроме случаев, когда перед ними стоит цифра (например, "85.5" остаётся)
     text = re.sub(r'(?<!\d)\.', r'\\.', text)
+
+    # Экранируем знак доллара ($), но только если после него идёт цифра (чтобы избежать Telegram-ошибок)
+    text = re.sub(r'\$(\d)', r'\\$\1', text)
 
     return text
 
