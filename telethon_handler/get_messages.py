@@ -22,23 +22,6 @@ last_message_ids = {channel_id: None for channel_id in channel_ids}
 
 import re
 
-def escape_markdown_v2(text):
-    """Экранирует все специальные символы для MarkdownV2 в aiogram 3.x."""
-    special_chars = r'_*[]()~`>#+-=|{}!<>'
-
-    # Добавляем \ перед всеми спецсимволами
-    text = ''.join(f'\\{char}' if char in special_chars else char for char in text)
-
-    # Экранируем точки (кроме случаев, когда перед ними стоит цифра)
-    text = re.sub(r'(?<!\d)\.', r'\\.', text)
-
-    # Экранируем знак доллара ($), если после него цифра (например, "$85K" → "\$85K")
-    text = re.sub(r'\$(\d)', r'\\$\1', text)
-
-    # Экранируем дефисы в начале строки (иначе Telegram думает, что это список)
-    text = re.sub(r'(?m)^-', r'\\-', text)
-
-    return text
 
 
 async def get_channel_messages(client, channel_id, limit=5):
@@ -49,7 +32,12 @@ async def get_channel_messages(client, channel_id, limit=5):
     return messages
 
 
-
+def escape_markdown_v2(text):
+    """Экранирует специальные символы для Markdown V2."""
+    special_chars = r'_*[]()~`>#+-=|{}.!'
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 async def telethon_channels_main():
     """Основная асинхронная функция"""
@@ -66,8 +54,8 @@ async def telethon_channels_main():
                     logging.info("ChatGPT: " + analysis_result)
                     await bot.send_message(
                         chat_id=-1002467387559,
-                        text=analysis_result,
-                        parse_mode=ParseMode.MARKDOWN  # Указали разметку
+                        text=escape_markdown_v2(analysis_result),
+                        parse_mode=ParseMode.MARKDOWN_V2  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
                     set_file_text('old_news', message_text)
