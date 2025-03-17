@@ -72,11 +72,10 @@ async def telethon_channels_main():
             if message_text:  # Проверяем, что сообщение не пустое
                 analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
                 if analysis_result != "None":
-                    print(repr(escape_markdown(analysis_result, version=2)))
                     await bot.send_message(
                         chat_id=-1002467387559,
-                        text=escape_markdown(analysis_result, version=2),
-                        parse_mode="MarkdownV2"  # Указали разметку
+                        text=f"_{escape_markdown(analysis_result, version=2)}_",
+                        parse_mode=ParseMode.MARKDOWN_V2  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
                     set_file_text('old_news', message_text)
