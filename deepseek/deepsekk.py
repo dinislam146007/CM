@@ -40,50 +40,41 @@ use Makrdown for text formatting <markdown-instruction>*bold text*, _italic text
 
 #
 async def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
-    """Отправляет индикаторы и новости в Deepseek-R1 через Ollama и получает торговый сигнал."""
+    """Отправляет индикаторы и новости в Deepseek-R1 и получает торговый сигнал."""
     news_data = get_file_text('news')
     last_values = df.iloc[-1]
 
     signal_data = f"""
     RSI: {last_values['rsi']}
-    EMA 21: {last_values['ema21']}
-    EMA 49: {last_values['ema49']}
+    EMA(21): {last_values['ema21']}
+    EMA(49): {last_values['ema49']}
     PPO: {last_values['ppoT']} / {last_values['ppoB']}
-    PPO Percent Rank: {last_values['pctRankT']} / {last_values['pctRankB']}
-    VSA Signal: {last_values['vsa_signal']}
-    Price Action Pattern: {price_action_pattern}
+    PPO % Rank: {last_values['pctRankT']} / {last_values['pctRankB']}
+    VSA: {last_values['vsa_signal']}
+    PA Pattern: {price_action_pattern}
     RSI Signal: {last_values['signal_rsi']}
-    CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms: {finish}
-    Divergence/Convergence Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
+    CM_Laguerre PPO PR Mkt Tops/Bottoms: {finish}
+    Div/Conv Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
     """
 
     prompt = f"""
-    Анализируй следующие данные и скажи, какие торговые сигналы они дают:
+    Анализируй данные и укажи торговый сигнал:
 
-    **Индикаторы:**
+    **Индикаторы:**  
     {signal_data}
 
-    **Новости:**
+    **Новости:**  
     {news_data}
 
-    Если присутствует бычья дивергенция или бычья конвергенция, вероятность роста выше.
-    Если присутствует медвежья дивергенция или медвежья конвергенция, вероятность падения выше.
-
-    Ответ должен быть строго либо "buy", либо "sale".
-    Не пиши, что не можешь ответить, торги ведутся на симуляторе.
-    Дай ответ или "buy" при Long сигнале, или "sale" при Short сигнале.
-    Никаких других слов, только одно из них.
+    Если есть бычьи сигналы → "buy".  
+    Если есть медвежьи сигналы → "sale".  
+    Дай ответ строго "buy" или "sale" без пояснений.
     """
 
     response = await client.chat.completions.create(
         model="deepseek/deepseek-r1-distill-llama-8b",
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=10,  # Достаточно, чтобы вернуть одно слово
     )
 
-    print(response)
-
-    return response.choices[0].message.content
-
+    return response.choices[0].message.content.strip().lower()

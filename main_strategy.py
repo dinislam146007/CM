@@ -129,7 +129,7 @@ async def process_timeframe(timeframe):
             divergence_convergence_signal = detect_divergence_convergence(df)
 
             # print(f"df: {df}\n\nfinish: {finish}, ")
-            finish = analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
+            finish = await analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
             print(f"Finish: {finish}, ")
             sale_price = last_candle['close']
             buy_price = last_candle['open']
