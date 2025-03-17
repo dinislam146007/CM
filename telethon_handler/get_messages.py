@@ -74,7 +74,7 @@ async def telethon_channels_main():
                 if analysis_result != "None":
                     await bot.send_message(
                         chat_id=-1002467387559,
-                        text=f"_{escape_markdown(analysis_result, version=2)}_",
+                        text=analysis_result,
                         parse_mode=ParseMode.MARKDOWN_V2  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
