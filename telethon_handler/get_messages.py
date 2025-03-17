@@ -19,7 +19,7 @@ last_message_ids = {channel_id: None for channel_id in channel_ids}
 
 def escape_markdown_v2(text):
     """Экранирует специальные символы для MarkdownV2 в aiogram 3.x"""
-    special_chars = r'_*[]()~`>#+-=|{}.!'
+    special_chars = r'_*[]()~`>#+-=|{}.!$'
     return ''.join(f'\\{char}' if char in special_chars else char for char in text)
 
 
