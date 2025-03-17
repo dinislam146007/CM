@@ -3,7 +3,7 @@ import logging
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from deepseek.deepsekk import analyze_with_deepseek
-from news import set_file_text
+from news import set_file_text, get_file_text
 from aiogram import Bot
 from config import config
 from aiogram.enums import ParseMode
@@ -50,7 +50,7 @@ async def telethon_channels_main():
 
             if message_text:  # Проверяем, что сообщение не пустое
                 analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
-                if analysis_result != "None":
+                if analysis_result != "null":
                     logging.info("ChatGPT: " + analysis_result)
                     await bot.send_message(
                         chat_id=-1002467387559,
@@ -58,8 +58,9 @@ async def telethon_channels_main():
                         parse_mode=ParseMode.MARKDOWN  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
-                    set_file_text('old_news', message_text)
+                    old_news = get_file_text('old_news')
+                    set_file_text('old_news', old_news + '\n' + message_text)
 
 
         print("✅ Бот запущен и отслеживает каналы...")
-        await client.run_until_disconnected()  # Ожидание новых сообщений
+        await client.run_until_disconnected()
