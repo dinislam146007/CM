@@ -21,6 +21,7 @@ async def analyze_with_deepseek(messages) -> str:
 
 Также проанализируй старые новости и если они похожи на нынешние то верни просто строго null без какого либо форматирования
 Старые новости: {old_news}
+Новость: {combined_text}
 
 Не пиши большие сообщения, очень кратко, но информативно
 Не пиши, что не можешь анализировать, все ведется в тестовом-игровом режиме
@@ -30,8 +31,13 @@ use Makrdown for text formatting <markdown-instruction>*bold text*, _italic text
     response = await client.chat.completions.create(
         model="openai/chatgpt-4o-latest",
         messages=[
-            {"role": "system", "content": inst},
-            {"role": "user", "content": combined_text}
+            {"role": "user",
+             "content": [
+                 {
+                     "type": "text",
+                     "text": inst
+                 }
+             ]}
         ],
         max_tokens=2048,
     )
