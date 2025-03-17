@@ -20,6 +20,8 @@ last_message_ids = {channel_id: None for channel_id in channel_ids}
 
 
 
+import re
+
 def escape_markdown_v2(text):
     """Экранирует все специальные символы для MarkdownV2 в aiogram 3.x."""
     special_chars = r'_*[]()~`>#+-=|{}!<>'
@@ -27,11 +29,14 @@ def escape_markdown_v2(text):
     # Добавляем \ перед всеми спецсимволами
     text = ''.join(f'\\{char}' if char in special_chars else char for char in text)
 
-    # Экранируем точки, кроме случаев, когда перед ними стоит цифра (например, "85.5" остаётся)
+    # Экранируем точки (кроме случаев, когда перед ними стоит цифра)
     text = re.sub(r'(?<!\d)\.', r'\\.', text)
 
-    # Экранируем знак доллара ($), но только если после него идёт цифра (чтобы избежать Telegram-ошибок)
+    # Экранируем знак доллара ($), если после него цифра (например, "$85K" → "\$85K")
     text = re.sub(r'\$(\d)', r'\\$\1', text)
+
+    # Экранируем дефисы в начале строки (иначе Telegram думает, что это список)
+    text = re.sub(r'(?m)^-', r'\\-', text)
 
     return text
 
