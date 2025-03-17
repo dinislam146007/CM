@@ -54,7 +54,7 @@ async def telethon_channels_main():
                     logging.info("ChatGPT: " + analysis_result)
                     await bot.send_message(
                         chat_id=-1002467387559,
-                        text=escape_markdown_v2(analysis_result),
+                        text=analysis_result.replace("**", "*"),
                         parse_mode=ParseMode.MARKDOWN  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
