@@ -1,3 +1,5 @@
+import logging
+
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from deepseek.deepsekk import analyze_with_deepseek
@@ -72,11 +74,11 @@ async def telethon_channels_main():
             if message_text:  # Проверяем, что сообщение не пустое
                 analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
                 if analysis_result != "None":
-                    print(analysis_result)
+                    logging.info("ChatGPT: " + analysis_result)
                     await bot.send_message(
                         chat_id=-1002467387559,
-                        text=f"_{analysis_result}_",
-                        parse_mode=ParseMode.MARKDOWN  # Указали разметку
+                        text=f"{analysis_result}",
+                        parse_mode=ParseMode.MARKDOWN_V2  # Указали разметку
                     )
                     set_file_text('news',analysis_result)
                     set_file_text('old_news', message_text)
