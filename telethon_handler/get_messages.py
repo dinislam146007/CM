@@ -17,10 +17,18 @@ channel_ids = [-1001203560567, -1002208140065, -1001268341728, -1001337895647, -
 
 last_message_ids = {channel_id: None for channel_id in channel_ids}
 
+import re
+
+
 def escape_markdown_v2(text):
-    """Экранирует специальные символы для MarkdownV2 в aiogram 3.x"""
-    special_chars = r'_*[]()~`>#+-=|{}.!$'
-    return ''.join(f'\\{char}' if char in special_chars else char for char in text)
+    """Экранирует специальные символы для MarkdownV2 в aiogram 3.x, кроме точек в числах."""
+    special_chars = r'_*[]()~`>#+-=|{}!$'
+    text = ''.join(f'\\{char}' if char in special_chars else char for char in text)
+
+    # Экранируем точки, кроме случаев, когда перед ними стоит цифра (например, "85.5" не трогаем)
+    text = re.sub(r'(?<!\d)\.', r'\\.', text)
+
+    return text
 
 
 async def get_channel_messages(client, channel_id, limit=5):
