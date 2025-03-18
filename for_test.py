@@ -1,35 +1,51 @@
 from llama_cpp import Llama
-import pandas as pd
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 app = FastAPI()
 
-# Загружаем модель (работает на CPU)
+# Загружаем модель
 model = Llama(model_path="model.gguf", n_ctx=2048)
 
-@app.post("/predict")
-def predict():
+# Определяем формат запроса
+class RequestData(BaseModel):
+    rsi: float
+    ema21: float
+    ema49: float
+    ppo: tuple
+    ppo_rank: tuple
+    vsa: str
+    pa_pattern: str
+    rsi_signal: str
+    cm_laguerre: str
+    div_conv_signal: str
 
-    # Формируем текст для нейросети
+@app.post("/predict")
+def predict(data: RequestData):
+    # Формируем промпт
     prompt = f"""
     Анализируй данные и укажи торговый сигнал:
 
-    RSI: 44.00039432998614  
-    EMA(21): 91.47339715086062  
-    EMA(49): 93.20346005535993  
-    PPO: 1.2274159208232323 / -1.2274159208232323  
-    PPO % Rank: 88.0 / -35.0  
-    VSA:  
-    PA Pattern: None  
-    RSI Signal: Hold  
-    CM_Laguerre PPO PR Mkt Tops/Bottoms: sale  
-    Div/Conv Signal: bearish_divergence  
+    RSI: {data.rsi}  
+    EMA(21): {data.ema21}  
+    EMA(49): {data.ema49}  
+    PPO: {data.ppo[0]} / {data.ppo[1]}  
+    PPO % Rank: {data.ppo_rank[0]} / {data.ppo_rank[1]}  
+    VSA: {data.vsa}  
+    PA Pattern: {data.pa_pattern}  
+    RSI Signal: {data.rsi_signal}  
+    CM_Laguerre PPO PR Mkt Tops/Bottoms: {data.cm_laguerre}  
+    Div/Conv Signal: {data.div_conv_signal}  
 
     Если есть бычьи сигналы → "buy".  
     Если есть медвежьи сигналы → "sale".  
     Дай ответ строго "buy" или "sale" без пояснений.
     """
 
-    output = model(prompt, max_tokens=10)
-    return {"signal": output["choices"][0]["text"].strip().lower()}
+    # Запрос в модель
+    output = model(prompt, max_tokens=5, echo=False)
 
+    # Извлекаем ответ
+    response_text = output["choices"][0]["text"].strip().lower()
+
+    return {"signal": response_text}
