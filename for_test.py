@@ -24,7 +24,8 @@ class RequestData(BaseModel):
 def predict(data: RequestData):
     # Формируем промпт
     prompt = f"""
-    Анализируй данные и укажи торговый сигнал:
+Ты должен строго ответить либо "buy", либо "sale" и ничего больше.
+Никаких других слов, пояснений, комментариев.
 
     RSI: {data.rsi}  
     EMA(21): {data.ema21}  
@@ -43,7 +44,7 @@ def predict(data: RequestData):
     """
 
     # Запрос в модель
-    output = model(prompt, max_tokens=5, echo=False)
+    output = model(prompt, echo=False)
 
     # Извлекаем ответ
     response_text = output["choices"][0]["text"].strip().lower()
