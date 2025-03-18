@@ -64,8 +64,7 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
     CM_Laguerre PPO PR Mkt Tops/Bottoms: {finish}
     Div/Conv Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
     """
-
-    logging.info(signal_data)
+    print(signal_data)
 
     prompt = f"""
     Анализируй данные и укажи торговый сигнал:
