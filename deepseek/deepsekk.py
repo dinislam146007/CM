@@ -1,3 +1,5 @@
+import logging
+
 from news import get_file_text
 
 from openai import AsyncOpenAI
@@ -63,6 +65,8 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
     Div/Conv Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
     """
 
+    logging.info(signal_data)
+
     prompt = f"""
     Анализируй данные и укажи торговый сигнал:
 
@@ -74,7 +78,7 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
 
     Если есть бычьи сигналы → "buy".  
     Если есть медвежьи сигналы → "sale".  
-    Дай ответ строго "buy" или "sale" без пояснений.
+    Дай ответ строго "buy" или "sale" без пояснений и какого либо форматирования
     """
 
     response = await client.chat.completions.create(
