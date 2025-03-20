@@ -1,52 +1,63 @@
-from llama_cpp import Llama
-from fastapi import FastAPI
-from pydantic import BaseModel
+import aiohttp
+import pandas as pd
 
-app = FastAPI()
+async def analyze_trading_signals():
+    # Тестовые данные прямо в коде
+    news_data = "Positive economic news boosting market confidence."
+    last_values = {
+        'rsi': 58,
+        'ema21': 43500,
+        'ema49': 43200,
+        'ppoT': 0.75,
+        'ppoB': -0.15,
+        'pctRankT': 90,
+        'pctRankB': 10,
+        'vsa_signal': 'Bullish',
+        'signal_rsi': 'Bullish'
+    }
+    finish = "buy"
+    divergence_convergence_signal = "Bullish Divergence"
+    price_action_pattern = "Bullish Engulfing"
 
-# Загружаем модель
-model = Llama(model_path="model.gguf", n_ctx=2048)
+    signal_data = f"""
+    RSI: {last_values['rsi']}
+    EMA(21): {last_values['ema21']}
+    EMA(49): {last_values['ema49']}
+    PPO: {last_values['ppoT']} / {last_values['ppoB']}
+    PPO % Rank: {last_values['pctRankT']} / {last_values['pctRankB']}
+    VSA: {last_values['vsa_signal']}
+    PA Pattern: {price_action_pattern}
+    RSI Signal: {last_values['signal_rsi']}
+    CM_Laguerre PPO PR Market Tops/Bottoms: {finish}
+    Divergence/Convergence Signal: {divergence_convergence_signal}
+    """
+    print(signal_data)
 
-# Определяем формат запроса
-class RequestData(BaseModel):
-    rsi: float
-    ema21: float
-    ema49: float
-    ppo: tuple
-    ppo_rank: tuple
-    vsa: str
-    pa_pattern: str
-    rsi_signal: str
-    cm_laguerre: str
-    div_conv_signal: str
-
-@app.post("/predict")
-def predict(data: RequestData):
-    # Формируем промпт
     prompt = f"""
-Ты должен строго ответить либо "buy", либо "sale" и ничего больше.
-Никаких других слов, пояснений, комментариев.
+    Analyze the data and provide a trading signal:
 
-    RSI: {data.rsi}  
-    EMA(21): {data.ema21}  
-    EMA(49): {data.ema49}  
-    PPO: {data.ppo[0]} / {data.ppo[1]}  
-    PPO % Rank: {data.ppo_rank[0]} / {data.ppo_rank[1]}  
-    VSA: {data.vsa}  
-    PA Pattern: {data.pa_pattern}  
-    RSI Signal: {data.rsi_signal}  
-    CM_Laguerre PPO PR Mkt Tops/Bottoms: {data.cm_laguerre}  
-    Div/Conv Signal: {data.div_conv_signal}  
+    Indicators:
+    {signal_data}
 
-    Если есть бычьи сигналы → "buy".  
-    Если есть медвежьи сигналы → "sale".  
-    Дай ответ строго "buy" или "sale" без пояснений.
+    News:
+    {news_data}
+
+    If bullish signals are present → \"buy\".
+    If bearish signals are present → \"sale\".
+
+    Respond strictly with \"buy\" or \"sale\".
     """
 
-    # Запрос в модель
-    output = model(prompt, echo=False)
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            'http://localhost:11434/api/generate',
+            json={
+                'model': 'phi',
+                'prompt': prompt,
+                'stream': False
+            }
+        ) as resp:
+            response = await resp.json()
+            signal = response['response'].strip().lower()
 
-    # Извлекаем ответ
-    response_text = output["choices"][0]["text"].strip().lower()
-
-    return {"signal": response_text}
+    return signal
