@@ -101,7 +101,7 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
         async with session.post(
             'http://localhost:11434/api/generate',
             json={
-                'model': 'phi',
+                'model': 'mistral',
                 'prompt': prompt,
                 'stream': False
             }
