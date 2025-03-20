@@ -1,3 +1,5 @@
+import asyncio
+
 import aiohttp
 import pandas as pd
 
@@ -60,4 +62,7 @@ async def analyze_trading_signals():
             response = await resp.json()
             signal = response['response'].strip().lower()
 
+    print(signal)
     return signal
+
+asyncio.run(analyze_trading_signals())
