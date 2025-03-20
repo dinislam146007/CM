@@ -60,6 +60,7 @@ async def telethon_channels_main():
                     set_file_text('news',analysis_result)
                     old_news = get_file_text('old_news')
                     set_file_text('old_news', old_news + '\n' + message_text)
+                    set_file_text('old_public', get_file_text('old_public') + '\n' + analysis_result)
 
 
         print("✅ Бот запущен и отслеживает каналы...")
