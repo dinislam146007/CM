@@ -1,3 +1,5 @@
+import logging
+
 import ccxt.async_support as ccxt
 import pandas as pd
 from scipy.stats import percentileofscore
@@ -129,8 +131,9 @@ async def process_timeframe(timeframe):
             divergence_convergence_signal = detect_divergence_convergence(df)
 
             # print(f"df: {df}\n\nfinish: {finish}, ")
+            logging.info(f"{symbol}: start neiro")
             finish = await analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
-            print(f"Finish: {finish}, ")
+            logging.info(f"{symbol}: {finish}")
             sale_price = last_candle['close']
             buy_price = last_candle['open']
 

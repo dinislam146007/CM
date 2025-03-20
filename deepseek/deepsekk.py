@@ -1,4 +1,4 @@
-import logging
+import aiohttp
 
 from news import get_file_text
 
@@ -63,8 +63,8 @@ async def analyze_with_deepseek(messages) -> str:
     return response.choices[0].message.content.strip()
 
 #
+
 async def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
-    """Отправляет индикаторы и новости в Deepseek-R1 и получает торговый сигнал."""
     news_data = get_file_text('news')
     last_values = df.iloc[-1]
 
@@ -77,29 +77,36 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
     VSA: {last_values['vsa_signal']}
     PA Pattern: {price_action_pattern}
     RSI Signal: {last_values['signal_rsi']}
-    CM_Laguerre PPO PR Mkt Tops/Bottoms: {finish}
-    Div/Conv Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
+    CM_Laguerre PPO PR Market Tops/Bottoms: {finish}
+    Divergence/Convergence Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
     """
     print(signal_data)
 
     prompt = f"""
-    Анализируй данные и укажи торговый сигнал:
+    Analyze the data and provide a trading signal:
 
-    **Индикаторы:**  
+    Indicators:
     {signal_data}
 
-    **Новости:**  
+    News:
     {news_data}
 
-    Если есть бычьи сигналы → "buy".  
-    Если есть медвежьи сигналы → "sale".  
-    Дай ответ строго "buy" или "sale" без пояснений и какого либо форматирования
+    If bullish signals are present → "buy".
+    If bearish signals are present → "sale".
+
+    Respond strictly with "buy" or "sale".
     """
 
-    response = await client.chat.completions.create(
-        model="deepseek/deepseek-r1-distill-llama-8b",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=10,  # Достаточно, чтобы вернуть одно слово
-    )
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            'http://localhost:11434/api/generate',
+            json={
+                'model': 'phi',
+                'prompt': prompt,
+                'stream': False
+            }
+        ) as resp:
+            response = await resp.json()
+            signal = response['response'].strip().lower()
 
-    return response.choices[0].message.content.strip().lower()
+    return signal
