@@ -50,8 +50,8 @@ async def telethon_channels_main():
 
             if message_text:  # Проверяем, что сообщение не пустое
                 analysis_result = await analyze_with_deepseek([message_text])  # Анализируем только одно сообщение
+                logging.info("ChatGPT: " + analysis_result)
                 if analysis_result != "null":
-                    logging.info("ChatGPT: " + analysis_result)
                     await bot.send_message(
                         chat_id=-1002467387559,
                         text=analysis_result.replace("**", "*"),

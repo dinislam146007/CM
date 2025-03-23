@@ -10,7 +10,6 @@ client = AsyncOpenAI(
     api_key=config.deepseek_api
 )
 
-
 #
 async def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
