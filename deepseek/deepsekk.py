@@ -133,6 +133,7 @@ async def analyze_trading_signals(df,
 
     response = await client.chat.completions.create(
         model="openai/gpt-4o-mini",
+        response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": "news:"+ news_data + "indicators"+signal_data}
