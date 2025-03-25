@@ -96,7 +96,7 @@ async def analyze_trading_signals(df,
                                   timeframe,
                                   buy_price
                             ):
-    news_data = get_file_text('news')
+    news_data = get_file_text('old_news')
     last_values = df.iloc[-1]
 
     signal_data = f"""

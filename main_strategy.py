@@ -117,7 +117,7 @@ async def process_timeframe(timeframe):
         now = datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
 
 
-
+        await wait_for_next_candle(timeframe)
 
         for symbol in symbols:
 
@@ -156,6 +156,7 @@ async def process_timeframe(timeframe):
 📛Stop-loss: {finish_ai['stop_loss']}
 """
                 await bot.send_message(chat_id=-1002467387559, text=text)
+
             logging.info(f"{symbol}: {finish}")
 
             if finish == 'buy':
