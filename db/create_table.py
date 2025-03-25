@@ -12,6 +12,8 @@ async def create_tables():
                 status TEXT,
                 buy_price REAL,
                 sale_price REAL,
+                cm_val TEXT,
+                ai_val TEXT,
                 PRIMARY KEY (symbol, interval)  -- Уникальность по symbol и interval
             );
         """)
