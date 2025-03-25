@@ -1,9 +1,5 @@
-from mimetypes import inited
-
-import aiohttp
-
 from news import get_file_text
-
+import json
 from openai import AsyncOpenAI
 from config import config
 
@@ -130,12 +126,6 @@ async def analyze_trading_signals(df,
         "timestamp": "current date and time in dd-mm-YYYY HH:MM format"
     }}
 
-    Indicators:
-    {signal_data}
-
-    News:
-    {news_data}
-
     Determine if the signals are bullish (Long) or bearish (Short), set realistic entry, take-profit, and stop-loss prices accordingly.
 
     Respond strictly with the JSON only.
@@ -143,8 +133,18 @@ async def analyze_trading_signals(df,
 
     response = await client.chat.completions.create(
         model="openai/gpt-4o-mini",
-        messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": "news:"+ news_data + "indicators"+signal_data}
+        ],
         max_tokens=512,
     )
 
-    return response.choices[0].message.content.strip()
+    raw_response = response.choices[0].message.content.strip()
+    try:
+        signal_json = json.loads(raw_response)
+    except json.JSONDecodeError:
+        print("❌ Ошибка парсинга JSON от модели:", raw_response)
+        return None
+
+    return signal_json
