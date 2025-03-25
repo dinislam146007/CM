@@ -120,6 +120,7 @@ async def process_timeframe(timeframe):
 
 
         for symbol in symbols:
+
             print(symbol, timeframe)
             df = await fetch_ohlcv(symbol, timeframe)
             df = calculate_ppo(df)  # Assuming this doesn't overwrite 'ema21' and 'ema49'
@@ -130,15 +131,21 @@ async def process_timeframe(timeframe):
             finish, last_candle = find_last_extreme(df)
             price_action_pattern = await get_pattern_price_action(df[-3:].values.tolist(), "spot")
             divergence_convergence_signal = detect_divergence_convergence(df)
+            sale_price = df['close'].iloc[-1]
+            buy_price = df['close'].iloc[-1]
+
 
             # print(f"df: {df}\n\nfinish: {finish}, ")
             logging.info(f"{symbol}: start neiro")
             if symbol in config.ai_tokens:
-                finish_ai = await analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
+                finish_ai = await analyze_trading_signals(df, finish,
+                                                          divergence_convergence_signal,
+                                                          price_action_pattern, symbol,
+                                                          timeframe,
+                                                          buy_price
+                                                          )
 
             logging.info(f"{symbol}: {finish}")
-            sale_price = last_candle['close']
-            buy_price = last_candle['open']
 
             if finish == 'buy':
                 old = await get_signal(symbol, timeframe)

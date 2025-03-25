@@ -1,3 +1,5 @@
+from mimetypes import inited
+
 import aiohttp
 
 from news import get_file_text
@@ -22,7 +24,7 @@ async def analyze_with_deepseek(messages) -> str:
 🔹 Задача:
 Сначала внимательно проверь текущие новости и старые.
 
-Если текущая новость полностью идентична (точная копия текста или дословно совпадает по всем ключевым деталям, без каких-либо изменений или обновлений), сразу верни строго null без объяснений и форматирования.
+Если текущая новость полностью идентична (точная копия текста или дословно совпадает по всем ключевым деталям, без каких-либо изменений или обновлений), сразу верни строго null и объясни почему ты это вернул.
 
 Обращай внимание на новости, содержащие обновления, изменения дат, уточнения деталей, новые данные и т.д. Такие новости не блокируй и обязательно анализируй.
 Удели особое внимание новостям, связанным с Dogecoin, и упоминаниям DOGE в тексте.
@@ -39,9 +41,8 @@ async def analyze_with_deepseek(messages) -> str:
 2. Будет ли рост или падение цены?
 
 🔹 **Возврат null только если**:
-- Новость полностью идентична старой.
+- Новость идентична старой.
 - Новость никак не влияет на рынок криптовалют.
-- Ты совершенно не уверен в её влиянии.
 
 🔹 **Формат ответа** (если не null):
 - Без вводных слов ("Ответ:", "Анализ показал:" и т.д.).
@@ -74,30 +75,36 @@ async def analyze_with_deepseek(messages) -> str:
 **Старые новости**:
 {old_news}
 
-**Текущие новости**:
-{combined_text}
-
-**Старые публикации**:
-{old_public}
-
 🔸 **В конце генерации** укажи конкретные токены, затронутые новостью.
 """
 
     response = await client.chat.completions.create(
         model="openai/chatgpt-4o-latest",
-        messages=[{"role": "user", "content": [{"type": "text", "text": inst}]}],
-        max_tokens=512,
+        messages=[
+            {"role": "system", "content": inst},
+            {"role": "user", "content": combined_text}
+        ],
+        max_tokens=2048,
     )
 
     return response.choices[0].message.content.strip()
 
 #
 
-async def analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern):
+
+async def analyze_trading_signals(df,
+                                  finish,
+                                  divergence_convergence_signal,
+                                  price_action_pattern,
+                                  symbol,
+                                  timeframe,
+                                  buy_price
+                            ):
     news_data = get_file_text('news')
     last_values = df.iloc[-1]
 
     signal_data = f"""
+    Buy_price: {buy_price}
     RSI: {last_values['rsi']}
     EMA(21): {last_values['ema21']}
     EMA(49): {last_values['ema49']}
@@ -109,10 +116,19 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
     CM_Laguerre PPO PR Market Tops/Bottoms: {finish}
     Divergence/Convergence Signal: {divergence_convergence_signal if divergence_convergence_signal else "None"}
     """
-    print(signal_data)
 
     prompt = f"""
-    Analyze the data and provide a trading signal:
+    Analyze the provided market data and news, then generate a detailed trading signal in the following JSON format:
+
+    {{
+        "pair": "{symbol}",
+        "signal_type": "Long 🔰" or "Short 🔻",
+        "timeframe": "{timeframe}",
+        "entry_point": "entry price$",
+        "take_profit": "TP price$",
+        "stop_loss": "SL price$",
+        "timestamp": "current date and time in dd-mm-YYYY HH:MM format"
+    }}
 
     Indicators:
     {signal_data}
@@ -120,14 +136,13 @@ async def analyze_trading_signals(df, finish, divergence_convergence_signal, pri
     News:
     {news_data}
 
-    If bullish signals are present → "buy".
-    If bearish signals are present → "sale".
+    Determine if the signals are bullish (Long) or bearish (Short), set realistic entry, take-profit, and stop-loss prices accordingly.
 
-    Respond strictly with "buy" or "sale".
+    Respond strictly with the JSON only.
     """
 
     response = await client.chat.completions.create(
-        model="openai/chatgpt-4o-latest",
+        model="openai/gpt-4o-mini",
         messages=[{"role": "user", "content": [{"type": "text", "text": prompt}]}],
         max_tokens=512,
     )
