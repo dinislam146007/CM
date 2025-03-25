@@ -145,6 +145,17 @@ async def process_timeframe(timeframe):
                                                           buy_price
                                                           )
 
+                text = f"""
+Пара: {symbol}
+Тип сигнала: {finish_ai['signal_type']}
+⏱ТФ: {timeframe}
+
+Точка входа: {finish_ai['entry_point']}
+💸Take Profit: {finish_ai['take_profit']}
+
+📛Stop-loss: {finish_ai['stop_loss']}
+"""
+                await bot.send_message(chat_id=-1002467387559, text=text)
             logging.info(f"{symbol}: {finish}")
 
             if finish == 'buy':
