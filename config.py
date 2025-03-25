@@ -14,6 +14,7 @@ class Config:
         self.telethon_hash = os.getenv('TELETHON_HASH')
         self.deepseek_api = os.getenv('DEEPSEEK_API')
         self.telethon_session = os.getenv('TELETHON_SESSION')
+        self.ai_tokens = ['BTCUSDT', 'DOGEUSDT', 'ETHUSDT', 'LTCUSDT', 'XRPUSDT', 'SOLUSDT', 'TRXUSDT']
 
 config = Config()
 

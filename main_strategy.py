@@ -15,6 +15,7 @@ from strategy_logic.rsi import *
 from strategy_logic.vsa import *
 from strategy_logic.price_action import get_pattern_price_action
 from deepseek.deepsekk import analyze_trading_signals
+from config import config
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
@@ -132,7 +133,9 @@ async def process_timeframe(timeframe):
 
             # print(f"df: {df}\n\nfinish: {finish}, ")
             logging.info(f"{symbol}: start neiro")
-            finish = await analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
+            if symbol in config.ai_tokens:
+                finish_ai = await analyze_trading_signals(df, finish, divergence_convergence_signal, price_action_pattern)
+
             logging.info(f"{symbol}: {finish}")
             sale_price = last_candle['close']
             buy_price = last_candle['open']
