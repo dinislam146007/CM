@@ -130,6 +130,7 @@ async def analyze_trading_signals(df,
     Определите, являются ли сигналы бычьими (Long) или медвежьими (Short), установите реалистичные цены для входа, тейк-профита и стоп-лосса, а также в ключе "reason" предоставьте обоснование выбранных уровней.
 
     Ответ должен быть только в виде JSON.
+    Response only Russia and Use Markdown for text formatting *bold text*, _italic text_
     """
 
     response = await client.chat.completions.create(

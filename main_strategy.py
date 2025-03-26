@@ -2,6 +2,7 @@ import logging
 
 import ccxt.async_support as ccxt
 import pandas as pd
+from aiogram.enums import ParseMode
 from scipy.stats import percentileofscore
 import asyncio
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -154,8 +155,14 @@ async def process_timeframe(timeframe):
 💸Take Profit: {finish_ai['take_profit']}
 
 📛Stop-loss: {finish_ai['stop_loss']}
+
+{finish_ai['reason']}
 """
-                await bot.send_message(chat_id=-1002467387559, text=text)
+                try:
+                    await bot.send_message(chat_id=-1002467387559, text=text, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    await bot.send_message(chat_id=-1002467387559, text=text)
+
 
             logging.info(f"{symbol}: {finish}")
 
