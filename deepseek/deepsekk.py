@@ -114,21 +114,22 @@ async def analyze_trading_signals(df,
     """
 
     prompt = f"""
-    Analyze the provided market data and news, then generate a detailed trading signal in the following JSON format:
+    Анализируя предоставленные рыночные данные и новости, сформируйте подробный торговый сигнал в следующем JSON-формате. Ответ должен быть исключительно на русском языке:
 
     {{
         "pair": "{symbol}",
-        "signal_type": "Long 🔰" or "Short 🔻",
+        "signal_type": "Long 🔰 или Short 🔻",
         "timeframe": "{timeframe}",
-        "entry_point": "entry price$",
-        "take_profit": "TP price$",
-        "stop_loss": "SL price$",
-        "timestamp": "current date and time in dd-mm-YYYY HH:MM format"
+        "entry_point": "цена входа $",
+        "take_profit": "цена тейк-профита $",
+        "stop_loss": "цена стоп-лосса $",
+        "reason": "Объясните обоснование уровней тейк-профита и стоп-лосса",
+        "timestamp": "текущая дата и время в формате dd-mm-YYYY HH:MM"
     }}
 
-    Determine if the signals are bullish (Long) or bearish (Short), set realistic entry, take-profit, and stop-loss prices accordingly.
+    Определите, являются ли сигналы бычьими (Long) или медвежьими (Short), установите реалистичные цены для входа, тейк-профита и стоп-лосса, а также в ключе "reason" предоставьте обоснование выбранных уровней.
 
-    Respond strictly with the JSON only.
+    Ответ должен быть только в виде JSON.
     """
 
     response = await client.chat.completions.create(
