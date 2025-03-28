@@ -13,5 +13,6 @@ cookies.pkl
 my_session.session
 /my_session.session
 *.txt
+*.json
 news/news.txt
 /news/news.txtmy_session.session-journal
