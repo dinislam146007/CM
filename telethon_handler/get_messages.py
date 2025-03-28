@@ -3,11 +3,10 @@ import logging
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from deepseek.deepsekk import analyze_with_deepseek
-from news import set_file_text, get_file_text
+from news import set_file_text
 from aiogram import Bot
 from config import config
 from aiogram.enums import ParseMode
-import re
 
 
 # Инициализация бота
