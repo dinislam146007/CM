@@ -57,17 +57,7 @@ async def telethon_channels_main():
                         text=analysis_result.replace("**", "*"),
                         parse_mode=ParseMode.MARKDOWN  # Указали разметку
                     )
-                    set_file_text('news',analysis_result)
-                    old_news = get_file_text('old_news')
-                    if old_news:
-                        set_file_text('old_news', old_news + '\n' + message_text)
-                    else:
-                        set_file_text('old_news',  message_text)
-                    if get_file_text('old_public'):
-                        set_file_text('old_public', get_file_text('old_public') + '\n' + analysis_result)
-                    else:
-                        set_file_text('old_public', analysis_result)
-
+                    set_file_text('old_news', message_text)
 
         print("✅ Бот запущен и отслеживает каналы...")
         await client.run_until_disconnected()

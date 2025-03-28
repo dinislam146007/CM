@@ -11,8 +11,8 @@ client = AsyncOpenAI(
 #
 async def analyze_with_deepseek(messages) -> str:
     combined_text = "\n".join(msg if msg is not None else "" for msg in messages)
-    old_news = get_file_text('old_news')
-    old_public = get_file_text('old_public')
+    old_news_list = get_file_text('old_news')
+    old_news_combined = "\n".join(old_news_list)
 
     inst = f"""
 Ты - трейдер, специалист по криптовалютам.
@@ -73,7 +73,7 @@ async def analyze_with_deepseek(messages) -> str:
 📌 **Данные для анализа**:
 
 **Старые новости**:
-{old_news}
+{old_news_combined}
 
 🔸 **В конце генерации** укажи конкретные токены, затронутые новостью.
 """
@@ -100,7 +100,6 @@ async def analyze_trading_signals(df,
                                   timeframe,
                                   buy_price
                             ):
-    news_data = get_file_text('old_news')
     last_values = df.iloc[-1]
 
     signal_data = f"""
@@ -140,13 +139,15 @@ async def analyze_trading_signals(df,
     Ответ должен быть только в виде JSON.
     Response only Russia and Use Markdown for text formatting *bold text*, _italic text_
     """
+    old_news_list = get_file_text('old_news')
+    old_news_combined = "\n".join(old_news_list)
 
     response = await client.chat.completions.create(
-        model="openai/gpt-4o-mini",
+        model="deepseek/deepseek-chat-v3-0324:free",
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": prompt},
-            {"role": "user", "content": "news:"+ news_data + "indicators"+signal_data}
+            {"role": "user", "content": "news:"+ old_news_combined + "indicators"+signal_data}
         ],
         max_tokens=512,
     )
