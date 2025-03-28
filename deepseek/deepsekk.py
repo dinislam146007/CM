@@ -146,7 +146,7 @@ async def analyze_trading_signals(df,
     old_news_combined = "\n".join(old_news_list)
 
     response = await client.chat.completions.create(
-        model="deepseek/deepseek-chat-v3-0324:free",
+        model="deepseek/deepseek-r1-distill-qwen-32b",
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": prompt},
