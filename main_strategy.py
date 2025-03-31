@@ -23,8 +23,8 @@ bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HT
 """Параметры стратегии"""
 SHORT_GAMMA = 0.4
 LONG_GAMMA = 0.8
-LOOKBACK_T = 50
-LOOKBACK_B = 20
+LOOKBACK_T = 21
+LOOKBACK_B = 15
 PCTILE = 90
 
 exchange = ccxt.bybit()  # Передаём сессию в CCXT
