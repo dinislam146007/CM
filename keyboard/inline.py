@@ -92,9 +92,14 @@ def orders_inline(open, close):
     kb = [
         [
             InlineKeyboardButton(text=f'Открытые ({open})', callback_data='orders open 0'),
-         InlineKeyboardButton(text=f'Закрытые ({close})', callback_data='orders close 0')
-         ],
-         [InlineKeyboardButton(text='Назад', callback_data='start')]
+            InlineKeyboardButton(text=f'Закрытые ({close})', callback_data='orders close 0')
+        ],
+        [
+            InlineKeyboardButton(text='Все', callback_data='orders all 0'),
+            InlineKeyboardButton(text='Прибыльные', callback_data='orders profit 0'),
+            InlineKeyboardButton(text='Убыточные', callback_data='orders loss 0')
+        ],
+        [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 

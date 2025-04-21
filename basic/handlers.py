@@ -573,7 +573,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         msg += f"Цена открытия: {round(form['coin_buy_price'], 2)}$ 📈\n"
         msg += f"Цена закрытия: {round(form['coin_sale_price'], 2)}$ 📈\n"
         if form['buy_price'] < form['sale_price']:
-            profit = form['sale_prget_stat_dbice'] - form['buy_price']
+            profit = form['sale_price'] - form['buy_price']
             msg += f"Прибыль: {round(profit, 2)}$💸🔋\n\n"
         else:
             profit = form['buy_price'] - form['sale_price']
@@ -607,18 +607,183 @@ async def orders(callback: CallbackQuery, bot: Bot):
             text='Ваши сделки', 
             reply_markup=orders_inline(open, close)
         )
+    elif action == 'all':
+        # Get all orders for the user
+        open_forms = await get_all_orders(callback.from_user.id, 'open')
+        close_forms = await get_all_orders(callback.from_user.id, 'close')
+        all_forms = open_forms + close_forms
+        
+        if not all_forms:
+            await callback.message.edit_text(
+                text='У вас пока нет сделок',
+                reply_markup=orders_inline(len(open_forms), len(close_forms))
+            )
+            return
+            
+        # Create a list of all orders
+        msg = "📋 Список всех ваших сделок:\n\n"
+        
+        for i, form in enumerate(all_forms, 1):
+            status = "🟢 Открыта" if form.get('sale_price') is None else "🔴 Закрыта"
+            profit_loss = ""
+            if form.get('sale_price') is not None:
+                if form['buy_price'] < form['sale_price']:
+                    profit = form['sale_price'] - form['buy_price']
+                    profit_loss = f"(+{round(profit, 2)}$💸)"
+                else:
+                    loss = form['buy_price'] - form['sale_price'] 
+                    profit_loss = f"(-{round(loss, 2)}$🤕)"
+                    
+            msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {status} {profit_loss}\n"
+            
+        # Split message if too long
+        chunks = split_text_to_chunks(msg)
+        n = int(callback.data.split()[2]) if len(callback.data.split()) > 2 else 0
+        
+        if n >= len(chunks):
+            n = 0
+        
+        # Create pagination buttons if needed
+        kb = []
+        if len(chunks) > 1:
+            pagination = []
+            if n > 0:
+                pagination.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"orders all {n-1}"))
+            if n < len(chunks) - 1:
+                pagination.append(InlineKeyboardButton(text="Вперед ▶️", callback_data=f"orders all {n+1}"))
+            kb.append(pagination)
+            
+        # Add back button
+        kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="orders start")])
+        
+        await callback.message.edit_text(
+            text=chunks[n],
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+    elif action == 'profit' or action == 'loss':
+        # Get closed orders
+        forms = await get_all_orders(callback.from_user.id, 'close')
+        
+        # Filter for profit or loss
+        if action == 'profit':
+            forms = [form for form in forms if form.get('sale_price', 0) > form.get('buy_price', 0)]
+            title = "прибыльных"
+        else:
+            forms = [form for form in forms if form.get('sale_price', 0) < form.get('buy_price', 0)]
+            title = "убыточных"
+        
+        if not forms:
+            await callback.message.edit_text(
+                text=f'У вас пока нет {title} сделок',
+                reply_markup=orders_inline(len(await get_all_orders(callback.from_user.id, 'open')), 
+                                          len(await get_all_orders(callback.from_user.id, 'close')))
+            )
+            return
+            
+        # Create a list of filtered orders
+        msg = f"📋 Список {title} сделок:\n\n"
+        
+        for i, form in enumerate(forms, 1):
+            if action == 'profit':
+                profit = form['sale_price'] - form['buy_price']
+                profit_text = f"(+{round(profit, 2)}$💸)"
+            else:
+                loss = form['buy_price'] - form['sale_price']
+                profit_text = f"(-{round(loss, 2)}$🤕)"
+                
+            msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_text} | {form['sale_time']}\n"
+        
+        # Split message if too long
+        chunks = split_text_to_chunks(msg)
+        n = int(callback.data.split()[2]) if len(callback.data.split()) > 2 else 0
+        
+        if n >= len(chunks):
+            n = 0
+        
+        # Create pagination buttons if needed
+        kb = []
+        if len(chunks) > 1:
+            pagination = []
+            if n > 0:
+                pagination.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"orders {action} {n-1}"))
+            if n < len(chunks) - 1:
+                pagination.append(InlineKeyboardButton(text="Вперед ▶️", callback_data=f"orders {action} {n+1}"))
+            kb.append(pagination)
+            
+        # Add back button
+        kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="orders start")])
+        
+        await callback.message.edit_text(
+            text=chunks[n],
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+    elif action == 'open' or action == 'close':
+        forms = await get_all_orders(callback.from_user.id, action)
+        
+        if not forms:
+            await callback.message.edit_text(
+                text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок',
+                reply_markup=orders_inline(len(await get_all_orders(callback.from_user.id, 'open')), 
+                                          len(await get_all_orders(callback.from_user.id, 'close')))
+            )
+            return
+            
+        # Create a list of all orders of this type
+        msg = f"📋 Список {'открытых' if action == 'open' else 'закрытых'} сделок:\n\n"
+        
+        for i, form in enumerate(forms, 1):
+            if action == 'open':
+                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {round(form['buy_price'], 2)}$ | {form['buy_time']}\n"
+            else:
+                profit_loss = ""
+                if form['buy_price'] < form['sale_price']:
+                    profit = form['sale_price'] - form['buy_price']
+                    profit_loss = f"(+{round(profit, 2)}$💸)"
+                else:
+                    loss = form['buy_price'] - form['sale_price']
+                    profit_loss = f"(-{round(loss, 2)}$🤕)"
+                
+                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_loss} | {form['sale_time']}\n"
+        
+        # Split message if too long
+        chunks = split_text_to_chunks(msg)
+        n = int(callback.data.split()[2]) if len(callback.data.split()) > 2 else 0
+        
+        if n >= len(chunks):
+            n = 0
+        
+        # Create pagination buttons if needed
+        kb = []
+        if len(chunks) > 1:
+            pagination = []
+            if n > 0:
+                pagination.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"orders {action} {n-1}"))
+            if n < len(chunks) - 1:
+                pagination.append(InlineKeyboardButton(text="Вперед ▶️", callback_data=f"orders {action} {n+1}"))
+            kb.append(pagination)
+            
+        # Add back button
+        kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="orders start")])
+        
+        await callback.message.edit_text(
+            text=chunks[n],
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
     else:
+        # For individual order view (deprecated but kept for compatibility)
         forms = await get_all_orders(callback.from_user.id, action)
         n = int(callback.data.split()[2])
         if n < 0:
             await callback.answer('Это начало')
+            return
+        if n >= len(forms):
+            await callback.answer('Это конец списка')
             return
 
         form = forms[n]
         msg = f"Инструмент: {form['symbol']} | {interval_conv(form['interval'])}\n\n"
         msg += f"Цена открытия: {round(form['coin_buy_price'], 2)}$ 📈\n"
 
-        # msg += f"ТФ: {form['interval']}\n"
         if action == 'open':
             msg += f"Объем сделки: {round(form['buy_price'], 2)}$ 💵\n\n"
             msg += f"Дата и время открытия:\n⏱️{form['buy_time']}\n"
