@@ -571,12 +571,12 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         form = forms[n]
         msg = f"Инструмент: {form['symbol']} | {interval_conv(form['interval'])}\n\n"
         msg += f"Цена открытия: {round(form['coin_buy_price'], 2)}$ 📈\n"
-        msg += f"Цена закрытия: {round(form['coin_sale_price'], 2)}$ 📈\n"
-        if form['buy_price'] < form['sale_price']:
-            profit = form['sale_price'] - form['buy_price']
+        msg += f"Цена закрытия: {round(form['coin_sl_price'], 2)}$ 📈\n"
+        if form['buy_price'] < form['sl_price']:
+            profit = form['sl_price'] - form['buy_price']
             msg += f"Прибыль: {round(profit, 2)}$💸🔋\n\n"
         else:
-            profit = form['buy_price'] - form['sale_price']
+            profit = form['buy_price'] - form['sl_price']
             msg += f"Убыток: {round(profit, 2)}$🤕🪫\n\n"
         msg += f"Объем сделки: {round(form['buy_price'], 2)}$ 💵\n\n"
         msg += f"Дата и время закрытия:\n⏱️{form['sale_time']}\n\n"
@@ -624,14 +624,14 @@ async def orders(callback: CallbackQuery, bot: Bot):
         msg = "📋 Список всех ваших сделок:\n\n"
         
         for i, form in enumerate(all_forms, 1):
-            status = "🟢 Открыта" if form.get('sale_price') is None else "🔴 Закрыта"
+            status = "🟢 Открыта" if form.get('sl_price') is None else "🔴 Закрыта"
             profit_loss = ""
-            if form.get('sale_price') is not None:
-                if form['buy_price'] < form['sale_price']:
-                    profit = form['sale_price'] - form['buy_price']
+            if form.get('sl_price') is not None:
+                if form['buy_price'] < form['sl_price']:
+                    profit = form['sl_price'] - form['buy_price']
                     profit_loss = f"(+{round(profit, 2)}$💸)"
                 else:
-                    loss = form['buy_price'] - form['sale_price'] 
+                    loss = form['buy_price'] - form['sl_price'] 
                     profit_loss = f"(-{round(loss, 2)}$🤕)"
                     
             msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {status} {profit_loss}\n"
@@ -666,10 +666,10 @@ async def orders(callback: CallbackQuery, bot: Bot):
         
         # Filter for profit or loss
         if action == 'profit':
-            forms = [form for form in forms if form.get('sale_price', 0) > form.get('buy_price', 0)]
+            forms = [form for form in forms if form.get('sl_price', 0) > form.get('buy_price', 0)]
             title = "прибыльных"
         else:
-            forms = [form for form in forms if form.get('sale_price', 0) < form.get('buy_price', 0)]
+            forms = [form for form in forms if form.get('sl_price', 0) < form.get('buy_price', 0)]
             title = "убыточных"
         
         if not forms:
@@ -685,10 +685,10 @@ async def orders(callback: CallbackQuery, bot: Bot):
         
         for i, form in enumerate(forms, 1):
             if action == 'profit':
-                profit = form['sale_price'] - form['buy_price']
+                profit = form['sl_price'] - form['buy_price']
                 profit_text = f"(+{round(profit, 2)}$💸)"
             else:
-                loss = form['buy_price'] - form['sale_price']
+                loss = form['buy_price'] - form['sl_price']
                 profit_text = f"(-{round(loss, 2)}$🤕)"
                 
             msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_text} | {form['sale_time']}\n"
@@ -736,11 +736,11 @@ async def orders(callback: CallbackQuery, bot: Bot):
                 msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {round(form['buy_price'], 2)}$ | {form['buy_time']}\n"
             else:
                 profit_loss = ""
-                if form['buy_price'] < form['sale_price']:
-                    profit = form['sale_price'] - form['buy_price']
+                if form['buy_price'] < form['sl_price']:
+                    profit = form['sl_price'] - form['buy_price']
                     profit_loss = f"(+{round(profit, 2)}$💸)"
                 else:
-                    loss = form['buy_price'] - form['sale_price']
+                    loss = form['buy_price'] - form['sl_price']
                     profit_loss = f"(-{round(loss, 2)}$🤕)"
                 
                 msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_loss} | {form['sale_time']}\n"
@@ -788,13 +788,13 @@ async def orders(callback: CallbackQuery, bot: Bot):
             msg += f"Объем сделки: {round(form['buy_price'], 2)}$ 💵\n\n"
             msg += f"Дата и время открытия:\n⏱️{form['buy_time']}\n"
         else:
-            msg += f"Цена закрытия: {form['coin_sale_price']}$ 📈\n"
+            msg += f"Цена закрытия: {round(form['coin_sl_price'], 2)}$ 📈\n"
 
-            if form['buy_price'] < form['sale_price']:
-                profit = form['sale_price'] - form['buy_price']
+            if form['buy_price'] < form['sl_price']:
+                profit = form['sl_price'] - form['buy_price']
                 msg += f"Прибыль: {round(profit, 2)}$💸🔋\n\n"
             else:
-                profit = form['buy_price'] - form['sale_price']
+                profit = form['buy_price'] - form['sl_price']
                 msg += f"Убыток: {round(profit, 2)}$🤕🪫\n\n"
 
             msg += f"Объем сделки: {round(form['buy_price'], 2)}$ 💵\n\n"
@@ -908,7 +908,7 @@ async def signals(callback: CallbackQuery, bot: Bot):
             for form in forms:
                 msg += f"{form['symbol']} - {buy_sale(action, interval)}\n"
             # msg += f"Цена за покупку: {form['buy_price']}\n"
-            # msg += f"Цена за продажу {form['sale_price']}"
+            # msg += f"Цена за продажу {form['sl_price']}"
             chunks = split_text_to_chunks(msg)
             await callback.message.edit_text(
                 text=chunks[n],
