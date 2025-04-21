@@ -140,7 +140,7 @@ async def wait_for_next_candle(timeframe):
 
 
 TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h"]
-symbols    = get_usdt_pairs()
+symbols    = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "LTCUSDT", "XRPUSDT", "SOLUSDT", "TRXUSDT"]
 users      = [6634277726, 747471391]
 
 async def process_tf(tf: str):
@@ -186,9 +186,9 @@ async def process_tf(tf: str):
 
                         await bot.send_message(
                             uid,
-                            f"🟢 <b>BUY</b> {symbol} {tf}\n"
-                            f"Entry: {entry:.4f} USDT\n"
-                            f"Amount: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
+                            f"🟢 <b>ПОКУПКА</b> {symbol} {tf}\n"
+                            f"Цена входа: {entry:.4f} USDT\n"
+                            f"Количество: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
                             f"TP: {tp:.4f} | SL: {sl:.4f}"
                         )
                 # ---------- выход ----------
@@ -210,13 +210,14 @@ async def process_tf(tf: str):
                         
                         # Определяем цвет и эмодзи в зависимости от P&L
                         pnl_emoji = "🔴" if pnl_percent < 0 else "🟢"
+                        pnl_text = "Убыток" if pnl_percent < 0 else "Прибыль"
                         
                         await bot.send_message(
                             uid,
-                            f"🔴 <b>SELL</b> {symbol} {tf}\n"
-                            f"Exit: {exit_price:.4f} USDT ({'TP' if hit_tp else 'SL'})\n"
-                            f"Amount: {qty:.6f} ({(qty * exit_price):.2f} USDT)\n"
-                            f"{pnl_emoji} P&L: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)"
+                            f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n"
+                            f"Цена выхода: {exit_price:.4f} USDT ({'Цель достигнута' if hit_tp else 'Стоп-лосс сработал'})\n"
+                            f"Количество: {qty:.6f} ({(qty * exit_price):.2f} USDT)\n"
+                            f"{pnl_emoji} {pnl_text}: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)"
                         )
             await asyncio.sleep(0.05)   # не душим API
         await wait_for_next_candle(tf)
