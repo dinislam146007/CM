@@ -50,7 +50,6 @@ exchange = ccxt.bybit()  # Передаём сессию в CCXT
 
 
 # timeframes = ['1d', '4h', '1h', '30m']
-timeframes = ['1d',]
 
 
 symbols = get_usdt_pairs()
@@ -166,17 +165,31 @@ async def process_tf(tf: str):
                 if open_order is None:
                     if moon.check_coin(symbol, df5, ctx) and moon.should_place_order(dft):
                         order_dict = moon.build_order(dft)
-                        qty = order_dict["amount"]
                         entry = order_dict["price"]
                         tp  = order_dict["take_profit"]
                         sl  = order_dict["stop_loss"]
-
+                        
+                        # Получаем баланс пользователя и рассчитываем объем на 5% от баланса
+                        user_balance = await get_user_balance(uid)
+                        investment_amount = user_balance * 0.05  # 5% от баланса
+                        qty = investment_amount / entry  # Количество монет, которое можно купить
+                        
+                        # Форматируем количество с учетом минимального шага для торговли
+                        qty = round(qty, 6)  # Округляем до 6 знаков после запятой
+                        
+                        # Если объем слишком мал, установим минимальный
+                        if qty * entry < 10:  # Минимальный размер ордера 10 USDT
+                            qty = 10 / entry
+                            qty = round(qty, 6)
+                        
                         await create_order(uid, symbol, tf, "long", qty, entry, tp, sl)
 
                         await bot.send_message(
                             uid,
                             f"🟢 <b>BUY</b> {symbol} {tf}\n"
-                            f"Entry {entry}\nTP {tp} | SL {sl}"
+                            f"Entry: {entry:.4f} USDT\n"
+                            f"Amount: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
+                            f"TP: {tp:.4f} | SL: {sl:.4f}"
                         )
                 # ---------- выход ----------
                 else:
@@ -185,18 +198,32 @@ async def process_tf(tf: str):
                     hit_sl = last_price <= open_order["sl_price"]
 
                     if hit_tp or hit_sl:
-                        await close_order(open_order["id"], last_price)
+                        # Закрываем ордер и получаем информацию о P&L
+                        closed_order = await close_order(open_order["id"], last_price)
+                        
+                        # Рассчитываем P&L в процентах и в USDT
+                        entry_price = closed_order["coin_buy_price"]
+                        exit_price = closed_order["coin_sale_price"]
+                        qty = closed_order["qty"]
+                        pnl_percent = ((exit_price - entry_price) / entry_price) * 100
+                        pnl_usdt = closed_order["pnl_usdt"]
+                        
+                        # Определяем цвет и эмодзи в зависимости от P&L
+                        pnl_emoji = "🔴" if pnl_percent < 0 else "🟢"
+                        
                         await bot.send_message(
                             uid,
                             f"🔴 <b>SELL</b> {symbol} {tf}\n"
-                            f"Exit {last_price} ({'TP' if hit_tp else 'SL'})"
+                            f"Exit: {exit_price:.4f} USDT ({'TP' if hit_tp else 'SL'})\n"
+                            f"Amount: {qty:.6f} ({(qty * exit_price):.2f} USDT)\n"
+                            f"{pnl_emoji} P&L: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)"
                         )
             await asyncio.sleep(0.05)   # не душим API
         await wait_for_next_candle(tf)
 
 async def main():
     try:
-        await asyncio.gather(*[process_tf(tf) for tf in timeframes])
+        await asyncio.gather(*[process_tf(tf) for tf in TIMEFRAMES])
     finally:
         await exchange.close()  # Ensures resources are released
 

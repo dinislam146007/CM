@@ -1,6 +1,18 @@
 import asyncpg, datetime as dt
 from db.connect import connect
 
+async def get_user_balance(user_id):
+    """Получение баланса пользователя из таблицы users"""
+    conn = await connect()
+    row = await conn.fetchrow("""
+        SELECT balance FROM users WHERE user_id=$1
+    """, user_id)
+    await conn.close()
+    
+    if row:
+        return row['balance']
+    return 0.0  # Если пользователь не найден, возвращаем 0
+
 async def create_order(user_id, symbol, interval, side, qty,
                        buy_price, tp, sl):
     conn = await connect()
@@ -23,19 +35,24 @@ async def get_open_order(user_id, symbol, interval):
     return row
 
 async def close_order(order_id, sale_price):
+    """Закрытие ордера с расчетом прибыли/убытка"""
     conn = await connect()
-    await conn.execute("""
+    result = await conn.fetchrow("""
         UPDATE orders
         SET coin_sale_price=$2,
             sale_time=$3,
             status='CLOSED',
-            pnl_usdt = (sale_price - coin_buy_price) * qty
+            pnl_usdt = (($2 - coin_buy_price) / coin_buy_price) * 100 * qty
         FROM (
             SELECT qty, coin_buy_price
             FROM orders WHERE id=$1
         ) as o
         WHERE id=$1
+        RETURNING id, qty, coin_buy_price, $2 as coin_sale_price, 
+                  (($2 - coin_buy_price) / coin_buy_price) * 100 * qty as pnl_usdt
     """, order_id, sale_price, dt.datetime.utcnow())
     await conn.close()
+    
+    return result  # Возвращаем информацию о закрытой сделке
 
 
