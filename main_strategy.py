@@ -182,15 +182,23 @@ async def process_tf(tf: str):
                             qty = 10 / entry
                             qty = round(qty, 6)
                         
-                        await create_order(uid, symbol, tf, "long", qty, entry, tp, sl)
-
-                        await bot.send_message(
-                            uid,
-                            f"🟢 <b>ПОКУПКА</b> {symbol} {tf}\n"
-                            f"Цена входа: {entry:.4f} USDT\n"
-                            f"Количество: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
-                            f"TP: {tp:.4f} | SL: {sl:.4f}"
-                        )
+                        # Создаем ордер с автоматическим списанием средств с баланса
+                        try:
+                            await create_order(uid, symbol, tf, "long", qty, entry, tp, sl)
+                            
+                            # Получаем обновленный баланс после списания средств
+                            new_balance = await get_user_balance(uid)
+                            
+                            await bot.send_message(
+                                uid,
+                                f"🟢 <b>ПОКУПКА</b> {symbol} {tf}\n"
+                                f"Цена входа: {entry:.4f} USDT\n"
+                                f"Количество: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
+                                f"TP: {tp:.4f} | SL: {sl:.4f}\n\n"
+                                f"💰 Баланс: {new_balance:.2f} USDT (-{(qty * entry):.2f} USDT)"
+                            )
+                        except Exception as e:
+                            print(f"Ошибка при создании ордера: {e}")
                 # ---------- выход ----------
                 else:
                     last_price = dft["close"].iloc[-1]
@@ -198,27 +206,36 @@ async def process_tf(tf: str):
                     hit_sl = last_price <= open_order["sl_price"]
 
                     if hit_tp or hit_sl:
-                        # Закрываем ордер и получаем информацию о P&L
-                        closed_order = await close_order(open_order["id"], last_price)
-                        
-                        # Рассчитываем P&L в процентах и в USDT
-                        entry_price = closed_order["coin_buy_price"]
-                        exit_price = closed_order["coin_sale_price"]
-                        qty = closed_order["qty"]
-                        pnl_percent = ((exit_price - entry_price) / entry_price) * 100
-                        pnl_usdt = closed_order["pnl_usdt"]
-                        
-                        # Определяем цвет и эмодзи в зависимости от P&L
-                        pnl_emoji = "🔴" if pnl_percent < 0 else "🟢"
-                        pnl_text = "Убыток" if pnl_percent < 0 else "Прибыль"
-                        
-                        await bot.send_message(
-                            uid,
-                            f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n"
-                            f"Цена выхода: {exit_price:.4f} USDT ({'Цель достигнута' if hit_tp else 'Стоп-лосс сработал'})\n"
-                            f"Количество: {qty:.6f} ({(qty * exit_price):.2f} USDT)\n"
-                            f"{pnl_emoji} {pnl_text}: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)"
-                        )
+                        try:
+                            # Закрываем ордер и получаем информацию о P&L с автоматическим возвратом средств
+                            closed_order = await close_order(open_order["id"], last_price)
+                            
+                            # Получаем данные из ордера
+                            user_id = closed_order["user_id"]
+                            entry_price = closed_order["coin_buy_price"]
+                            exit_price = closed_order["coin_sale_price"]
+                            qty = closed_order["qty"]
+                            pnl_percent = closed_order["pnl_percent"]
+                            pnl_usdt = closed_order["pnl_usdt"]
+                            return_amount = closed_order["return_amount_usdt"]
+                            
+                            # Получаем обновленный баланс после возврата средств
+                            new_balance = await get_user_balance(uid)
+                            
+                            # Определяем цвет и эмодзи в зависимости от P&L
+                            pnl_emoji = "🔴" if pnl_percent < 0 else "🟢"
+                            pnl_text = "Убыток" if pnl_percent < 0 else "Прибыль"
+                            
+                            await bot.send_message(
+                                uid,
+                                f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n"
+                                f"Цена выхода: {exit_price:.4f} USDT ({'Цель достигнута' if hit_tp else 'Стоп-лосс сработал'})\n"
+                                f"Количество: {qty:.6f} ({(qty * exit_price):.2f} USDT)\n"
+                                f"{pnl_emoji} {pnl_text}: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
+                                f"💰 Баланс: {new_balance:.2f} USDT (+{return_amount:.2f} USDT)"
+                            )
+                        except Exception as e:
+                            print(f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
         await wait_for_next_candle(tf)
 
