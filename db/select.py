@@ -106,9 +106,9 @@ async def get_all_orders(user_id: int, order_type: str):
         WHERE user_id = $1
         """
         if order_type == 'open':
-            query += " AND sl_price IS NULL"
+            query += " AND coin_sale_price IS NULL"
         else:
-            query += " AND sl_price IS NOT NULL"
+            query += " AND coin_sale_price IS NOT NULL"
 
         rows = await conn.fetch(query, user_id)
         return [dict(row) for row in rows] if rows else []
@@ -131,7 +131,7 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
             """
             SELECT COUNT(*)
             FROM orders
-            WHERE sl_price IS NOT NULL
+            WHERE coin_sale_price IS NOT NULL
               AND user_id = $1
               AND sale_time::DATE BETWEEN $2::DATE AND $3::DATE
             """,
@@ -142,8 +142,8 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
             """
             SELECT COUNT(*)
             FROM orders
-            WHERE sl_price > buy_price
-              AND sl_price IS NOT NULL
+            WHERE coin_sale_price > coin_buy_price
+              AND coin_sale_price IS NOT NULL
               AND user_id = $1
               AND sale_time::DATE BETWEEN $2::DATE AND $3::DATE
             """,
@@ -154,8 +154,8 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
             """
             SELECT COUNT(*)
             FROM orders
-            WHERE sl_price < buy_price
-              AND sl_price IS NOT NULL
+            WHERE coin_sale_price < coin_buy_price
+              AND coin_sale_price IS NOT NULL
               AND user_id = $1
               AND sale_time::DATE BETWEEN $2::DATE AND $3::DATE
             """,
@@ -164,9 +164,9 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
 
         total_profit = await conn.fetchval(
             """
-            SELECT COALESCE(SUM(sl_price - buy_price), 0)
+            SELECT COALESCE(SUM(coin_sale_price - coin_buy_price), 0)
             FROM orders
-            WHERE sl_price IS NOT NULL
+            WHERE coin_sale_price IS NOT NULL
               AND user_id = $1
               AND sale_time::DATE BETWEEN $2::DATE AND $3::DATE
             """,
@@ -185,9 +185,9 @@ async def get_stat_db(user_id: int, action: str):
         WHERE user_id = $1
         """
         if action == 'profit':
-            query += " AND sl_price > buy_price"
+            query += " AND coin_sale_price > coin_buy_price"
         else:
-            query += " AND sl_price < buy_price"
+            query += " AND coin_sale_price < coin_buy_price"
 
         rows = await conn.fetch(query, user_id)
         return [dict(row) for row in rows] if rows else []
@@ -230,7 +230,7 @@ async def get_daily_statistics(user_id: int):
             """
             SELECT COUNT(*)
             FROM orders
-            WHERE sl_price IS NOT NULL
+            WHERE coin_sale_price IS NOT NULL
               AND sale_time::DATE = $1
               AND user_id = $2
             """,
@@ -241,7 +241,7 @@ async def get_daily_statistics(user_id: int):
             """
             SELECT COUNT(*)
             FROM orders
-            WHERE sl_price > buy_price
+            WHERE coin_sale_price > coin_buy_price
               AND sale_time::DATE = $1
               AND user_id = $2
             """,
@@ -252,7 +252,7 @@ async def get_daily_statistics(user_id: int):
             """
             SELECT COUNT(*)
             FROM orders
-            WHERE sl_price < buy_price
+            WHERE coin_sale_price < coin_buy_price
               AND sale_time::DATE = $1
               AND user_id = $2
             """,
@@ -261,9 +261,9 @@ async def get_daily_statistics(user_id: int):
 
         total_profit = await conn.fetchval(
             """
-            SELECT COALESCE(SUM(sl_price - buy_price), 0)
+            SELECT COALESCE(SUM(coin_sale_price - coin_buy_price), 0)
             FROM orders
-            WHERE sl_price IS NOT NULL
+            WHERE coin_sale_price IS NOT NULL
               AND sale_time::DATE = $1
               AND user_id = $2
             """,
@@ -318,7 +318,7 @@ async def fetch_stat(user_id: int):
     try:
         query = """
             SELECT * FROM orders
-            WHERE sl_price IS NOT NULL AND user_id = $1
+            WHERE coin_sale_price IS NOT NULL AND user_id = $1
         """
         rows = await conn.fetch(query, user_id)
         if rows:

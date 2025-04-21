@@ -543,7 +543,7 @@ def fetch_stat(user_id):
         cursor = conn.cursor()
         cursor.execute("""
             SELECT * FROM orders
-            WHERE sl_price IS NOT NULL AND user_id = ?
+            WHERE coin_sale_price IS NOT NULL AND user_id = ?
         """, (user_id,))
         rows = cursor.fetchall()
         if rows:
@@ -558,14 +558,14 @@ def get_all_orders(user_id, order_type):
             cursor.execute("""
             SELECT * FROM orders
             WHERE user_id=? 
-            AND sl_price IS NULL
-            """, (user_id, ))  # Добавлена запятая для формирования кортежа
+            AND coin_sale_price IS NULL
+            """, (user_id, ))
         else:
             cursor.execute("""
             SELECT * FROM orders
             WHERE user_id=? 
-            AND sl_price IS NOT NULL
-            """, (user_id, ))  # Добавлена запятая для формирования кортежа
+            AND coin_sale_price IS NOT NULL
+            """, (user_id, ))
 
         rows = cursor.fetchall()
         if rows:
