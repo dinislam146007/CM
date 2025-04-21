@@ -10,13 +10,18 @@ from aiogram.client.bot import DefaultBotProperties
 from aiogram import Bot
 from strategy_logic.get_all_coins import get_usdt_pairs
 from config import config
-from db import *
+# from db import *
 import datetime
 from strategy_logic.rsi import *
 from strategy_logic.vsa import *
 from strategy_logic.price_action import get_pattern_price_action
 from deepseek.deepsekk import analyze_trading_signals
 from config import config
+from strategy_logic.stop_loss import *
+from strategy_logic.moon_bot_strategy import StrategyMoonBot, load_strategy_params,Context
+moon = StrategyMoonBot(load_strategy_params())
+from db.orders import *
+
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
@@ -27,10 +32,26 @@ LOOKBACK_T = 21
 LOOKBACK_B = 15
 PCTILE = 90
 
+# Параметры RSI дивергенции
+RSI_LENGTH = 7
+LB_RIGHT = 3
+LB_LEFT = 3
+RANGE_UPPER = 60
+RANGE_LOWER = 5
+TAKE_PROFIT_RSI_LEVEL = 80
+
+# Параметры стоп-лосса
+STOP_LOSS_TYPE = "PERC"  # "ATR", "PERC", "NONE"
+STOP_LOSS_PERC = 5.0  # Процент для стоп-лосса
+ATR_LENGTH = 14  # Период ATR
+ATR_MULTIPLIER = 3.5  # Множитель ATR
+
 exchange = ccxt.bybit()  # Передаём сессию в CCXT
 
 
-timeframes = ['1d', '4h', '1h', '30m']
+# timeframes = ['1d', '4h', '1h', '30m']
+timeframes = ['1d',]
+
 
 symbols = get_usdt_pairs()
 
@@ -98,6 +119,10 @@ async def wait_for_next_candle(timeframe):
         '4h': 14400,
         '1h': 3600,
         '30m': 1800,
+        '15m': 900,
+        '5m': 300,
+        '3m': 180,
+        '1m': 60,
     }
 
     interval = timeframe_seconds.get(timeframe)
@@ -106,135 +131,72 @@ async def wait_for_next_candle(timeframe):
         # Вычисляем время до следующей свечи
         next_candle_time = (current_time // interval + 1) * interval
         # Ждём до начала следующей свечи
-        print(timeframe, next_candle_time - current_time)
+        wait_time = next_candle_time - current_time
+        print(f"Waiting for next {timeframe} candle: {wait_time:.2f} seconds")
 
-        await asyncio.sleep(next_candle_time - current_time)
+        await asyncio.sleep(wait_time)
+    else:
+        print(f"Unknown timeframe: {timeframe}, waiting 60 seconds as fallback")
+        await asyncio.sleep(60)  # Используем запасной вариант, если таймфрейм неизвестен
 
 
-async def process_timeframe(timeframe):
+TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h"]
+symbols    = get_usdt_pairs()
+users      = [6634277726, 747471391]
+
+async def process_tf(tf: str):
     while True:
-        """Обрабатывает все символы для одного таймфрейма."""
-        user_ids = await get_all_user_id()
-        now = datetime.datetime.now().strftime('%d-%m-%Y %H:%M')
-
-
-        await wait_for_next_candle(timeframe)
-
+        btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
         for symbol in symbols:
+            df5 = await fetch_ohlcv(symbol, "5m", 300)
+            dft = await fetch_ohlcv(symbol, tf,   200)
+            if df5 is None or dft is None: continue
 
-            print(symbol, timeframe)
-            df = await fetch_ohlcv(symbol, timeframe)
-            df = calculate_ppo(df)  # Assuming this doesn't overwrite 'ema21' and 'ema49'
-            df = calculate_ema(df)  # Ensure this is called to add 'ema21' and 'ema49'
-            df = calculate_rsi(df)  # Ensure the 'rsi' column is added before generating signals
-            df = generate_signals_rsi(df)  # Add signals after EMAs and RSI are calculated
-            df = detect_vsa_signals(df)
-            finish, last_candle = find_last_extreme(df)
-            price_action_pattern = await get_pattern_price_action(df[-3:].values.tolist(), "spot")
-            divergence_convergence_signal = detect_divergence_convergence(df)
-            sale_price = df['close'].iloc[-1]
-            buy_price = df['close'].iloc[-1]
+            ticker  = await exchange.fetch_ticker(symbol)
+            ctx = Context(
+                ticker_24h=ticker,
+                hourly_volume=df5["volume"].iloc[-12:].sum(),
+                btc_df=btc_df,
+            )
 
+            for uid in users:
+                open_order = await get_open_order(uid, symbol, tf)
 
-            # print(f"df: {df}\n\nfinish: {finish}, ")
-            logging.info(f"{symbol}: start neiro")
-            if symbol in config.ai_tokens:
-                finish_ai = await analyze_trading_signals(df, finish,
-                                                          divergence_convergence_signal,
-                                                          price_action_pattern, symbol,
-                                                          timeframe,
-                                                          buy_price
-                                                          )
+                # ---------- вход ----------
+                if open_order is None:
+                    if moon.check_coin(symbol, df5, ctx) and moon.should_place_order(dft):
+                        order_dict = moon.build_order(dft)
+                        qty = order_dict["amount"]
+                        entry = order_dict["price"]
+                        tp  = order_dict["take_profit"]
+                        sl  = order_dict["stop_loss"]
 
-                text = f"""
-Пара: {symbol}
-Тип сигнала: {finish_ai['signal_type']}
-⏱ТФ: {timeframe}
+                        await create_order(uid, symbol, tf, "long", qty, entry, tp, sl)
 
-Точка входа: {finish_ai['entry_point']}
-💸Take Profit: {finish_ai['take_profit']}
+                        await bot.send_message(
+                            uid,
+                            f"🟢 <b>BUY</b> {symbol} {tf}\n"
+                            f"Entry {entry}\nTP {tp} | SL {sl}"
+                        )
+                # ---------- выход ----------
+                else:
+                    last_price = dft["close"].iloc[-1]
+                    hit_tp = last_price >= open_order["tp_price"]
+                    hit_sl = last_price <= open_order["sl_price"]
 
-📛Stop-loss: {finish_ai['stop_loss']}
-
-{finish_ai['reason']}
-"""
-                try:
-                    await bot.send_message(chat_id=-1002467387559, text=text, parse_mode=ParseMode.MARKDOWN)
-                except Exception:
-                    await bot.send_message(chat_id=-1002467387559, text=text)
-
-
-            logging.info(f"{symbol}: {finish}")
-
-            if finish == 'buy':
-                old = await get_signal(symbol, timeframe)
-
-                for user_id in user_ids:
-                    pairs = str(user_id['crypto_pairs']).split(',')
-                    if (symbol in pairs) and (await get_order(timeframe, symbol, user_id['user_id']) is None):
-                        price = (user_id['percent'] / 100) * user_id['balance']
-                        #await minus_plus_user(-price, user_id['user_id'])
-                        #await buy_order(user_id['user_id'], timeframe, symbol, price, now, sale_price)
-
-                if old and old['status'] == 'sale':
-
-                    users = await get_subscribed_users(symbol, timeframe)
-                    for user_id in users:
-                        signal = {"symbol": symbol,
-                                  "interval": timeframe,
-                                  "flag": "Long 🔰",
-                                  "user_id": user_id}
-                        await bot.send_message(chat_id=user_id['user_id'],
-                                               text=f"Новый сигнал:\nИнструмент: {signal['symbol']}\nИнтервал: {signal['interval']}\nСигнал: {signal['flag']}")
-
-                elif not old:
-                    users = await get_subscribed_users(symbol, timeframe)
-                    for user_id in users:
-                        signal = {"symbol": symbol,
-                                  "interval": timeframe,
-                                  "flag": "Long 🔰",
-                                  "user_id": user_id}
-                        await bot.send_message(chat_id=user_id['user_id'],
-                                               text=f"Новый сигнал:\nИнструмент: {signal['symbol']}\nИнтервал: {signal['interval']}\nСигнал: {signal['flag']}")
-
-            elif finish == 'sale':
-                old = await get_signal(symbol, timeframe)
-
-                for user_id in user_ids:
-                    order = await get_order(timeframe, symbol, user_id['user_id'])
-                    if order:
-                        coin_buy_price = order['coin_buy_price']
-                        buy_price = order['buy_price']
-                        percent_change = ((sale_price - coin_buy_price) / coin_buy_price) * 100
-                        profit_or_loss = ((percent_change / 100) * buy_price) + buy_price
-
-                        await sale_order(user_id['user_id'], profit_or_loss, now, sale_price, symbol, timeframe)
-                        await minus_plus_user(profit_or_loss, user_id['user_id'])
-
-                if old and old['status'] == 'buy':
-                    users = await get_subscribed_users(symbol, timeframe)
-                    for user_id in users:
-                        signal = {"symbol": symbol,
-                                  "interval": timeframe,
-                                  "flag": "Продажа 🔻",
-                                  "user_id": user_id}
-                        await bot.send_message(chat_id=user_id['user_id'],
-                                               text=f"Новый сигнал:\nИнструмент: {signal['symbol']}\nИнтервал: {signal['interval']}\nСигнал: {signal['flag']}")
-                elif not old:
-                    users = await get_subscribed_users(symbol, timeframe)
-                    for user_id in users:
-                        signal = {"symbol": symbol,
-                                  "interval": timeframe,
-                                  "flag": "Продажа 🔻",
-                                  "user_id": user_id}
-                        await bot.send_message(chat_id=user_id['user_id'],
-                                               text=f"Новый сигнал:\nИнструмент: {signal['symbol']}\nИнтервал: {signal['interval']}\nСигнал: {signal['flag']}")
-            await update_signal(symbol, timeframe, finish, buy_price, sale_price)
-
+                    if hit_tp or hit_sl:
+                        await close_order(open_order["id"], last_price)
+                        await bot.send_message(
+                            uid,
+                            f"🔴 <b>SELL</b> {symbol} {tf}\n"
+                            f"Exit {last_price} ({'TP' if hit_tp else 'SL'})"
+                        )
+            await asyncio.sleep(0.05)   # не душим API
+        await wait_for_next_candle(tf)
 
 async def main():
     try:
-        await asyncio.gather(*[process_timeframe(tf) for tf in timeframes])
+        await asyncio.gather(*[process_tf(tf) for tf in timeframes])
     finally:
         await exchange.close()  # Ensures resources are released
 
