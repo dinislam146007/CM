@@ -1045,7 +1045,6 @@ async def close_state_cal(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == 'start')
 async def start_cal(callback: CallbackQuery, state: FSMContext):
     user = await get_user(callback.from_user.id)
-
     await callback.message.edit_text(
         text=f"Бот по обработке фильтра CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms\nВаш баланс: {round(user['balance'])}$  💸",
         reply_markup=start_inline()

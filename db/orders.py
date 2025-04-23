@@ -73,6 +73,9 @@ async def get_open_order(user_id, symbol, interval):
 
 async def close_order(order_id, sale_price):
     """Закрытие ордера с расчетом прибыли/убытка и возвратом средств на баланс"""
+    # Убедимся, что sale_price - число
+    sale_price = float(sale_price)
+    
     conn = await connect()
     try:
         # Начинаем транзакцию
