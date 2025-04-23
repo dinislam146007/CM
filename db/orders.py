@@ -108,14 +108,14 @@ async def close_order(order_id, sale_price):
         # Обновляем статус ордера
         result = await conn.fetchrow("""
             UPDATE orders
-            SET coin_sale_price=$2,
+            SET coin_sale_price=$2::real,
                 sale_time=$3,
                 status='CLOSED',
                 pnl_percent=$4,
                 pnl_usdt=$5,
                 return_amount_usdt=$6
             WHERE id=$1
-            RETURNING id, user_id, qty, coin_buy_price, $2 as coin_sale_price, 
+            RETURNING id, user_id, qty, coin_buy_price, CAST($2 AS real) as coin_sale_price, 
                       $4 as pnl_percent, $5 as pnl_usdt, $6 as return_amount_usdt
         """, order_id, sale_price, dt.datetime.utcnow(), 
             pnl_percent, (sale_price - entry_price) * qty, return_amount)
