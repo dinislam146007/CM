@@ -96,9 +96,10 @@ async def close_order(order_id, sale_price):
         entry_price = order_data['coin_buy_price']
         
         # Рассчитываем прибыль/убыток
-        pnl_percent = ((sale_price - entry_price) / entry_price) * 100
+        pnl_percent = float(((sale_price - entry_price) / entry_price) * 100)
         # Сумма к возврату: вложенные средства + прибыль (или - убыток)
-        return_amount = qty * sale_price  # Текущая стоимость позиции
+        return_amount = float(qty * sale_price)  # Текущая стоимость позиции
+        pnl_usdt = float((sale_price - entry_price) * qty)
         
         # Обновляем баланс пользователя (возвращаем средства с учетом P&L)
         await conn.execute("""
@@ -111,14 +112,14 @@ async def close_order(order_id, sale_price):
             SET coin_sale_price=$2::real,
                 sale_time=$3,
                 status='CLOSED',
-                pnl_percent=$4,
-                pnl_usdt=$5,
-                return_amount_usdt=$6
+                pnl_percent=$4::numeric,
+                pnl_usdt=$5::real,
+                return_amount_usdt=$6::real
             WHERE id=$1
             RETURNING id, user_id, qty, coin_buy_price, CAST($2 AS real) as coin_sale_price, 
-                      $4 as pnl_percent, $5 as pnl_usdt, $6 as return_amount_usdt
+                      CAST($4 AS numeric) as pnl_percent, CAST($5 AS real) as pnl_usdt, CAST($6 AS real) as return_amount_usdt
         """, order_id, sale_price, dt.datetime.utcnow(), 
-            pnl_percent, (sale_price - entry_price) * qty, return_amount)
+            pnl_percent, pnl_usdt, return_amount)
         
         # Завершаем транзакцию
         await tr.commit()
