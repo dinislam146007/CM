@@ -563,12 +563,16 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
     if action == 'start':
         total_trades, profitable_trades, loss_trades, total_profit = await get_daily_statistics(callback.from_user.id)
 
+        # Определяем тип профита: убыток или прибыль
+        profit_emoji = "💰🔋" if total_profit >= 0 else "🤕🪫"
+        profit_text = "Чистый профит:" if total_profit >= 0 else "Убыток:"
+        
         msg = (
             "📊Сделки, совершенные ботом за текущий день:\n\n"
             f"♻️ Общее количество сделок: {total_trades}\n\n"
             f"📗В прибыль: {profitable_trades} {plural_form(profitable_trades, ['сделка', 'сделки', 'сделок'])} (Подробнее)\n"
             f"📕В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])} (Подробнее)\n\n"
-            f"Чистый профит: {total_profit:.2f}$ 💰🔋"
+            f"{profit_text} {abs(total_profit):.2f}$ {profit_emoji}"
         )
         profit = len(await get_stat_db(callback.from_user.id, 'profit'))
         lois = len(await get_stat_db(callback.from_user.id, 'loise'))
