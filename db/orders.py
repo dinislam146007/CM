@@ -182,23 +182,27 @@ async def get_daily_profit(user_id, date):
     :param date: Дата (объект datetime.date)
     :return: Суммарный профит в USDT
     """
-    async with aiosqlite.connect('db/tg_bot.db') as db:
+    conn = await connect()
+    try:
         # Конвертируем дату в строку формата YYYY-MM-DD для сравнения
         date_str = date.strftime('%Y-%m-%d')
         
-        # Ищем все закрытые ордера пользователя за указанный день
-        cursor = await db.execute(
-            """
-            SELECT SUM(pnl_usdt) FROM orders 
-            WHERE user_id = ? AND status = 'closed' 
-            AND strftime('%Y-%m-%d', datetime(close_time, 'unixepoch')) = ?
-            """, 
-            (user_id, date_str)
-        )
-        result = await cursor.fetchone()
+        # Запрос на получение суммы прибыли за день
+        row = await conn.fetchrow("""
+            SELECT SUM(pnl_usdt) as daily_profit
+            FROM orders 
+            WHERE user_id = $1 
+            AND status = 'CLOSED'
+            AND DATE(sale_time) = $2
+        """, user_id, date_str)
         
         # Если нет закрытых ордеров или сумма NULL, возвращаем 0
-        return result[0] if result and result[0] is not None else 0.0
+        return row['daily_profit'] if row and row['daily_profit'] is not None else 0.0
+    except Exception as e:
+        print(f"Ошибка при получении дневного профита: {e}")
+        return 0.0
+    finally:
+        await conn.close()
 
 async def get_order_by_id(order_id):
     """Получение информации о конкретном ордере по его ID"""
