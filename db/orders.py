@@ -210,4 +210,28 @@ async def get_order_by_id(order_id):
     await conn.close()
     return dict(row) if row else None
 
+# Aliases and additional functions needed by main_strategy.py
+async def get_open_orders(user_id):
+    """Алиас для get_user_open_orders для совместимости"""
+    return await get_user_open_orders(user_id)
+    
+async def save_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price):
+    """Сохранение нового ордера (алиас для create_order для совместимости)"""
+    return await create_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price)
+
+async def get_active_positions(user_id):
+    """Получение всех активных позиций пользователя"""
+    return await get_user_open_orders(user_id)
+    
+async def get_active_btc_position_size(user_id):
+    """Получение активной BTC позиции пользователя"""
+    conn = await connect()
+    row = await conn.fetchrow("""
+        SELECT SUM(qty * coin_buy_price) as position_size
+        FROM orders
+        WHERE user_id=$1 AND symbol='BTCUSDT' AND status='OPEN'
+    """, user_id)
+    await conn.close()
+    return row['position_size'] if row and row['position_size'] is not None else 0.0
+
 
