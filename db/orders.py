@@ -137,43 +137,49 @@ async def close_order(order_id, sale_price):
 # Add the missing functions
 async def get_user_open_orders(user_id):
     """Получение списка открытых ордеров пользователя"""
-    conn = await connect()
-    rows = await conn.fetch("""
-        SELECT * FROM orders
-        WHERE user_id=$1 AND status='OPEN'
-        ORDER BY buy_time DESC
-    """, user_id)
-    await conn.close()
-    return [dict(row) for row in rows]
+    return await get_all_orders(user_id, 'open')
 
 async def get_user_closed_orders(user_id):
     """Получение списка закрытых ордеров пользователя"""
-    conn = await connect()
-    rows = await conn.fetch("""
-        SELECT * FROM orders
-        WHERE user_id=$1 AND status='CLOSED'
-        ORDER BY sale_time DESC
-    """, user_id)
-    await conn.close()
-    return [dict(row) for row in rows]
+    return await get_all_orders(user_id, 'close')
 
 # Helper function to get all orders of a specific type (open/closed)
-async def get_all_orders(user_id, order_type):
+async def get_all_orders(user_id, order_type, from_date=None):
     """Получение всех ордеров определенного типа для пользователя"""
-    if order_type == 'open':
-        return await get_user_open_orders(user_id)
-    elif order_type == 'close':
-        return await get_user_closed_orders(user_id)
-    else:
-        # Default to returning all orders
-        conn = await connect()
-        rows = await conn.fetch("""
-            SELECT * FROM orders
-            WHERE user_id=$1
-            ORDER BY buy_time DESC
-        """, user_id)
-        await conn.close()
+    conn = await connect()
+    try:
+        if order_type == 'open':
+            rows = await conn.fetch("""
+                SELECT * FROM orders
+                WHERE user_id=$1 AND status='OPEN'
+                ORDER BY buy_time DESC
+            """, user_id)
+        elif order_type == 'close':
+            # If from_date is provided, filter by sale_time
+            if from_date is not None:
+                rows = await conn.fetch("""
+                    SELECT * FROM orders
+                    WHERE user_id=$1 AND status='CLOSED'
+                    AND EXTRACT(EPOCH FROM sale_time) >= $2
+                    ORDER BY sale_time DESC
+                """, user_id, from_date)
+            else:
+                rows = await conn.fetch("""
+                    SELECT * FROM orders
+                    WHERE user_id=$1 AND status='CLOSED'
+                    ORDER BY sale_time DESC
+                """, user_id)
+        else:
+            # Default to returning all orders
+            rows = await conn.fetch("""
+                SELECT * FROM orders
+                WHERE user_id=$1
+                ORDER BY buy_time DESC
+            """, user_id)
+        
         return [dict(row) for row in rows]
+    finally:
+        await conn.close()
 
 async def get_daily_profit(user_id, date):
     """

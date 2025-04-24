@@ -24,14 +24,13 @@ def subscription_management_inline(group):
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-def stat_inline(profit, lesion):
+def stat_inline(profit=0, lesion=0):
     kb = [
         [
-            InlineKeyboardButton(text=f'Прибыльные ({profit})', callback_data='stat profit 0'),
-            InlineKeyboardButton(text=f'Убыточные ({lesion})', callback_data='stat lesion 0')
+            InlineKeyboardButton(text='Все сделки', callback_data='stat all 0')
         ],
         [InlineKeyboardButton(text='Скачать таблицу со статистикой', callback_data='table stat')],
-        [InlineKeyboardButton(text='Статистика за определенный период', callback_data='stat data')],
+        [InlineKeyboardButton(text='Статистика за определенный период', callback_data='stat period')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -163,25 +162,13 @@ def orders_inline_n(n,status, len_n, back):
 
 def stat_inline_n(n,status, len_n, back):
     kb = [
-        [InlineKeyboardButton(text=f"{n+1}/{len_n}", callback_data="ignore")],
+        [InlineKeyboardButton(text=f"Страница {n+1}/{len_n}", callback_data="ignore")],
         [InlineKeyboardButton(text='<-', callback_data=f'stat {status} {n - 1}'),
          InlineKeyboardButton(text='Назад', callback_data=f'{back} start'),
          InlineKeyboardButton(text='->', callback_data=f'stat {status} {n + 1}')
          ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
-
-
-def stat_inline_n(n,status, len_n):
-    kb = [
-        [InlineKeyboardButton(text=f"{n+1}/{len_n}", callback_data="ignore")],
-        [InlineKeyboardButton(text='<-', callback_data=f'stat {status} {n - 1}'),
-         InlineKeyboardButton(text='Назад', callback_data='stat start'),
-         InlineKeyboardButton(text='->', callback_data=f'stat {status} {n + 1}')
-         ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=kb)
-
 
 def interval_inline(status, n,len_n):
     kb = [
@@ -198,5 +185,20 @@ def interval_inline(status, n,len_n):
         InlineKeyboardButton(text='ТФ - 30m', callback_data=f'signals_{n} {status}_30m 0')
         ],
         [InlineKeyboardButton(text='Назад', callback_data=f'signals start 0')],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def stat_period_inline():
+    kb = [
+        [
+            InlineKeyboardButton(text='За неделю', callback_data='stat period_week'),
+            InlineKeyboardButton(text='За месяц', callback_data='stat period_month')
+        ],
+        [
+            InlineKeyboardButton(text='За год', callback_data='stat period_year'),
+            InlineKeyboardButton(text='За всё время', callback_data='stat period_all')
+        ],
+        [InlineKeyboardButton(text='Выбрать даты', callback_data='stat data')],
+        [InlineKeyboardButton(text='Назад', callback_data='stat start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
