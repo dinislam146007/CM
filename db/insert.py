@@ -84,3 +84,65 @@ async def buy_order(user_id:int, interval: str,
         )
     finally:
         await conn.close()
+
+# Add the missing function - it should just be an alias for add_subscription
+async def insert_user_subscriptions(user_id: int, symbol: str, interval: str) -> None:
+    """
+    Alias for add_subscription to maintain compatibility
+    """
+    await add_subscription(user_id, symbol, interval)
+
+# Add function for setting a user's liked coins
+async def set_user_like(user_id: int, symbol: str) -> None:
+    """
+    Add a coin to a user's list of liked coins
+    """
+    conn = await connect()
+    try:
+        # First, get the current list
+        row = await conn.fetchrow(
+            """
+            SELECT crypto_pairs FROM users WHERE user_id = $1
+            """,
+            user_id
+        )
+        
+        # Extract current pairs or initialize empty
+        current_pairs = []
+        if row and row['crypto_pairs']:
+            current_pairs = row['crypto_pairs'].split(',')
+        
+        # Add the new symbol if not already in the list
+        if symbol not in current_pairs:
+            current_pairs.append(symbol)
+        
+        # Join the pairs and update
+        new_pairs = ','.join(current_pairs)
+        
+        await conn.execute(
+            """
+            UPDATE users SET crypto_pairs = $2 WHERE user_id = $1
+            """,
+            user_id, new_pairs
+        )
+    finally:
+        await conn.close()
+
+# Add function for inserting order price data
+async def insert_user_order_price(user_id: int, symbol: str, interval: str, price: float) -> None:
+    """
+    Insert or update user's order price for a specific symbol and interval
+    """
+    conn = await connect()
+    try:
+        await conn.execute(
+            """
+            INSERT INTO orders (user_id, symbol, interval, coin_buy_price, buy_time)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT (user_id, symbol, interval) DO UPDATE
+            SET coin_buy_price = $4, buy_time = NOW()
+            """,
+            user_id, symbol, interval, price
+        )
+    finally:
+        await conn.close()

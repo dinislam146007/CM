@@ -25,9 +25,7 @@ from db.select import (get_user, get_signal, get_active_order, get_user_orders,
                      select_user_signals_stat, get_user_liked_coins, get_symbol_data,
                      get_signal_data_by_symbol_tf, select_count, get_tf_stat,
                      count_total_open, get_signal_data)
-from db.insert import set_user, set_signal, insert_user_subscriptions, set_user_like, insert_user_order_price
-from db.update import update_user_percentage, change_signal_status, update_signal, change_orders_status, \
-    update_user_balance
+from db.insert import set_user
 from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
 
 router = Router()
