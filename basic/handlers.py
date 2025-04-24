@@ -12,9 +12,7 @@ import asyncio
 
 from basic.state import *
 from config import config
-from keyboard.calendar import create_calendar
 from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates
-from basic.utils import *
 import re
 from db.orders import get_user_open_orders, get_user_closed_orders
 from db.select import select_user_signals_stat, get_user_liked_coins, get_symbol_data, get_signal_data_by_symbol_tf, \
@@ -22,7 +20,6 @@ from db.select import select_user_signals_stat, get_user_liked_coins, get_symbol
 from db.insert import set_user, set_signal, insert_user_subscriptions, set_user_like, insert_user_order_price
 from db.update import update_user_percentage, change_signal_status, update_signal, change_orders_status, \
     update_user_balance
-from db.delete import delete_subscription, delete_user_like_coin
 from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
 
 router = Router()
