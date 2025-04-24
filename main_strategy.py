@@ -284,6 +284,9 @@ async def process_tf(tf: str):
                             await bot.send_message(uid, message)
                             
                         except Exception as e:
+                            await bot.send_message(uid, f"Ошибка при закрытии ордера")
+                            await bot.send_message(uid, f"Ошибка при закрытии ордера: {e}")
+
                             print(f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
         await wait_for_next_candle(tf)
