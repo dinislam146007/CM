@@ -18,7 +18,8 @@ from strategy_logic.price_action import get_pattern_price_action
 from deepseek.deepsekk import analyze_trading_signals
 from config import config
 from strategy_logic.stop_loss import *
-from strategy_logic.moon_bot_strategy import StrategyMoonBot, load_strategy_params,Context
+from strategy_logic.moon_bot_strategy import StrategyMoonBot, load_strategy_params, Context
+# Initialize moon bot with default params initially - will be replaced with user-specific in the processing loop
 moon = StrategyMoonBot(load_strategy_params())
 from db.orders import *
 
@@ -161,10 +162,13 @@ async def process_tf(tf: str):
             for uid in users:
                 open_order = await get_open_order(uid, symbol, tf)
 
+                # Get user-specific strategy parameters
+                user_moon = StrategyMoonBot(load_strategy_params(uid))
+                
                 # ---------- вход ----------
                 if open_order is None:
-                    if moon.check_coin(symbol, df5, ctx) and moon.should_place_order(dft):
-                        order_dict = moon.build_order(dft)
+                    if user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft):
+                        order_dict = user_moon.build_order(dft)
                         entry = order_dict["price"]
                         tp  = order_dict["take_profit"]
                         sl  = order_dict["stop_loss"]

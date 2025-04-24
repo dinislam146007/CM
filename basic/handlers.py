@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 from keyboard.inline import *
 from aiogram.fsm.context import FSMContext
@@ -12,6 +12,18 @@ import asyncio
 
 from basic.state import *
 from config import config
+from keyboard.calendar import create_calendar
+from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates
+from basic.utils import *
+import re
+from db.orders import get_user_open_orders, get_user_closed_orders
+from db.select import select_user_signals_stat, get_user_liked_coins, get_symbol_data, get_signal_data_by_symbol_tf, \
+    select_count, get_user, get_tf_stat, count_total_open, get_signal_data
+from db.insert import set_user, set_signal, insert_user_subscriptions, set_user_like, insert_user_order_price
+from db.update import update_user_percentage, change_signal_status, update_signal, change_orders_status, \
+    update_user_balance
+from db.delete import delete_subscription, delete_user_like_coin
+from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
 
 router = Router()
 
@@ -591,6 +603,8 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
 async def start_message(message: Message, bot: Bot):
     if not await get_user(message.from_user.id):
         await set_user(message.from_user.id, 5.0, 50000.0)
+        # Initialize default strategy parameters for the new user
+        reset_user_params(message.from_user.id)
     user = await get_user(message.from_user.id)
     await message.answer(
         f"Бот по обработке фильтра CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms\nВаш баланс: {round(user['balance'])}$  💸",
@@ -686,7 +700,7 @@ async def orders(callback: CallbackQuery, bot: Bot):
         for i, form in enumerate(forms, 1):
             if action == 'profit':
                 profit = form['sale_price'] - form['buy_price']
-                profit_text = f"(+{round(profit, 2)}$��)"
+                profit_text = f"(+{round(profit, 2)}$💸)"
             else:
                 loss = form['buy_price'] - form['sale_price']
                 profit_text = f"(-{round(loss, 2)}$🤕)"
@@ -1009,24 +1023,135 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         )
         await state.set_state(EditPercent.new)
         await state.update_data(last_msg=msg.message_id)
-    
+    elif action == 'strategy':
+        user_params = load_user_params(callback.from_user.id)
+        text = "Настройки параметров торговой стратегии Moon Bot\n\n"
+        text += "Выберите параметр для изменения:"
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=strategy_params_inline()
+        )
 
-@router.message(EditPercent.new)
-async def edit_percent(message: Message, state: FSMContext, bot: Bot):
+@router.callback_query(F.data.startswith('strategy'))
+async def strategy_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    action = callback.data.split()[1]
+    if action == 'reset':
+        reset_user_params(callback.from_user.id)
+        await callback.answer("Настройки стратегии сброшены к стандартным значениям")
+        await callback.message.edit_text(
+            "Настройки параметров торговой стратегии Moon Bot\n\n"
+            "Параметры сброшены к стандартным значениям.\n"
+            "Выберите параметр для изменения:",
+            reply_markup=strategy_params_inline()
+        )
+    elif action in ['OrderSize', 'TakeProfit', 'StopLoss', 'MinVolume', 'MaxVolume', 'MinHourlyVolume', 'MaxHourlyVolume', 'Delta_3h_Max', 'Delta_24h_Max', 'Delta2_Max', 'Delta_BTC_Min', 'Delta_BTC_Max']:
+        user_params = load_user_params(callback.from_user.id)
+        current_value = user_params.get(action, "не установлено")
+        kb = [
+            [InlineKeyboardButton(text='Назад', callback_data='settings strategy')]
+        ]
+        msg = await callback.message.edit_text(
+            f"Изменение параметра: {action}\n"
+            f"Текущее значение: {current_value}\n\n"
+            f"Введите новое значение:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+        await state.set_state(StrategyParamStates.edit_param)
+        await state.update_data(param_name=action, last_msg=msg.message_id)
+    elif action == 'CoinsBlackList':
+        user_params = load_user_params(callback.from_user.id)
+        blacklist = user_params.get('CoinsBlackList', set())
+        blacklist_str = ", ".join(sorted(blacklist)) if blacklist else "пусто"
+        kb = [
+            [InlineKeyboardButton(text='Назад', callback_data='settings strategy')]
+        ]
+        msg = await callback.message.edit_text(
+            f"Изменение черного списка монет\n"
+            f"Текущий черный список: {blacklist_str}\n\n"
+            f"Введите список монет через запятую (например: BTC,ETH,XRP):",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+        await state.set_state(StrategyParamStates.edit_blacklist)
+        await state.update_data(last_msg=msg.message_id)
+
+@router.message(StrategyParamStates.edit_param)
+async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    await bot.delete_message(chat_id=message.from_user.id, message_id=data['last_msg'])
+    param_name = data.get('param_name')
+    
     try:
-        percent = float(message.text)
-        await up_percent(message.from_user.id, percent)
-        await message.answer('Процент обновлен!')
-        await state.clear()
+        # Delete the previous message
+        try:
+            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Convert input to proper type
+        param_value = float(message.text.strip())
+        
+        # Update parameter
+        success = update_user_param(message.from_user.id, param_name, param_value)
+        
+        if success:
+            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+        else:
+            await message.answer(f"Не удалось обновить параметр {param_name}")
+        
+        # Show settings menu again
+        await message.answer(
+            "Настройки параметров торговой стратегии Moon Bot\n\n"
+            "Выберите параметр для изменения:",
+            reply_markup=strategy_params_inline()
+        )
     except ValueError:
         await message.answer(
-            'Введите число!', 
-            reply_markup=close_state()
+            "Ошибка: значение должно быть числом.\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings strategy')]
+            ])
         )
-        return
     
+    await state.clear()
+
+@router.message(StrategyParamStates.edit_blacklist)
+async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    
+    try:
+        # Delete the previous message
+        try:
+            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Process blacklist input
+        blacklist_str = message.text.strip().upper()
+        
+        # Update parameter
+        success = update_user_param(message.from_user.id, 'CoinsBlackList', blacklist_str)
+        
+        if success:
+            await message.answer("Черный список монет успешно обновлен")
+        else:
+            await message.answer("Не удалось обновить черный список монет")
+        
+        # Show settings menu again
+        await message.answer(
+            "Настройки параметров торговой стратегии Moon Bot\n\n"
+            "Выберите параметр для изменения:",
+            reply_markup=strategy_params_inline()
+        )
+    except Exception as e:
+        await message.answer(
+            f"Ошибка при обновлении черного списка: {e}\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings strategy')]
+            ])
+        )
+    
+    await state.clear()
 
 @router.callback_query(F.data == 'close_state')
 async def close_state_cal(callback: CallbackQuery, state: FSMContext):

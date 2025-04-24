@@ -79,17 +79,25 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     # -------- order sizing / exits --------
     "OrderSize": 2_500.0,          # fixed USDT per order
     "SellPrice": 0.4,              # legacy field – not used directly here
-    "TakeProfit": 2.0,             # +2 % TP
-    "StopLoss": -0.4,              # –0.4 % SL
+    "TakeProfit": 2.0,             # +2 % TP
+    "StopLoss": -0.4,              # –0.4 % SL
     # second/third stop blocks skipped for brevity – extend if needed
 }
 
 
-def load_strategy_params() -> Dict[str, Any]:
-    """Return a *copy* of the default MoonBot parameter set.
-
-    In production you might parse a *.ini* or DB record to override defaults.
+def load_strategy_params(user_id: Optional[int] = None) -> Dict[str, Any]:
+    """Return strategy parameters for a specific user or default parameters.
+    
+    If user_id is provided and user has custom parameters, return those.
+    Otherwise, return a copy of the default parameters.
     """
+    if user_id is not None:
+        try:
+            # Use relative import to avoid circular import issues
+            from strategy_logic.user_strategy_params import load_user_params
+            return load_user_params(user_id)
+        except Exception as e:
+            print(f"Error loading user parameters: {e}")
 
     return DEFAULT_PARAMS.copy()
 

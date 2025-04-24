@@ -106,7 +106,21 @@ def orders_inline(open, close):
 def settings_inline():
     kb = [
         [InlineKeyboardButton(text='Изменить процент', callback_data='settings percent')],
+        [InlineKeyboardButton(text='Параметры торговой стратегии', callback_data='settings strategy')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def strategy_params_inline():
+    kb = [
+        [InlineKeyboardButton(text='Объем ордера (USDT)', callback_data='strategy OrderSize')],
+        [InlineKeyboardButton(text='Take Profit (%)', callback_data='strategy TakeProfit')],
+        [InlineKeyboardButton(text='Stop Loss (%)', callback_data='strategy StopLoss')],
+        [InlineKeyboardButton(text='Черный список монет', callback_data='strategy CoinsBlackList')],
+        [InlineKeyboardButton(text='Мин. объем торгов', callback_data='strategy MinVolume')],
+        [InlineKeyboardButton(text='Макс. объем торгов', callback_data='strategy MaxVolume')],
+        [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='strategy reset')],
+        [InlineKeyboardButton(text='Назад', callback_data='settings start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
