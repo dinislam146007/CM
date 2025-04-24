@@ -327,3 +327,130 @@ async def fetch_stat(user_id: int):
         return [], []
     finally:
         await conn.close()
+
+# Helper function in case it's needed elsewhere
+async def count_total_open(user_id: int) -> int:
+    """Count the total number of open orders for a user"""
+    conn = await connect()
+    try:
+        count = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM orders
+            WHERE user_id = $1 AND coin_sale_price IS NULL
+            """,
+            user_id
+        )
+        return count if count is not None else 0
+    finally:
+        await conn.close()
+
+# In case it's needed elsewhere
+async def get_tf_stat(user_id: int, interval: str):
+    """Get stats for a specific timeframe"""
+    conn = await connect()
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT * 
+            FROM orders
+            WHERE user_id = $1 AND interval = $2
+            """,
+            user_id, interval
+        )
+        return [dict(row) for row in rows] if rows else []
+    finally:
+        await conn.close()
+
+# In case it's needed elsewhere
+async def get_symbol_data(symbol: str):
+    """Get all data for a specific symbol"""
+    conn = await connect()
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT * 
+            FROM signals
+            WHERE symbol = $1
+            """,
+            symbol
+        )
+        return [dict(row) for row in rows] if rows else []
+    finally:
+        await conn.close()
+
+# In case it's needed elsewhere
+async def get_signal_data_by_symbol_tf(symbol: str, interval: str):
+    """Get signal data for a specific symbol and timeframe"""
+    conn = await connect()
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT * 
+            FROM signals
+            WHERE symbol = $1 AND interval = $2
+            """,
+            symbol, interval
+        )
+        return dict(row) if row else None
+    finally:
+        await conn.close()
+
+# In case it's needed elsewhere
+async def get_signal_data(symbol: str, interval: str):
+    """Alias for get_signal_data_by_symbol_tf"""
+    return await get_signal_data_by_symbol_tf(symbol, interval)
+
+# In case it's needed elsewhere
+async def get_user_liked_coins(user_id: int):
+    """Get list of liked coins for a user"""
+    conn = await connect()
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT crypto_pairs
+            FROM users
+            WHERE user_id = $1
+            """,
+            user_id
+        )
+        if row and row['crypto_pairs']:
+            return row['crypto_pairs'].split(',')
+        return []
+    finally:
+        await conn.close()
+
+# In case it's needed elsewhere
+async def select_count(table: str, condition: str = None, params: list = None):
+    """Count records in table with optional condition"""
+    conn = await connect()
+    try:
+        query = f"SELECT COUNT(*) FROM {table}"
+        if condition:
+            query += f" WHERE {condition}"
+        
+        if params:
+            count = await conn.fetchval(query, *params)
+        else:
+            count = await conn.fetchval(query)
+            
+        return count if count is not None else 0
+    finally:
+        await conn.close()
+
+# This function might be renamed to select_user_signals_stat in some references
+async def select_user_signals_stat(user_id: int):
+    """Get signal statistics for a user"""
+    conn = await connect()
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT * 
+            FROM orders
+            WHERE user_id = $1 AND coin_sale_price IS NOT NULL
+            """,
+            user_id
+        )
+        return [dict(row) for row in rows] if rows else []
+    finally:
+        await conn.close()
