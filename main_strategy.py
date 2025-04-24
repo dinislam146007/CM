@@ -22,6 +22,10 @@ from strategy_logic.moon_bot_strategy import StrategyMoonBot, load_strategy_para
 # Initialize moon bot with default params initially - will be replaced with user-specific in the processing loop
 moon = StrategyMoonBot(load_strategy_params())
 from db.orders import *
+import datetime as dt
+from db.orders import get_open_orders, get_order_by_id, close_order, save_order, get_active_positions
+from db.orders import get_active_btc_position_size, get_daily_profit
+import pytz
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -230,14 +234,55 @@ async def process_tf(tf: str):
                             pnl_emoji = "🔴" if pnl_percent < 0 else "🟢"
                             pnl_text = "Убыток" if pnl_percent < 0 else "Прибыль"
                             
-                            await bot.send_message(
-                                uid,
-                                f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n"
-                                f"Цена выхода: {exit_price:.4f} USDT ({'Цель достигнута' if hit_tp else 'Стоп-лосс сработал'})\n"
-                                f"Количество: {qty:.6f} ({(qty * exit_price):.2f} USDT)\n"
-                                f"{pnl_emoji} {pnl_text}: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
-                                f"💰 Баланс: {new_balance:.2f} USDT (+{return_amount:.2f} USDT)"
-                            )
+                            # Получаем текущую дату и время в московском времени (+3 часа)
+                            now = dt.datetime.now() + dt.timedelta(hours=3)
+                            current_date = now.strftime('%d.%m.%Y')
+                            current_time = now.strftime('%H:%M')
+                            
+                            # Преобразуем время открытия ордера (предполагаем, что оно хранится в UTC)
+                            buy_time_utc = dt.datetime.fromisoformat(str(open_order["buy_time"]).replace('Z', ''))
+                            buy_time_moscow = buy_time_utc + dt.timedelta(hours=3)  # Переводим в московское время
+                            buy_date = buy_time_moscow.strftime('%d.%m.%Y')
+                            buy_time = buy_time_moscow.strftime('%H:%M')
+                            
+                            # Получаем общий профит за день
+                            today = dt.date.today()
+                            daily_profit = await get_daily_profit(uid, today)
+                            
+                            # Создаем сообщение в зависимости от типа закрытия (TP или SL)
+                            if hit_tp:
+                                message = (
+                                    f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n\n"
+                                    f"🎯✅ Достигнут Тейк-Профит\n"
+                                    f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
+                                    f"♻️Точка входа: {entry_price:.2f}$\n"
+                                    f"📈Цена продажи: {exit_price:.4f}$\n"
+                                    f"🛑Продано: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * exit_price):.2f} USDT)\n\n"
+                                    f"📆Сделка была открыта: {buy_date}\n"
+                                    f"🕐Время открытия: {buy_time} Мск\n"
+                                    f"📉ТФ открытия сделки: {tf}\n"
+                                    f"Направление: Long 🔰\n\n"
+                                    f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                                    f"💰 Текущий баланс: {new_balance:.2f} USDT"
+                                )
+                            else:  # hit_sl
+                                message = (
+                                    f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n"
+                                    f"📛Закрыто по Стоп-лоссу\n"
+                                    f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
+                                    f"♻️Точка входа: {entry_price:.2f}$\n"
+                                    f"📈Цена продажи: {exit_price:.4f}$\n"
+                                    f"🛑Продано: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * exit_price):.2f} USDT)\n\n"
+                                    f"📆Сделка была открыта: {buy_date}\n"
+                                    f"🕐Время открытия: {buy_time} Мск\n"
+                                    f"📉ТФ открытия сделки: {tf}\n"
+                                    f"Направление: Long 🔰\n\n"
+                                    f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                                    f"💰 Текущий баланс: {new_balance:.2f} USDT"
+                                )
+                            
+                            await bot.send_message(uid, message)
+                            
                         except Exception as e:
                             print(f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
@@ -250,3 +295,80 @@ async def main():
         await exchange.close()  # Ensures resources are released
 
 asyncio.run(main())
+
+async def close_order_with_notification(user_id, order_id, current_price, close_reason):
+    # Получаем информацию об ордере
+    order = await get_order_by_id(order_id)
+    
+    if order:
+        # Закрываем ордер и обновляем данные
+        await close_order(order_id, current_price)
+        
+        # Рассчитываем прибыль/убыток
+        entry_price = order['entry_price']
+        pnl_percent = ((current_price - entry_price) / entry_price) * 100
+        if order['position_side'] == 'SHORT':
+            pnl_percent = -pnl_percent
+        pnl = (current_price - entry_price) * order['qty']
+        if order['position_side'] == 'SHORT':
+            pnl = -pnl
+            
+        # Получаем текущую дату и время в МСК
+        moscow_tz = pytz.timezone('Europe/Moscow')
+        now = datetime.datetime.now(moscow_tz)
+        current_date = now.strftime('%d.%m.%Y')
+        current_time = now.strftime('%H:%M')
+        
+        # Конвертируем время открытия ордера из UTC в МСК
+        buy_time_utc = datetime.datetime.fromtimestamp(order['open_time'])
+        buy_time_moscow = pytz.utc.localize(buy_time_utc).astimezone(moscow_tz)
+        buy_date = buy_time_moscow.strftime('%d.%m.%Y')
+        buy_time = buy_time_moscow.strftime('%H:%M')
+        
+        # Получаем суммарный профит за день
+        daily_profit = await get_daily_profit(user_id, now.date())
+        
+        # Получаем обновленный баланс после возврата средств
+        new_balance = await get_user_balance(user_id)
+        
+        # Определяем направление и символ
+        direction = "Long 🔰" if order['position_side'] == 'LONG' else "Short 🔻"
+        symbol_base = order['symbol'].replace('USDT', '')
+        
+        # Форматируем разные сообщения в зависимости от причины закрытия
+        if close_reason == "TP":
+            message = (
+                f"🔴 <b>ПРОДАЖА</b> {order['symbol']} {order['timeframe']}\n\n"
+                f"🎯✅ Достигнут Тейк-Профит\n"
+                f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                f"♻️Точка входа: {entry_price:.2f}$\n"
+                f"📈Цена продажи: {current_price:.4f}$\n"
+                f"🛑Продано: {order['qty']:.6f} {symbol_base} ({(order['qty'] * current_price):.2f} USDT)\n\n"
+                f"📆Сделка была открыта: {buy_date}\n"
+                f"🕐Время открытия: {buy_time} Мск\n"
+                f"📉ТФ открытия сделки: {order['timeframe']}\n"
+                f"Направление: {direction}\n\n"
+                f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                f"💰 Текущий баланс: {new_balance:.2f} USDT"
+            )
+        else:  # SL
+            message = (
+                f"🔴 <b>ПРОДАЖА</b> {order['symbol']} {order['timeframe']}\n"
+                f"📛Закрыто по Стоп-лоссу\n"
+                f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                f"♻️Точка входа: {entry_price:.2f}$\n"
+                f"📈Цена продажи: {current_price:.4f}$\n"
+                f"🛑Продано: {order['qty']:.6f} {symbol_base} ({(order['qty'] * current_price):.2f} USDT)\n\n"
+                f"📆Сделка была открыта: {buy_date}\n"
+                f"🕐Время открытия: {buy_time} Мск\n"
+                f"📉ТФ открытия сделки: {order['timeframe']}\n"
+                f"Направление: {direction}\n\n"
+                f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                f"💰 Текущий баланс: {new_balance:.2f} USDT"
+            )
+        
+        # Отправляем сообщение пользователю
+        await bot.send_message(user_id, message)
+        
+        return True
+    return False
