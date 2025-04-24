@@ -1029,6 +1029,25 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
     elif action == 'strategy':
         user_params = load_user_params(callback.from_user.id)
         text = "Настройки параметров торговой стратегии Moon Bot\n\n"
+        
+        # Display current parameters
+        text += "📊 Текущие параметры:\n"
+        text += f"💰 Объем ордера: {user_params['OrderSize']} USDT\n"
+        text += f"📈 Take Profit: {user_params['TakeProfit']}%\n"
+        text += f"📉 Stop Loss: {user_params['StopLoss']}%\n"
+        text += f"📊 Мин. объем торгов: {user_params['MinVolume']}\n"
+        text += f"📊 Макс. объем торгов: {user_params['MaxVolume']}\n"
+        text += f"🕒 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
+        text += f"🕒 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
+        text += f"🕒 Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
+        text += f"₿ BTC мин. движение: {user_params['Delta_BTC_Min']}%\n"
+        text += f"₿ BTC макс. движение: {user_params['Delta_BTC_Max']}%\n"
+        
+        # Convert blacklist set to string
+        blacklist = user_params.get('CoinsBlackList', set())
+        blacklist_str = ", ".join(sorted(blacklist)) if blacklist else "пусто"
+        text += f"⛔ Черный список: {blacklist_str}\n\n"
+        
         text += "Выберите параметр для изменения:"
         await callback.message.edit_text(
             text=text,
@@ -1041,10 +1060,35 @@ async def strategy_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
     if action == 'reset':
         reset_user_params(callback.from_user.id)
         await callback.answer("Настройки стратегии сброшены к стандартным значениям")
+        
+        # Get the default parameters
+        default_params = load_user_params(callback.from_user.id)
+        
+        text = "Настройки параметров торговой стратегии Moon Bot\n\n"
+        text += "Параметры сброшены к стандартным значениям.\n\n"
+        
+        # Display current parameters
+        text += "📊 Текущие параметры:\n"
+        text += f"💰 Объем ордера: {default_params['OrderSize']} USDT\n"
+        text += f"📈 Take Profit: {default_params['TakeProfit']}%\n"
+        text += f"📉 Stop Loss: {default_params['StopLoss']}%\n"
+        text += f"📊 Мин. объем торгов: {default_params['MinVolume']}\n"
+        text += f"📊 Макс. объем торгов: {default_params['MaxVolume']}\n"
+        text += f"🕒 Макс. движение за 3ч: {default_params['Delta_3h_Max']}%\n"
+        text += f"🕒 Макс. движение за 24ч: {default_params['Delta_24h_Max']}%\n"
+        text += f"🕒 Макс. движение за 5м: {default_params['Delta2_Max']}%\n"
+        text += f"₿ BTC мин. движение: {default_params['Delta_BTC_Min']}%\n"
+        text += f"₿ BTC макс. движение: {default_params['Delta_BTC_Max']}%\n"
+        
+        # Convert blacklist set to string
+        blacklist = default_params.get('CoinsBlackList', set())
+        blacklist_str = ", ".join(sorted(blacklist)) if blacklist else "пусто"
+        text += f"⛔ Черный список: {blacklist_str}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
         await callback.message.edit_text(
-            "Настройки параметров торговой стратегии Moon Bot\n\n"
-            "Параметры сброшены к стандартным значениям.\n"
-            "Выберите параметр для изменения:",
+            text=text,
             reply_markup=strategy_params_inline()
         )
     elif action in ['OrderSize', 'TakeProfit', 'StopLoss', 'MinVolume', 'MaxVolume', 'MinHourlyVolume', 'MaxHourlyVolume', 'Delta_3h_Max', 'Delta_24h_Max', 'Delta2_Max', 'Delta_BTC_Min', 'Delta_BTC_Max']:
@@ -1097,15 +1141,44 @@ async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
         
         if success:
             await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            
+            # Get updated parameters
+            user_params = load_user_params(message.from_user.id)
+            
+            text = "Настройки параметров торговой стратегии Moon Bot\n\n"
+            
+            # Display current parameters
+            text += "📊 Текущие параметры:\n"
+            text += f"💰 Объем ордера: {user_params['OrderSize']} USDT\n"
+            text += f"📈 Take Profit: {user_params['TakeProfit']}%\n"
+            text += f"📉 Stop Loss: {user_params['StopLoss']}%\n"
+            text += f"📊 Мин. объем торгов: {user_params['MinVolume']}\n"
+            text += f"📊 Макс. объем торгов: {user_params['MaxVolume']}\n"
+            text += f"🕒 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
+            text += f"🕒 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
+            text += f"🕒 Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
+            text += f"₿ BTC мин. движение: {user_params['Delta_BTC_Min']}%\n"
+            text += f"₿ BTC макс. движение: {user_params['Delta_BTC_Max']}%\n"
+            
+            # Convert blacklist set to string
+            blacklist = user_params.get('CoinsBlackList', set())
+            blacklist_str = ", ".join(sorted(blacklist)) if blacklist else "пусто"
+            text += f"⛔ Черный список: {blacklist_str}\n\n"
+            
+            text += "Выберите параметр для изменения:"
+            
+            # Show settings menu again with current parameters
+            await message.answer(
+                text=text,
+                reply_markup=strategy_params_inline()
+            )
         else:
             await message.answer(f"Не удалось обновить параметр {param_name}")
-        
-        # Show settings menu again
-        await message.answer(
-            "Настройки параметров торговой стратегии Moon Bot\n\n"
-            "Выберите параметр для изменения:",
-            reply_markup=strategy_params_inline()
-        )
+            await message.answer(
+                "Настройки параметров торговой стратегии Moon Bot\n\n"
+                "Выберите параметр для изменения:",
+                reply_markup=strategy_params_inline()
+            )
     except ValueError:
         await message.answer(
             "Ошибка: значение должно быть числом.\n"
@@ -1136,15 +1209,44 @@ async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
         
         if success:
             await message.answer("Черный список монет успешно обновлен")
+            
+            # Get updated parameters
+            user_params = load_user_params(message.from_user.id)
+            
+            text = "Настройки параметров торговой стратегии Moon Bot\n\n"
+            
+            # Display current parameters
+            text += "📊 Текущие параметры:\n"
+            text += f"💰 Объем ордера: {user_params['OrderSize']} USDT\n"
+            text += f"📈 Take Profit: {user_params['TakeProfit']}%\n"
+            text += f"📉 Stop Loss: {user_params['StopLoss']}%\n"
+            text += f"📊 Мин. объем торгов: {user_params['MinVolume']}\n"
+            text += f"📊 Макс. объем торгов: {user_params['MaxVolume']}\n"
+            text += f"🕒 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
+            text += f"🕒 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
+            text += f"🕒 Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
+            text += f"₿ BTC мин. движение: {user_params['Delta_BTC_Min']}%\n"
+            text += f"₿ BTC макс. движение: {user_params['Delta_BTC_Max']}%\n"
+            
+            # Convert blacklist set to string
+            blacklist = user_params.get('CoinsBlackList', set())
+            blacklist_str = ", ".join(sorted(blacklist)) if blacklist else "пусто"
+            text += f"⛔ Черный список: {blacklist_str}\n\n"
+            
+            text += "Выберите параметр для изменения:"
+            
+            # Show settings menu again with current parameters
+            await message.answer(
+                text=text,
+                reply_markup=strategy_params_inline()
+            )
         else:
             await message.answer("Не удалось обновить черный список монет")
-        
-        # Show settings menu again
-        await message.answer(
-            "Настройки параметров торговой стратегии Moon Bot\n\n"
-            "Выберите параметр для изменения:",
-            reply_markup=strategy_params_inline()
-        )
+            await message.answer(
+                "Настройки параметров торговой стратегии Moon Bot\n\n"
+                "Выберите параметр для изменения:",
+                reply_markup=strategy_params_inline()
+            )
     except Exception as e:
         await message.answer(
             f"Ошибка при обновлении черного списка: {e}\n"
