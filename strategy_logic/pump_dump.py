@@ -5,6 +5,7 @@ import time
 import aiohttp
 from pybit.unified_trading import WebSocket
 from config import config
+from strategy_logic.get_all_coins import get_usdt_pairs  # Добавляем импорт функции
 
 from aiogram import Bot, DefaultBotProperties
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -365,27 +366,39 @@ class BybitPumpDumpScreener:
         :param category:
         :return:
         """
-        url = 'https://api.bybit.com/v5/market/tickers'
-        params = {'category': category}
-        
+        # Пробуем получить список через get_usdt_pairs
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as response:
-                    if response.status != 200:
-                        print(f"Ошибка API: статус {response.status}")
-                        return ["BTCUSDT", "ETHUSDT"]
-                        
-                    result = await response.json()
-                    if 'result' not in result or 'list' not in result['result']:
-                        print(f"Неверный формат ответа: {result}")
-                        return ["BTCUSDT", "ETHUSDT"]
-                        
-                    return [s["symbol"] for s in result["result"]["list"] 
-                           if s["symbol"] not in self._ignored_symbols and
-                           s["symbol"].endswith("USDT")]
+            print("Получаем список торговых пар через get_usdt_pairs")
+            pairs = get_usdt_pairs()
+            # Возвращаем только те пары, которые не в списке игнорируемых
+            filtered_pairs = [pair for pair in pairs if pair not in self._ignored_symbols]
+            print(f"Получено {len(filtered_pairs)} пар")
+            return filtered_pairs
         except Exception as e:
-            print(f"Ошибка при получении тикеров: {e}")
-            return ["BTCUSDT", "ETHUSDT"]
+            print(f"Ошибка при получении списка через get_usdt_pairs: {e}")
+            
+            # В случае ошибки, используем обычный API-запрос как запасной вариант
+            url = 'https://api.bybit.com/v5/market/tickers'
+            params = {'category': category}
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params, timeout=10) as response:
+                        if response.status != 200:
+                            print(f"Ошибка API: статус {response.status}")
+                            return ["BTCUSDT", "ETHUSDT"]
+                            
+                        result = await response.json()
+                        if 'result' not in result or 'list' not in result['result']:
+                            print(f"Неверный формат ответа: {result}")
+                            return ["BTCUSDT", "ETHUSDT"]
+                            
+                        return [s["symbol"] for s in result["result"]["list"] 
+                               if s["symbol"] not in self._ignored_symbols and
+                               s["symbol"].endswith("USDT")]
+            except Exception as e:
+                print(f"Ошибка при получении тикеров через API: {e}")
+                return ["BTCUSDT", "ETHUSDT"]
 
 # Функция для инициализации и запуска скринера
 async def start_pump_dump_screener():

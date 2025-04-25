@@ -6,6 +6,7 @@ import aiohttp
 from pybit.unified_trading import WebSocket
 from config import config
 from aiogram import Bot, types
+from strategy_logic.get_all_coins import get_usdt_pairs  # Добавляем импорт функции
 
 # Инициализируем бота
 bot = Bot(token=config.tg_bot_token)
@@ -346,10 +347,18 @@ class BybitPumpDumpScreener:
         """
         Получает и возвращает список тикеров с Bybit.
         """
-        # Для тестовой сети используем фиксированный список
+        # Для тестовой сети используем функцию get_usdt_pairs
         if self._ws and getattr(self._ws, 'testnet', False):
-            print("Используем фиксированный список тикеров для testnet")
-            return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
+            print("Получаем список торговых пар через get_usdt_pairs для testnet")
+            try:
+                pairs = get_usdt_pairs()
+                # Для тестовой сети ограничиваем количество пар до 5-10
+                test_pairs = pairs[:10] if len(pairs) > 10 else pairs
+                print(f"Получено {len(test_pairs)} пар: {test_pairs}")
+                return test_pairs
+            except Exception as e:
+                print(f"Ошибка при получении списка пар: {e}")
+                return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
             
         # Для основной сети используем API
         url = 'https://api.bybit.com/v5/market/tickers'
@@ -360,12 +369,12 @@ class BybitPumpDumpScreener:
                 async with session.get(url, params=params, timeout=10) as response:
                     if response.status != 200:
                         print(f"Ошибка API: статус {response.status}")
-                        return ["BTCUSDT", "ETHUSDT"]
+                        return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
                         
                     result = await response.json()
                     if 'result' not in result or 'list' not in result['result']:
                         print(f"Неверный формат ответа: {result}")
-                        return ["BTCUSDT", "ETHUSDT"]
+                        return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
                         
                     tickers = [s["symbol"] for s in result["result"]["list"] 
                               if s["symbol"] not in self._ignored_symbols and
@@ -373,16 +382,13 @@ class BybitPumpDumpScreener:
                     return tickers[:10]  # Ограничиваем количество тикеров для тестирования
         except Exception as e:
             print(f"Ошибка при получении тикеров: {e}")
-            return ["BTCUSDT", "ETHUSDT"]
+            return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
 
 async def main():
     try:
         screener = BybitPumpDumpScreener()
         
         # Настройки для тестирования
-        screener.PUMP_SIZE = 2.0  # Уменьшаем порог для тестирования
-        screener.DUMP_SIZE = 2.0
-        screener.TIMEOUT_MINUTES = 30
         
         # Запускаем сервис
         await screener.start_service()
