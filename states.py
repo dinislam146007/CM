@@ -17,4 +17,7 @@ class SubscriptionStates(StatesGroup):
 
 class StrategyParamStates(StatesGroup):
     edit_param = State()
-    edit_blacklist = State() 
+    edit_blacklist = State()
+
+class CMParamStates(StatesGroup):
+    edit_param = State() 

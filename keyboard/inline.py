@@ -110,6 +110,7 @@ def settings_inline():
     kb = [
         [InlineKeyboardButton(text='Изменить процент', callback_data='settings percent')],
         [InlineKeyboardButton(text='Параметры торговой стратегии', callback_data='settings strategy')],
+        [InlineKeyboardButton(text='Настройки CM индикатора', callback_data='settings cm')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -204,5 +205,17 @@ def stat_period_inline():
         ],
         [InlineKeyboardButton(text='Выбрать даты', callback_data='stat data')],
         [InlineKeyboardButton(text='Назад', callback_data='stat start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def cm_params_inline():
+    kb = [
+        [InlineKeyboardButton(text='SHORT_GAMMA', callback_data='cm SHORT_GAMMA')],
+        [InlineKeyboardButton(text='LONG_GAMMA', callback_data='cm LONG_GAMMA')],
+        [InlineKeyboardButton(text='LOOKBACK_T', callback_data='cm LOOKBACK_T')],
+        [InlineKeyboardButton(text='LOOKBACK_B', callback_data='cm LOOKBACK_B')],
+        [InlineKeyboardButton(text='PCTILE', callback_data='cm PCTILE')],
+        [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='cm reset')],
+        [InlineKeyboardButton(text='Назад', callback_data='settings start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)

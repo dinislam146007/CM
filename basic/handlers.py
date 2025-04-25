@@ -30,6 +30,7 @@ from db.select import (get_user, get_signal, get_active_order, get_user_orders,
                      count_total_open, get_signal_data)
 from db.insert import set_user
 from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
+from strategy_logic.cm_settings import load_cm_settings, update_cm_setting, reset_cm_settings, get_cm_param_names_and_types
 
 router = Router()
 
@@ -1364,18 +1365,18 @@ async def monitoring(callback: CallbackQuery, state: FSMContext):
 async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
     action = callback.data.split()[1]
     if action == 'start':
-        user = await get_user(callback.from_user.id)
-        text = 'Параметры задействования ботом установленного процента от депозита для совершения сделок.\n\n'
-        text += 'Чтобы изменить % от общего депозита на который будут совершаться сделки ботом, воспользуйтесь кнопкой "Изменить процент"\n\n'
-        text += f"Текущий процент: {user['percent']}%"
         await callback.message.edit_text(
-            text=text,
+            "Настройки\n\n"
+            "Выберите раздел:",
             reply_markup=settings_inline()
         )
     elif action == 'percent':
         msg = await callback.message.edit_text(
-            'Введите новый процент',
-            reply_markup=close_state()
+            f"Изменение процента для показа новых сделок и сигналов\n"
+            f"Введите новое значение:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+            ])
         )
         await state.set_state(EditPercent.new)
         await state.update_data(last_msg=msg.message_id)
@@ -1405,6 +1406,26 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await callback.message.edit_text(
             text=text,
             reply_markup=strategy_params_inline()
+        )
+    elif action == 'cm':
+        # Загружаем настройки CM индикатора для пользователя
+        cm_settings = load_cm_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
+        
+        # Отображаем текущие параметры CM
+        text += "📊 Текущие параметры:\n"
+        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
+        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
+        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
+        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
+        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=cm_params_inline()
         )
 
 @router.callback_query(F.data.startswith('strategy'))
@@ -1632,3 +1653,110 @@ async def start_cal(callback: CallbackQuery, state: FSMContext):
         text=f"Бот по обработке фильтра CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms\nВаш баланс: {round(user['balance'])}$  💸",
         reply_markup=start_inline()
     )
+
+@router.callback_query(F.data.startswith('cm'))
+async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    action = callback.data.split()[1]
+    
+    if action == 'reset':
+        # Сброс настроек CM индикатора к стандартным
+        reset_cm_settings(callback.from_user.id)
+        await callback.answer("Настройки CM индикатора сброшены к стандартным значениям")
+        
+        # Получаем стандартные настройки
+        cm_settings = load_cm_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
+        text += "Параметры сброшены к стандартным значениям.\n\n"
+        
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
+        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
+        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
+        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
+        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=cm_params_inline()
+        )
+    elif action in ['SHORT_GAMMA', 'LONG_GAMMA', 'LOOKBACK_T', 'LOOKBACK_B', 'PCTILE']:
+        # Редактирование параметра CM
+        cm_settings = load_cm_settings(callback.from_user.id)
+        current_value = cm_settings.get(action, "не установлено")
+        
+        kb = [
+            [InlineKeyboardButton(text='Назад', callback_data='settings cm')]
+        ]
+        
+        msg = await callback.message.edit_text(
+            f"Изменение параметра: {action}\n"
+            f"Текущее значение: {current_value}\n\n"
+            f"Введите новое значение:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+        
+        await state.set_state(CMParamStates.edit_param)
+        await state.update_data(param_name=action, last_msg=msg.message_id)
+
+@router.message(CMParamStates.edit_param)
+async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    param_name = data.get('param_name')
+    
+    try:
+        # Удаляем предыдущее сообщение
+        try:
+            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Преобразуем входное значение в нужный тип
+        param_value = float(message.text.strip())
+        
+        # Обновляем параметр
+        success = update_cm_setting(message.from_user.id, param_name, param_value)
+        
+        if success:
+            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            
+            # Получаем обновленные настройки
+            cm_settings = load_cm_settings(message.from_user.id)
+            
+            text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
+            
+            # Отображаем текущие параметры
+            text += "📊 Текущие параметры:\n"
+            text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
+            text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
+            text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
+            text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
+            text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+            
+            text += "Выберите параметр для изменения:"
+            
+            # Показываем меню настроек CM с текущими параметрами
+            await message.answer(
+                text=text,
+                reply_markup=cm_params_inline()
+            )
+        else:
+            await message.answer(f"Не удалось обновить параметр {param_name}")
+            await message.answer(
+                "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
+                "Выберите параметр для изменения:",
+                reply_markup=cm_params_inline()
+            )
+    except ValueError:
+        await message.answer(
+            "Ошибка: значение должно быть числом.\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings cm')]
+            ])
+        )
+    
+    await state.clear()

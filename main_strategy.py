@@ -29,11 +29,12 @@ from dateutil.parser import parse
 from db.orders import get_user_open_orders, get_user_balance
 from strategy_logic.user_strategy_params import load_user_params
 from strategy_logic.pump_dump import pump_dump_main
+from strategy_logic.cm_settings import load_cm_settings  # Импортируем функцию загрузки настроек CM
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
-"""Параметры стратегии"""
+"""Параметры стратегии - будут использоваться только как значения по умолчанию"""
 SHORT_GAMMA = 0.4
 LONG_GAMMA = 0.8
 LOOKBACK_T = 21
@@ -89,26 +90,26 @@ def laguerre_filter(series, gamma):
     return f
 
 
-def calculate_ppo(df):
-    """Вычисление Laguerre PPO и процентильного ранга."""
-    df['lmas'] = laguerre_filter(df['hl2'].values, SHORT_GAMMA)
-    df['lmal'] = laguerre_filter(df['hl2'].values, LONG_GAMMA)
+def calculate_ppo(df, cm_settings):
+    """Вычисление Laguerre PPO и процентильного ранга с пользовательскими настройками."""
+    df['lmas'] = laguerre_filter(df['hl2'].values, cm_settings['SHORT_GAMMA'])
+    df['lmal'] = laguerre_filter(df['hl2'].values, cm_settings['LONG_GAMMA'])
 
     df['ppoT'] = (df['lmas'] - df['lmal']) / df['lmal'] * 100
     df['ppoB'] = (df['lmal'] - df['lmas']) / df['lmal'] * 100
 
-    df['pctRankT'] = df['ppoT'].rolling(LOOKBACK_T).apply(lambda x: percentileofscore(x, x.iloc[-1]), raw=False)
-    df['pctRankB'] = df['ppoB'].rolling(LOOKBACK_B).apply(lambda x: percentileofscore(x, x.iloc[-1]), raw=False) * -1
+    df['pctRankT'] = df['ppoT'].rolling(cm_settings['LOOKBACK_T']).apply(lambda x: percentileofscore(x, x.iloc[-1]), raw=False)
+    df['pctRankB'] = df['ppoB'].rolling(cm_settings['LOOKBACK_B']).apply(lambda x: percentileofscore(x, x.iloc[-1]), raw=False) * -1
 
     return df
 
 
-def find_cm_signal(df):
+def find_cm_signal(df, cm_settings):
     """Находит последний экстремальный сигнал, начиная с текущей свечи и шагая назад."""
     for i in range(len(df) - 1, -1, -1):
-        if df['pctRankT'].iloc[i] >= PCTILE:
+        if df['pctRankT'].iloc[i] >= cm_settings['PCTILE']:
             return "short", df.iloc[i]
-        if df['pctRankB'].iloc[i] <= -PCTILE:
+        if df['pctRankB'].iloc[i] <= -cm_settings['PCTILE']:
             return "long", df.iloc[i]
     return "No Signal", None
 
@@ -175,13 +176,16 @@ async def process_tf(tf: str):
                 # Get user-specific strategy parameters
                 user_moon = StrategyMoonBot(load_strategy_params(uid))
                 
+                # Загружаем индивидуальные настройки CM для пользователя
+                cm_settings = load_cm_settings(uid)
+                
                 # ---------- вход ----------
                 if open_order is None:
                     # Проверка на паттерны Price Action (перенесено выше для использования в условии)
                     pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], "spot")
-                    dft = calculate_ppo(dft)
+                    dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
                     dft = calculate_ema(dft)
-                    cm_signal, last_candle = find_cm_signal(dft)
+                    cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
                     dft = calculate_rsi(dft)
                     dft = calculate_ema(dft)
                     rsi = generate_signals_rsi(dft)
