@@ -138,7 +138,7 @@ class BybitPumpDumpScreener:
             testnet=True,  # Тестовая сеть для избежания лимитов
             ping_interval=20,
             ping_timeout=10,
-            trace_logging=True,
+            trace_logging=False,  # Отключаем трассировочное логирование
             restart_on_error=True
         )
 
@@ -388,9 +388,6 @@ async def main():
     try:
         screener = BybitPumpDumpScreener()
         
-        # Настройки для тестирования
-        
-        # Запускаем сервис
         await screener.start_service()
         
         print("Скринер запущен и отслеживает изменения цен...")

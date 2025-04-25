@@ -28,7 +28,7 @@ import pytz
 from dateutil.parser import parse
 from db.orders import get_user_open_orders, get_user_balance
 from strategy_logic.user_strategy_params import load_user_params
-from strategy_logic.pump_dump import start_pump_dump_screener
+from strategy_logic.pump_dump import pump_dump_main
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -379,10 +379,8 @@ async def process_tf(tf: str):
 
 async def main():
     try:
-        # Запуск скринера Pump/Dump для отслеживания резких движений цены
-        asyncio.create_task(start_pump_dump_screener())
+        asyncio.create_task(pump_dump_main())
         
-        # Запуск основной стратегии
         await asyncio.gather(*[process_tf(tf) for tf in TIMEFRAMES])
     finally:
         await exchange.close()  # Ensures resources are released
