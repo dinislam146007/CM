@@ -104,13 +104,13 @@ def calculate_ppo(df):
     return df
 
 
-def find_last_extreme(df):
+def find_cm_signal(df):
     """Находит последний экстремальный сигнал, начиная с текущей свечи и шагая назад."""
     for i in range(len(df) - 1, -1, -1):
         if df['pctRankT'].iloc[i] >= PCTILE:
-            return "sale", df.iloc[i]
+            return "short", df.iloc[i]
         if df['pctRankB'].iloc[i] <= -PCTILE:
-            return "buy", df.iloc[i]
+            return "long", df.iloc[i]
     return "No Signal", None
 
 
@@ -180,17 +180,61 @@ async def process_tf(tf: str):
                 if open_order is None:
                     # Проверка на паттерны Price Action (перенесено выше для использования в условии)
                     pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], "spot")
+                    cm_signal, last_candle = find_cm_signal(dft)
+                    dft = calculate_rsi(dft)
+                    dft = calculate_ema(dft)
+                    rsi = generate_signals_rsi(dft)
+                    rsi_signal = rsi['signal_rsi'].iloc[-1]
+
+
+                    diver_signals = generate_trading_signals(
+                        dft, 
+                        rsi_length=RSI_LENGTH, 
+                        lbR=LB_RIGHT, 
+                        lbL=LB_LEFT, 
+                        take_profit_level=TAKE_PROFIT_RSI_LEVEL,
+                        stop_loss_type=STOP_LOSS_TYPE,
+                        stop_loss_perc=STOP_LOSS_PERC,
+                        atr_length=ATR_LENGTH,
+                        atr_multiplier=ATR_MULTIPLIER
+                    )
                     
-                    # Измененное условие: открываем сделку если паттерн есть ИЛИ стратегия мун бота срабатывает
-                    if pattern or (user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)):
+                    # Определяем, какие сигналы активны
+                    price_action_active = pattern is not None and pattern != ""
+                    cm_active = cm_signal == "long"
+                    moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
+                    rsi_active = rsi_signal == "Long"
+                    
+                    # Проверка на дивергенцию
+                    regular_bullish = diver_signals['divergence']['regular_bullish']
+                    hidden_bullish = diver_signals['divergence']['hidden_bullish']
+                    regular_bearish = diver_signals['divergence']['regular_bearish']
+                    hidden_bearish = diver_signals['divergence']['hidden_bearish']
+                    
+                    # Проверяем, есть ли хотя бы одна активная бычья дивергенция
+                    divergence_active = False
+                    divergence_type = ""
+                    
+                    if isinstance(regular_bullish, bool) and regular_bullish:
+                        divergence_active = True
+                        divergence_type += "Regular Bullish "
+                    if isinstance(hidden_bullish, bool) and hidden_bullish:
+                        divergence_active = True
+                        divergence_type += "Hidden Bullish "
+                    
+                    # Общий флаг для проверки наличия хотя бы одного сигнала на покупку
+                    any_buy_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
+                    
+                    # Открываем сделку, если есть хотя бы один активный сигнал на покупку
+                    if any_buy_signal:
                         # Если сработала стратегия мун бота, используем ее данные, иначе создаем базовый ордер
-                        if user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft):
+                        if moonbot_active:
                             order_dict = user_moon.build_order(dft)
                             entry = order_dict["price"]
                             tp = order_dict["take_profit"]
                             sl = order_dict["stop_loss"]
                         else:
-                            # Базовый ордер на основе текущей цены при срабатывании только паттерна
+                            # Базовый ордер на основе текущей цены при срабатывании других сигналов
                             current_price = dft["close"].iloc[-1]
                             entry = current_price
                             # Базовый TP: +3% от цены входа
@@ -218,20 +262,33 @@ async def process_tf(tf: str):
                             # Получаем обновленный баланс после списания средств
                             new_balance = await get_user_balance(uid)
                             
-                            # Формируем сообщение с информацией о паттерне, если он обнаружен
-                            pattern_info = f"📊 Pattern: {pattern}\n" if pattern else ""
-                            strategy_info = "Strategy: 🌙 Moon Bot\n" if user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft) else "Strategy: 📊 Price Action\n"
+                            # Формируем сообщение с сигналами по новому шаблону
+                            # Для каждого сигнала: ✅ если активен, ❌ если не активен
+                            price_action_status = "✅" if price_action_active else "❌"
+                            cm_status = "✅" if cm_active else "❌"
+                            moonbot_status = "✅" if moonbot_active else "❌"
+                            rsi_status = "✅" if rsi_active else "❌"
+                            divergence_status = "✅" if divergence_active else "❌"
                             
-                            await bot.send_message(
-                                uid,
-                                f"🟢 <b>ПОКУПКА</b> {symbol} {tf}\n"
-                                f"{pattern_info}"
-                                f"{strategy_info}"
-                                f"Цена входа: {entry:.4f} USDT\n"
-                                f"Количество: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
-                                f"TP: {tp:.4f} | SL: {sl:.4f}\n\n"
+                            # Формируем сообщение по новому шаблону
+                            message = (
+                                f"🟢 ПОКУПКА {symbol} {tf}\n"
+                                f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
+                                f"♻️Точка входа: {entry:.2f}$\n"
+                                f"Направление: Long🔰\n\n"
+                                f"🎯TP: {tp:.4f}$\n"
+                                f"📛SL: {sl:.4f}$\n\n"
+                                f"⚠️Сделка открыта по сигналам с:\n"
+                                f"{price_action_status} Price Action {pattern if price_action_active else ''}\n"
+                                f"{cm_status} CM\n"
+                                f"{moonbot_status} MoonBot\n"
+                                f"{rsi_status} RSI\n"
+                                f"{divergence_status} Divergence {divergence_type if divergence_active else ''}\n\n"
                                 f"💰 Баланс: {new_balance:.2f} USDT (-{(qty * entry):.2f} USDT)"
                             )
+                            
+                            await bot.send_message(uid, message)
+                            
                         except Exception as e:
                             print(f"Ошибка при создании ордера: {e}")
                 # ---------- выход ----------

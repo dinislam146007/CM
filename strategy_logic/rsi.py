@@ -53,9 +53,9 @@ def generate_signals_rsi(df):
     for i in range(1, len(df)):
 
         if df['ema21'].iloc[i] > df['ema49'].iloc[i] and df['rsi'].iloc[i] < 30:
-            signals.append("Buy")
+            signals.append("long")
         elif df['ema21'].iloc[i] < df['ema49'].iloc[i] and df['rsi'].iloc[i] > 70:
-            signals.append("Sell")
+            signals.append("short")
         else:
             signals.append("Hold")
     # Добавляем сигналы в DataFrame
