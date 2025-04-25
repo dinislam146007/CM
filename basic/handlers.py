@@ -15,7 +15,7 @@ from datetime import datetime as dt
 
 from basic.state import *
 from config import config
-from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates
+from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates
 import re
 from db.orders import (get_open_order, get_user_balance, create_order, close_order, 
                       get_user_open_orders, get_user_closed_orders, get_all_orders)
