@@ -111,6 +111,7 @@ def settings_inline():
         [InlineKeyboardButton(text='Изменить процент', callback_data='settings percent')],
         [InlineKeyboardButton(text='Параметры торговой стратегии', callback_data='settings strategy')],
         [InlineKeyboardButton(text='Настройки CM индикатора', callback_data='settings cm')],
+        [InlineKeyboardButton(text='Настройки индикатора дивергенции', callback_data='settings divergence')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -217,5 +218,31 @@ def cm_params_inline():
         [InlineKeyboardButton(text='PCTILE', callback_data='cm PCTILE')],
         [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='cm reset')],
         [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def divergence_params_inline():
+    kb = [
+        [InlineKeyboardButton(text='RSI_LENGTH', callback_data='divergence RSI_LENGTH')],
+        [InlineKeyboardButton(text='LB_RIGHT', callback_data='divergence LB_RIGHT')],
+        [InlineKeyboardButton(text='LB_LEFT', callback_data='divergence LB_LEFT')],
+        [InlineKeyboardButton(text='RANGE_UPPER', callback_data='divergence RANGE_UPPER')],
+        [InlineKeyboardButton(text='RANGE_LOWER', callback_data='divergence RANGE_LOWER')],
+        [InlineKeyboardButton(text='TAKE_PROFIT_RSI_LEVEL', callback_data='divergence TAKE_PROFIT_RSI_LEVEL')],
+        [InlineKeyboardButton(text='STOP_LOSS_TYPE', callback_data='divergence STOP_LOSS_TYPE')],
+        [InlineKeyboardButton(text='STOP_LOSS_PERC', callback_data='divergence STOP_LOSS_PERC')],
+        [InlineKeyboardButton(text='ATR_LENGTH', callback_data='divergence ATR_LENGTH')],
+        [InlineKeyboardButton(text='ATR_MULTIPLIER', callback_data='divergence ATR_MULTIPLIER')],
+        [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='divergence reset')],
+        [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def stop_loss_type_inline():
+    kb = [
+        [InlineKeyboardButton(text='PERC (процент)', callback_data='divergence_sl_type PERC')],
+        [InlineKeyboardButton(text='ATR (на основе ATR)', callback_data='divergence_sl_type ATR')],
+        [InlineKeyboardButton(text='NONE (без стоп-лосса)', callback_data='divergence_sl_type NONE')],
+        [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)

@@ -20,4 +20,8 @@ class StrategyParamStates(StatesGroup):
     edit_blacklist = State()
 
 class CMParamStates(StatesGroup):
-    edit_param = State() 
+    edit_param = State()
+
+class DivergenceParamStates(StatesGroup):
+    edit_param = State()
+    edit_stop_loss_type = State() 

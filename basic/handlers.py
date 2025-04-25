@@ -15,7 +15,7 @@ from datetime import datetime as dt
 
 from basic.state import *
 from config import config
-from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates
+from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates
 import re
 from db.orders import (get_open_order, get_user_balance, create_order, close_order, 
                       get_user_open_orders, get_user_closed_orders, get_all_orders)
@@ -31,6 +31,7 @@ from db.select import (get_user, get_signal, get_active_order, get_user_orders,
 from db.insert import set_user
 from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
 from strategy_logic.cm_settings import load_cm_settings, update_cm_setting, reset_cm_settings, get_cm_param_names_and_types
+from strategy_logic.divergence_settings import load_divergence_settings, update_divergence_setting, reset_divergence_settings, get_divergence_param_names_and_types
 
 router = Router()
 
@@ -1427,6 +1428,31 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
             text=text,
             reply_markup=cm_params_inline()
         )
+    elif action == 'divergence':
+        # Загружаем настройки индикатора дивергенции для пользователя
+        divergence_settings = load_divergence_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+        
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
+        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
+        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
+        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
+        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
+        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
+        text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
+        text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
+        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
+        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=divergence_params_inline()
+        )
 
 @router.callback_query(F.data.startswith('strategy'))
 async def strategy_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -1756,6 +1782,240 @@ async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
             "Попробуйте еще раз:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Назад', callback_data='settings cm')]
+            ])
+        )
+    
+    await state.clear()
+
+@router.callback_query(F.data.startswith('divergence'))
+async def divergence_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    action = callback.data.split()[1]
+    
+    if action == 'reset':
+        # Сброс настроек индикатора дивергенции к стандартным
+        reset_divergence_settings(callback.from_user.id)
+        await callback.answer("Настройки индикатора дивергенции сброшены к стандартным значениям")
+        
+        # Получаем стандартные настройки
+        divergence_settings = load_divergence_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+        text += "Параметры сброшены к стандартным значениям.\n\n"
+        
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
+        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
+        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
+        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
+        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
+        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
+        text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
+        text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
+        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
+        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=divergence_params_inline()
+        )
+    elif action == 'STOP_LOSS_TYPE':
+        # Особая обработка для выбора типа стоп-лосса
+        await callback.message.edit_text(
+            "Выберите тип стоп-лосса:",
+            reply_markup=stop_loss_type_inline()
+        )
+        await state.set_state(DivergenceParamStates.edit_stop_loss_type)
+    elif action in ['RSI_LENGTH', 'LB_RIGHT', 'LB_LEFT', 'RANGE_UPPER', 'RANGE_LOWER', 
+                   'TAKE_PROFIT_RSI_LEVEL', 'STOP_LOSS_PERC', 'ATR_LENGTH', 'ATR_MULTIPLIER']:
+        # Редактирование параметра дивергенции
+        divergence_settings = load_divergence_settings(callback.from_user.id)
+        current_value = divergence_settings.get(action, "не установлено")
+        
+        kb = [
+            [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
+        ]
+        
+        msg = await callback.message.edit_text(
+            f"Изменение параметра: {action}\n"
+            f"Текущее значение: {current_value}\n\n"
+            f"Введите новое значение:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+        
+        await state.set_state(DivergenceParamStates.edit_param)
+        await state.update_data(param_name=action, last_msg=msg.message_id)
+
+@router.callback_query(F.data.startswith('divergence_sl_type'))
+async def divergence_sl_type_select(callback: CallbackQuery, state: FSMContext):
+    selected_type = callback.data.split()[1]  # PERC, ATR или NONE
+    
+    # Обновляем параметр STOP_LOSS_TYPE
+    success = update_divergence_setting(callback.from_user.id, 'STOP_LOSS_TYPE', selected_type)
+    
+    if success:
+        await callback.answer(f"Тип стоп-лосса установлен: {selected_type}")
+        
+        # Загружаем обновленные настройки и показываем их
+        divergence_settings = load_divergence_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+        
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
+        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
+        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
+        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
+        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
+        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
+        text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
+        text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
+        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
+        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=divergence_params_inline()
+        )
+    else:
+        await callback.answer("Ошибка при обновлении типа стоп-лосса")
+
+@router.message(DivergenceParamStates.edit_param)
+async def process_divergence_param_edit(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    param_name = data.get('param_name')
+    
+    try:
+        # Удаляем предыдущее сообщение
+        try:
+            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Преобразуем входное значение в нужный тип
+        param_value = float(message.text.strip())
+        
+        # Обновляем параметр
+        success = update_divergence_setting(message.from_user.id, param_name, param_value)
+        
+        if success:
+            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            
+            # Получаем обновленные настройки
+            divergence_settings = load_divergence_settings(message.from_user.id)
+            
+            text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+            
+            # Отображаем текущие параметры
+            text += "📊 Текущие параметры:\n"
+            text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
+            text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
+            text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
+            text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
+            text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
+            text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
+            text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
+            text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
+            text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
+            text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
+            
+            text += "Выберите параметр для изменения:"
+            
+            # Показываем меню настроек с текущими параметрами
+            await message.answer(
+                text=text,
+                reply_markup=divergence_params_inline()
+            )
+        else:
+            await message.answer(f"Не удалось обновить параметр {param_name}")
+            await message.answer(
+                "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+                "Выберите параметр для изменения:",
+                reply_markup=divergence_params_inline()
+            )
+    except ValueError:
+        await message.answer(
+            "Ошибка: значение должно быть числом.\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
+            ])
+        )
+    
+    await state.clear()
+
+@router.message(DivergenceParamStates.edit_stop_loss_type)
+async def process_divergence_stop_loss_type_edit(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    
+    try:
+        # Удаляем предыдущее сообщение
+        try:
+            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        stop_loss_type = message.text.strip().upper()
+        
+        if stop_loss_type not in ["PERC", "ATR", "NONE"]:
+            await message.answer(
+                "Неверный тип стоп-лосса. Допустимые значения: PERC, ATR, NONE.\n"
+                "Попробуйте еще раз:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
+                ])
+            )
+            return
+        
+        # Обновляем параметр
+        success = update_divergence_setting(message.from_user.id, 'STOP_LOSS_TYPE', stop_loss_type)
+        
+        if success:
+            await message.answer(f"Тип стоп-лосса успешно обновлен на {stop_loss_type}")
+            
+            # Получаем обновленные настройки
+            divergence_settings = load_divergence_settings(message.from_user.id)
+            
+            text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+            
+            # Отображаем текущие параметры
+            text += "📊 Текущие параметры:\n"
+            text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
+            text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
+            text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
+            text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
+            text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
+            text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
+            text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
+            text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
+            text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
+            text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
+            
+            text += "Выберите параметр для изменения:"
+            
+            # Показываем меню настроек с текущими параметрами
+            await message.answer(
+                text=text,
+                reply_markup=divergence_params_inline()
+            )
+        else:
+            await message.answer("Не удалось обновить тип стоп-лосса")
+            await message.answer(
+                "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
+                "Выберите параметр для изменения:",
+                reply_markup=divergence_params_inline()
+            )
+    except Exception as e:
+        await message.answer(
+            f"Ошибка: {str(e)}.\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
             ])
         )
     

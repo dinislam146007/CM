@@ -30,6 +30,7 @@ from db.orders import get_user_open_orders, get_user_balance
 from strategy_logic.user_strategy_params import load_user_params
 from strategy_logic.pump_dump import pump_dump_main
 from strategy_logic.cm_settings import load_cm_settings  # Импортируем функцию загрузки настроек CM
+from strategy_logic.divergence_settings import load_divergence_settings  # Импортируем функцию загрузки настроек дивергенции
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -179,6 +180,9 @@ async def process_tf(tf: str):
                 # Загружаем индивидуальные настройки CM для пользователя
                 cm_settings = load_cm_settings(uid)
                 
+                # Загружаем индивидуальные настройки дивергенции для пользователя
+                divergence_settings = load_divergence_settings(uid)
+                
                 # ---------- вход ----------
                 if open_order is None:
                     # Проверка на паттерны Price Action (перенесено выше для использования в условии)
@@ -194,14 +198,14 @@ async def process_tf(tf: str):
 
                     diver_signals = generate_trading_signals(
                         dft, 
-                        rsi_length=RSI_LENGTH, 
-                        lbR=LB_RIGHT, 
-                        lbL=LB_LEFT, 
-                        take_profit_level=TAKE_PROFIT_RSI_LEVEL,
-                        stop_loss_type=STOP_LOSS_TYPE,
-                        stop_loss_perc=STOP_LOSS_PERC,
-                        atr_length=ATR_LENGTH,
-                        atr_multiplier=ATR_MULTIPLIER
+                        rsi_length=divergence_settings['RSI_LENGTH'], 
+                        lbR=divergence_settings['LB_RIGHT'], 
+                        lbL=divergence_settings['LB_LEFT'], 
+                        take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
+                        stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
+                        stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
+                        atr_length=divergence_settings['ATR_LENGTH'],
+                        atr_multiplier=divergence_settings['ATR_MULTIPLIER']
                     )
                     
                     # Определяем, какие сигналы активны
