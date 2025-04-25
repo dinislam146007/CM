@@ -136,7 +136,19 @@ class BybitPumpDumpScreener:
         Инициализирует вебсокет клиент.
         :return:
         """
-        self._ws = WebSocket(channel_type="linear", testnet=False)
+        try:
+            self._ws = WebSocket(
+                channel_type="linear", 
+                testnet=False,
+                ping_interval=20,
+                ping_timeout=10,
+                trace_logging=True,
+                max_timeout=10,
+                restart_on_error=True
+            )
+        except Exception as e:
+            print(f"Ошибка при инициализации WebSocket: {e}")
+            raise
 
     def start_streams(self, symbols: list[str]) -> None:
         """
@@ -144,22 +156,44 @@ class BybitPumpDumpScreener:
         :param symbols:
         :return:
         """
-        self._ws.kline_stream(interval=1, symbol=symbols, callback=self.handle_ws_msg)
+        try:
+            self._ws.kline_stream(interval=1, symbol=symbols, callback=self.handle_ws_msg)
+        except Exception as e:
+            print(f"Ошибка при подписке на стримы: {e}")
+            raise
 
     async def start_service(self) -> None:
         """Запуск сервиса по поиску объемов."""
         print("Starting Bybit Pump/Dump screener")
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                print(f"Попытка подключения {attempt+1}/{max_retries}")
+                
+                # Инициализируем вебсокет клиент
+                self.init_websocket()
 
-        # Инициализируем вебсокет клиент
-        self.init_websocket()
+                # Получаем список тикеров и запускаем нужные стримы с ними
+                symbols = await self._get_tickers()
+                self.start_streams(symbols)
 
-        # Получаем список тикеров и запускаем нужные стримы с ними
-        symbols = await self._get_tickers()
-        self.start_streams(symbols)
-
-        # Запуск воркеров для обработки закрытых свечей
-        for i in range(4):
-            threading.Thread(target=self._worker, daemon=True).start()
+                # Запуск воркеров для обработки закрытых свечей
+                for i in range(4):
+                    threading.Thread(target=self._worker, daemon=True).start()
+                    
+                print("Подключение успешно установлено")
+                break
+                
+            except Exception as e:
+                print(f"Ошибка подключения: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = 30 * (attempt + 1)
+                    print(f"Повторная попытка через {wait_time} секунд")
+                    await asyncio.sleep(wait_time)
+                else:
+                    print("Достигнуто максимальное количество попыток")
+                    raise
 
     def _worker(self):
         while True:
@@ -333,11 +367,25 @@ class BybitPumpDumpScreener:
         """
         url = 'https://api.bybit.com/v5/market/tickers'
         params = {'category': category}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                result = await response.json()
-                return [s["symbol"] for s in result["result"]["list"] if s["symbol"] not in self._ignored_symbols and
-                        s["symbol"].endswith("USDT")]
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=10) as response:
+                    if response.status != 200:
+                        print(f"Ошибка API: статус {response.status}")
+                        return ["BTCUSDT", "ETHUSDT"]
+                        
+                    result = await response.json()
+                    if 'result' not in result or 'list' not in result['result']:
+                        print(f"Неверный формат ответа: {result}")
+                        return ["BTCUSDT", "ETHUSDT"]
+                        
+                    return [s["symbol"] for s in result["result"]["list"] 
+                           if s["symbol"] not in self._ignored_symbols and
+                           s["symbol"].endswith("USDT")]
+        except Exception as e:
+            print(f"Ошибка при получении тикеров: {e}")
+            return ["BTCUSDT", "ETHUSDT"]
 
 # Функция для инициализации и запуска скринера
 async def start_pump_dump_screener():

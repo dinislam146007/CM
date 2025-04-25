@@ -138,7 +138,6 @@ class BybitPumpDumpScreener:
             ping_interval=20,
             ping_timeout=10,
             trace_logging=True,
-            max_timeout=10,
             restart_on_error=True
         )
 
