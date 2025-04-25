@@ -10,6 +10,7 @@ class Config:
         self.db_user = os.getenv('DB_USER')
         self.db_password = os.getenv('DB_PASSWORD')
         self.trading_group_id = int(os.getenv('TRADING_GROUP_ID'))
+        self.public_channel_id = int(os.getenv('PUBLIC_CHANNEL_ID'))
         self.telethon_id = int(os.getenv('TELETHON_ID'))
         self.telethon_hash = os.getenv('TELETHON_HASH')
         self.deepseek_api = os.getenv('DEEPSEEK_API')

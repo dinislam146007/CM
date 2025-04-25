@@ -28,6 +28,7 @@ import pytz
 from dateutil.parser import parse
 from db.orders import get_user_open_orders, get_user_balance
 from strategy_logic.user_strategy_params import load_user_params
+from strategy_logic.pump_dump import start_pump_dump_screener
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -54,8 +55,6 @@ ATR_LENGTH = 14  # Период ATR
 ATR_MULTIPLIER = 3.5  # Множитель ATR
 
 exchange = ccxt.bybit()  # Передаём сессию в CCXT
-
-
 # timeframes = ['1d', '4h', '1h', '30m']
 
 
@@ -380,6 +379,10 @@ async def process_tf(tf: str):
 
 async def main():
     try:
+        # Запуск скринера Pump/Dump для отслеживания резких движений цены
+        asyncio.create_task(start_pump_dump_screener())
+        
+        # Запуск основной стратегии
         await asyncio.gather(*[process_tf(tf) for tf in TIMEFRAMES])
     finally:
         await exchange.close()  # Ensures resources are released

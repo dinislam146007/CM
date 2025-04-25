@@ -5,10 +5,9 @@ import time
 import aiohttp
 from pybit.unified_trading import WebSocket
 from config import config
-from aiogram import Bot, types
 
-# Инициализируем бота
-bot = Bot(token=config.tg_bot_token)
+from aiogram import Bot, DefaultBotProperties
+bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
 # Определение классов данных для работы скринера
 class Candle:
@@ -32,9 +31,10 @@ class Signal:
         self.timeframe = timeframe
 
 class BybitPumpDumpScreener:
-    def __init__(self, max_history_len=60):
+
+    def __init__(self, max_history_len: int = 60) -> None:
         """
-        :param max_history_len: Максимальная длина данных в минутах
+        :param max_history_len: Максимальная длинная данных в минутах, которые бот должен помнить.
         """
         self._max_history_len = max_history_len
         
@@ -60,19 +60,21 @@ class BybitPumpDumpScreener:
         self.LONG_DIRECTION = True
         self.SHORT_DIRECTION = True
 
-        # Главный словарь с данными
-        self._data = {}
-        
-        # Словарь с задержками для каждой монеты
+        """Главный словарь с данными. Имеет формат:
+        {ticker: [Candle, Candle, Candle ...]}
+        Данные хранятся только за последние max_history_len минут."""
+        self._data = {}  # Главный словарь со всеми собранными данными.
+
+        """Словарь с задержками для каждой монеты"""
         self._delays = {}
 
-        # Словарь с объемами за последние 24 часа
+        """Словарь с обьемами за последние 24 часа"""
         self._volume_per_minute = {}
 
-        # Реализация очереди для обработки сигналов
+        """Реализация очереди для обработки сигналов"""
         self._queue = queue.Queue()
 
-        # Таймштампы сообщений которые приходят с вебсокета
+        """Таймштампы сообщений которые приходят с вебсокета"""
         self._runtime_data = {}
 
         self._loop = asyncio.get_event_loop()
@@ -80,6 +82,8 @@ class BybitPumpDumpScreener:
     def handle_ws_msg(self, msg: dict) -> None:
         """
         Функция получает и обрабатывает сообщение с вебсокета.
+        :param msg:
+        :return:
         """
         def _add_candle(s: str, c: Candle) -> None:
             try:
@@ -130,60 +134,32 @@ class BybitPumpDumpScreener:
     def init_websocket(self) -> None:
         """
         Инициализирует вебсокет клиент.
+        :return:
         """
-        # Используем testnet для тестирования
-        self._ws = WebSocket(
-            channel_type="linear", 
-            testnet=True,  # Тестовая сеть для избежания лимитов
-            ping_interval=20,
-            ping_timeout=10,
-            trace_logging=True,
-            max_timeout=10,
-            restart_on_error=True
-        )
+        self._ws = WebSocket(channel_type="linear", testnet=False)
 
     def start_streams(self, symbols: list[str]) -> None:
         """
         Запускает вебсокет стримы.
+        :param symbols:
+        :return:
         """
-        # Ограничиваем количество символов для тестирования
-        test_symbols = symbols[:5] if len(symbols) > 5 else symbols
-        print(f"Подписываемся на {len(test_symbols)} символов: {test_symbols}")
-        
-        try:
-            self._ws.kline_stream(interval=1, symbol=test_symbols, callback=self.handle_ws_msg)
-        except Exception as e:
-            print(f"Ошибка при подписке на стримы: {e}")
+        self._ws.kline_stream(interval=1, symbol=symbols, callback=self.handle_ws_msg)
 
     async def start_service(self) -> None:
         """Запуск сервиса по поиску объемов."""
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                print(f"Попытка подключения {attempt+1}/{max_retries}")
-                # Инициализируем вебсокет
-                self.init_websocket()
-                
-                # Получаем список тикеров и запускаем нужные стримы с ними
-                symbols = await self._get_tickers()
-                self.start_streams(symbols)
-                
-                # Запуск обработчиков для закрытых свечей
-                for i in range(2):  # Уменьшаем количество потоков для тестирования
-                    threading.Thread(target=self._worker, daemon=True).start()
-                
-                print("Подключение успешно установлено")
-                break
-                
-            except Exception as e:
-                print(f"Ошибка подключения: {e}")
-                if attempt < max_retries - 1:
-                    wait_time = 30 * (attempt + 1)
-                    print(f"Повторная попытка через {wait_time} секунд")
-                    await asyncio.sleep(wait_time)
-                else:
-                    print("Достигнуто максимальное количество попыток")
-                    raise
+        print("Starting Bybit Pump/Dump screener")
+
+        # Инициализируем вебсокет клиент
+        self.init_websocket()
+
+        # Получаем список тикеров и запускаем нужные стримы с ними
+        symbols = await self._get_tickers()
+        self.start_streams(symbols)
+
+        # Запуск воркеров для обработки закрытых свечей
+        for i in range(4):
+            threading.Thread(target=self._worker, daemon=True).start()
 
     def _worker(self):
         while True:
@@ -199,13 +175,11 @@ class BybitPumpDumpScreener:
 
     def _process_symbol(self, symbol: str) -> None:
         """
-        Функция обрабатывает сообщения с вебсокета.
+        Функция обрабатывает сообщения с вебсокета, которые берет из очереди.
+        :return:
         """
+        # Единожды получаем данные для формирования сигнала
         try:
-            # Проверяем, есть ли данные для этого символа
-            if symbol not in self._data:
-                return
-                
             candles = self._data[symbol]
             
             # Проверка на достаточное количество свечей
@@ -221,12 +195,16 @@ class BybitPumpDumpScreener:
             # Отправляем сигналы
             if signals:
                 asyncio.run_coroutine_threadsafe(self._send_signals(signals), self._loop)
+        except KeyError:
+            pass
         except Exception as e:
             print(f"Error processing symbol {symbol}: {e}")
 
     async def _send_signals(self, signals: list[Signal]) -> None:
         """
         Функция готовит сообщение и отправляет его.
+        :param signals:
+        :return:
         """
         for signal in signals:
             try:
@@ -239,28 +217,28 @@ class BybitPumpDumpScreener:
                 tw_link = f"<a href='https://www.tradingview.com/chart/?symbol=BYBIT:{signal.symbol}.P'>TradingView</a>"
 
                 signal_text = (f"#{signal.symbol} (#{signal.timeframe}min) #Bybit #Futures\n"
-                                f"{signal_title} {round(signal.price_change, 2)}%\n\n"
-                                f"{bybit_link} {tw_link}")
+                               f"{signal_title} {round(signal.price_change, 2)}%\n\n"
+                               f"{bybit_link} {tw_link}")
 
-                # Отправляем сообщение в публичный канал
                 await bot.send_message(
                     chat_id=self.CHANNEL_ID,
                     text=signal_text,
                     parse_mode="HTML",
                     disable_web_page_preview=True
                 )
-                print(f"Signal sent: {signal.symbol} {signal.price_change}% to channel {self.CHANNEL_ID}")
+                print(f"Signal sent: {signal.symbol} {signal.price_change}%")
 
             except Exception as e:
                 print(f"Error sending signal: {e}")
 
     def _generate_signals(self, symbol: str, changes_dict: dict[int, Changes]) -> list[Signal]:
         """
-        Функция проверяет изменения цены для определения сигналов.
+        Функция проверяет изменения цены и определяет, нужно ли отправлять сигнал.
+        :return:
         """
         signals = []
         
-        # Проверка на таймаут последнего сигнала для этого символа
+        # Проверка на таймаут последнего сигнала
         symbol_signals_time = self._get_symbol_signals_time(symbol)
         if symbol_signals_time and symbol_signals_time[-1] + self.TIMEOUT_MINUTES * 60 > time.time():
             return signals
@@ -302,7 +280,9 @@ class BybitPumpDumpScreener:
 
     def _get_symbol_signals_time(self, symbol: str) -> list[int]:
         """
-        Возвращает время последних сигналов по монете.
+        Функция возвращает время последних сигналов по конкретной монете за последние сутки.
+        :param symbol:
+        :return:
         """
         current_time = time.time()
         threshold_time = current_time - (60 * 60 * 24)  # Время, старше которого данные не нужны
@@ -318,10 +298,12 @@ class BybitPumpDumpScreener:
 
     def _get_changes(self, data: list[Candle]) -> dict[int, Changes]:
         """
-        Считает изменения для каждого тикера за каждый таймфрейм.
+        Функция считает изменения для каждого тикера за каждый промежуток времени.
+        :return:
         """
         changes = {}
 
+        # Считаем изменения для каждого таймфрейма
         for minutes in self.TIMEFRAMES:
             if len(data) < minutes:
                 continue
@@ -345,62 +327,72 @@ class BybitPumpDumpScreener:
 
     async def _get_tickers(self, category="linear") -> list[str]:
         """
-        Получает и возвращает список тикеров с Bybit.
+        Функция получает и возвращает список тикеров с Bybit.
+        :param category:
+        :return:
         """
-        # Для тестовой сети используем фиксированный список
-        if self._ws and getattr(self._ws, 'testnet', False):
-            print("Используем фиксированный список тикеров для testnet")
-            return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
-            
-        # Для основной сети используем API
         url = 'https://api.bybit.com/v5/market/tickers'
         params = {'category': category}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as response:
-                    if response.status != 200:
-                        print(f"Ошибка API: статус {response.status}")
-                        return ["BTCUSDT", "ETHUSDT"]
-                        
-                    result = await response.json()
-                    if 'result' not in result or 'list' not in result['result']:
-                        print(f"Неверный формат ответа: {result}")
-                        return ["BTCUSDT", "ETHUSDT"]
-                        
-                    tickers = [s["symbol"] for s in result["result"]["list"] 
-                              if s["symbol"] not in self._ignored_symbols and
-                              s["symbol"].endswith("USDT")]
-                    return tickers[:10]  # Ограничиваем количество тикеров для тестирования
-        except Exception as e:
-            print(f"Ошибка при получении тикеров: {e}")
-            return ["BTCUSDT", "ETHUSDT"]
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                result = await response.json()
+                return [s["symbol"] for s in result["result"]["list"] if s["symbol"] not in self._ignored_symbols and
+                        s["symbol"].endswith("USDT")]
 
-async def main():
+# Функция для инициализации и запуска скринера
+async def start_pump_dump_screener():
+    screener = BybitPumpDumpScreener()
+    await screener.start_service()
+    return screener
+
+# Если файл запущен напрямую, запускаем скринер для тестирования
+if __name__ == "__main__":
+    import sys
+    
+    # Добавляем возможность настройки параметров из командной строки
+    # Пример: python strategy_logic/pump_dump.py 2.5 2.5 30
+    # Где 2.5 - процент для PUMP, 2.5 - процент для DUMP, 30 - таймаут в минутах
     try:
-        screener = BybitPumpDumpScreener()
-        
-        # Настройки для тестирования
-        screener.PUMP_SIZE = 2.0  # Уменьшаем порог для тестирования
-        screener.DUMP_SIZE = 2.0
-        screener.TIMEOUT_MINUTES = 30
-        
-        # Запускаем сервис
-        await screener.start_service()
-        
-        print("Скринер запущен и отслеживает изменения цен...")
-        print("Нажмите Ctrl+C для остановки")
-        
-        # Держим программу запущенной
-        while True:
-            await asyncio.sleep(60)
+        if len(sys.argv) >= 3:
+            pump_size = float(sys.argv[1])
+            dump_size = float(sys.argv[2])
+            timeout = int(sys.argv[3]) if len(sys.argv) >= 4 else 60
             
+            print(f"Запуск с параметрами: PUMP {pump_size}%, DUMP {dump_size}%, таймаут {timeout} мин")
+            
+            async def main():
+                screener = BybitPumpDumpScreener()
+                # Устанавливаем значения из командной строки
+                screener.PUMP_SIZE = pump_size
+                screener.DUMP_SIZE = dump_size
+                screener.TIMEOUT_MINUTES = timeout
+                
+                await screener.start_service()
+                
+                # Держим программу запущенной
+                print("Скринер запущен и отслеживает изменения цен...")
+                print("Нажмите Ctrl+C для остановки")
+                while True:
+                    await asyncio.sleep(60)
+                    
+        else:
+            print("Запуск с параметрами по умолчанию")
+            
+            async def main():
+                screener = BybitPumpDumpScreener()
+                await screener.start_service()
+                
+                # Держим программу запущенной
+                print("Скринер запущен и отслеживает изменения цен...")
+                print("Нажмите Ctrl+C для остановки")
+                while True:
+                    await asyncio.sleep(60)
+        
+        # Запускаем основную функцию
+        asyncio.run(main())
+        
     except KeyboardInterrupt:
         print("\nПрограмма остановлена пользователем")
     except Exception as e:
         print(f"Ошибка при запуске: {e}")
-    finally:
-        print("Программа завершена")
 
-if __name__ == "__main__":
-    asyncio.run(main())
