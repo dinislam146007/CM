@@ -1,5 +1,5 @@
 import sqlite3
-import datetime
+import datetime as dt
 
 # Подключение к SQLite
 conn = sqlite3.connect("trading_data.db")
@@ -137,7 +137,7 @@ def get_daily_statistics(user_id):
         cursor = conn.cursor()
 
         # Получение текущей даты
-        today = datetime.datetime.now().strftime('%d-%m-%Y')
+        today = dt.datetime.now().strftime('%d-%m-%Y')
 
         # Подсчет общего количества закрытых сделок за текущий день
         cursor.execute("""
@@ -574,4 +574,9 @@ def get_all_orders(user_id, order_type):
             customer_data_list = [dict(zip(columns, row)) for row in rows]
             return customer_data_list  # Возвращаем список словарей
         return []  # Если ничего не найдено, возвращаем пустой список
+
+def connect():
+    """Connect to the database."""
+    conn = sqlite3.connect('trading_data.db')
+    return conn
 

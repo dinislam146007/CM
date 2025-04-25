@@ -11,7 +11,7 @@ from aiogram import Bot
 from strategy_logic.get_all_coins import get_usdt_pairs
 from config import config
 # from db import *
-import datetime
+import datetime as dt
 from strategy_logic.rsi import *
 from strategy_logic.vsa import *
 from strategy_logic.price_action import get_pattern_price_action
@@ -22,10 +22,12 @@ from strategy_logic.moon_bot_strategy import StrategyMoonBot, load_strategy_para
 # Initialize moon bot with default params initially - will be replaced with user-specific in the processing loop
 moon = StrategyMoonBot(load_strategy_params())
 from db.orders import *
-import datetime as dt
 from db.orders import get_open_orders, get_order_by_id, close_order, save_order, get_active_positions
 from db.orders import get_active_btc_position_size, get_daily_profit
 import pytz
+from dateutil.parser import parse
+from db.orders import get_user_open_orders, get_user_balance
+from strategy_logic.user_strategy_params import load_user_params
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -114,11 +116,8 @@ def find_last_extreme(df):
 
 async def wait_for_next_candle(timeframe):
     """Ожидает завершения текущей свечи и начала новой."""
-    now = datetime.datetime.now()
-    # Преобразуем текущее время в секунды
-    current_time = now.timestamp()
-
-    timeframe_seconds = {
+    # Вычисляем, сколько времени осталось до следующей свечи
+    tf_to_seconds = {
         '1d': 86400,
         '4h': 14400,
         '1h': 3600,
@@ -128,17 +127,25 @@ async def wait_for_next_candle(timeframe):
         '3m': 180,
         '1m': 60,
     }
+    
+    start_time = tf_to_seconds.get(timeframe, 60 * 60)  # По умолчанию 1 час
+    
+    # Текущее время в секундах с начала эпохи
+    now = dt.datetime.now()
+    current_time = int(now.timestamp())
+    
+    # Время начала текущей свечи
+    current_candle_start = current_time - (current_time % start_time)
+    
+    # Время начала следующей свечи
+    next_candle_start = current_candle_start + start_time
+    
+    # Сколько секунд осталось до следующей свечи
+    seconds_to_wait = next_candle_start - current_time
 
-    interval = timeframe_seconds.get(timeframe)
-
-    if interval:
-        # Вычисляем время до следующей свечи
-        next_candle_time = (current_time // interval + 1) * interval
-        # Ждём до начала следующей свечи
-        wait_time = next_candle_time - current_time
-        print(f"Waiting for next {timeframe} candle: {wait_time:.2f} seconds")
-
-        await asyncio.sleep(wait_time)
+    if seconds_to_wait > 0:
+        print(f"Waiting for next {timeframe} candle: {seconds_to_wait:.2f} seconds")
+        await asyncio.sleep(seconds_to_wait)
     else:
         print(f"Unknown timeframe: {timeframe}, waiting 60 seconds as fallback")
         await asyncio.sleep(60)  # Используем запасной вариант, если таймфрейм неизвестен
@@ -171,11 +178,25 @@ async def process_tf(tf: str):
                 
                 # ---------- вход ----------
                 if open_order is None:
-                    if user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft):
-                        order_dict = user_moon.build_order(dft)
-                        entry = order_dict["price"]
-                        tp  = order_dict["take_profit"]
-                        sl  = order_dict["stop_loss"]
+                    # Проверка на паттерны Price Action (перенесено выше для использования в условии)
+                    pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], "spot")
+                    
+                    # Измененное условие: открываем сделку если паттерн есть ИЛИ стратегия мун бота срабатывает
+                    if pattern or (user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)):
+                        # Если сработала стратегия мун бота, используем ее данные, иначе создаем базовый ордер
+                        if user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft):
+                            order_dict = user_moon.build_order(dft)
+                            entry = order_dict["price"]
+                            tp = order_dict["take_profit"]
+                            sl = order_dict["stop_loss"]
+                        else:
+                            # Базовый ордер на основе текущей цены при срабатывании только паттерна
+                            current_price = dft["close"].iloc[-1]
+                            entry = current_price
+                            # Базовый TP: +3% от цены входа
+                            tp = entry * 1.03
+                            # Базовый SL: -2% от цены входа
+                            sl = entry * 0.98
                         
                         # Получаем баланс пользователя и рассчитываем объем на 5% от баланса
                         user_balance = await get_user_balance(uid)
@@ -197,9 +218,15 @@ async def process_tf(tf: str):
                             # Получаем обновленный баланс после списания средств
                             new_balance = await get_user_balance(uid)
                             
+                            # Формируем сообщение с информацией о паттерне, если он обнаружен
+                            pattern_info = f"📊 Pattern: {pattern}\n" if pattern else ""
+                            strategy_info = "Strategy: 🌙 Moon Bot\n" if user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft) else "Strategy: 📊 Price Action\n"
+                            
                             await bot.send_message(
                                 uid,
                                 f"🟢 <b>ПОКУПКА</b> {symbol} {tf}\n"
+                                f"{pattern_info}"
+                                f"{strategy_info}"
                                 f"Цена входа: {entry:.4f} USDT\n"
                                 f"Количество: {qty:.6f} ({(qty * entry):.2f} USDT)\n"
                                 f"TP: {tp:.4f} | SL: {sl:.4f}\n\n"
@@ -235,7 +262,8 @@ async def process_tf(tf: str):
                             pnl_text = "Убыток" if pnl_percent < 0 else "Прибыль"
                             
                             # Получаем текущую дату и время в московском времени (+3 часа)
-                            now = dt.datetime.now() + dt.timedelta(hours=3)
+                            moscow_tz = pytz.timezone('Europe/Moscow')
+                            now = dt.datetime.now(moscow_tz)
                             current_date = now.strftime('%d.%m.%Y')
                             current_time = now.strftime('%H:%M')
                             
@@ -318,12 +346,12 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             
         # Получаем текущую дату и время в МСК
         moscow_tz = pytz.timezone('Europe/Moscow')
-        now = datetime.datetime.now(moscow_tz)
+        now = dt.datetime.now(moscow_tz)
         current_date = now.strftime('%d.%m.%Y')
         current_time = now.strftime('%H:%M')
         
         # Конвертируем время открытия ордера из UTC в МСК
-        buy_time_utc = datetime.datetime.fromtimestamp(order['open_time'])
+        buy_time_utc = dt.datetime.fromtimestamp(order['open_time'])
         buy_time_moscow = pytz.utc.localize(buy_time_utc).astimezone(moscow_tz)
         buy_date = buy_time_moscow.strftime('%d.%m.%Y')
         buy_time = buy_time_moscow.strftime('%H:%M')

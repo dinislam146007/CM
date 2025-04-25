@@ -10,6 +10,9 @@ from strategy_logic.get_all_coins import get_usdt_pairs
 import datetime
 import asyncio
 
+# Исправляем импорт datetime для корректного доступа к datetime.datetime
+from datetime import datetime as dt
+
 from basic.state import *
 from config import config
 from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates
@@ -459,7 +462,7 @@ async def process_start_date(message: Message, state: FSMContext, bot: Bot):
         pass
     try:
         # Проверяем правильность формата даты
-        new = datetime.datetime.strptime(start_date, '%d-%m-%Y')
+        new = dt.strptime(start_date, '%d-%m-%Y')
     except ValueError:
         kb = [
         [InlineKeyboardButton(text='Отмена', callback_data='stat start')]
@@ -507,7 +510,7 @@ async def process_end_date(message: Message, state: FSMContext, bot: Bot):
 
     try:
         # Проверяем формат даты
-        parsed_date = datetime.datetime.strptime(end_date, '%d-%m-%Y')
+        parsed_date = dt.strptime(end_date, '%d-%m-%Y')
     except ValueError:
         kb = [[InlineKeyboardButton(text='Отмена', callback_data='stat start')]]
         await message.answer("Неверный формат даты. Введите дату в формате ДД-ММ-ГГГГ.", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
@@ -522,7 +525,7 @@ async def process_end_date(message: Message, state: FSMContext, bot: Bot):
 
     try:
         # Проверяем начальную дату
-        parsed_start_date = datetime.datetime.strptime(start_date, '%d-%m-%Y')
+        parsed_start_date = dt.strptime(start_date, '%d-%m-%Y')
         if parsed_start_date > parsed_date:
             await message.answer("Начальная дата не может быть позже конечной. Попробуйте заново.")
             return
@@ -576,7 +579,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                  f"📕 В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])} (<a href=\"tg://callback?data=stat loss_details 0\">Подробнее</a>)\n\n" \
                  f"{profit_text}"
         
-        await callback.message.edit_text(text=message, reply_markup=stat_inline(), parse_mode='HTML')
+        await callback.message.edit_text(text=message, reply_markup=stat_inline(profitable_trades, loss_trades), parse_mode='HTML')
     
     elif action == 'all':
         # Pagination for all closed orders
@@ -606,7 +609,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 profit_percent = ((sale_price - buy_price) / buy_price) * 100
                 profit_symbol = "✅" if profit_percent > 0 else "❌"
                 
-                time_str = datetime.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
+                time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
                 message += f"{profit_symbol} <b>{order['symbol']}:</b>\n" \
@@ -632,7 +635,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         period_type = action.split('_')[1]
         
         # Calculate start date based on period type
-        today = datetime.now()
+        today = dt.now()
         if period_type == 'week':
             start_date = (today - datetime.timedelta(days=7)).timestamp()
             period_text = "за неделю"
@@ -702,7 +705,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         period_type = action.split('_')[2]
         
         # Calculate start date based on period type
-        today = datetime.now()
+        today = dt.now()
         if period_type == 'week':
             start_date = (today - datetime.timedelta(days=7)).timestamp()
         elif period_type == 'month':
@@ -733,7 +736,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 profit_percent = ((sale_price - buy_price) / buy_price) * 100
                 profit_symbol = "✅" if profit_percent > 0 else "❌"
                 
-                time_str = datetime.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
+                time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
                 message += f"{profit_symbol} <b>{order['symbol']}:</b>\n" \
@@ -761,7 +764,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
     
     elif action == 'profit_details' or action == 'loss_details':
         # Получаем дневную статистику
-        today = datetime.now()
+        today = dt.now()
         today_date = today.strftime('%Y-%m-%d')
         
         # Получаем все закрытые ордера за день
@@ -774,7 +777,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 sale_date = order['sale_time'].split(' ')[0]  # Предполагаем формат "YYYY-MM-DD HH:MM:SS"
             else:
                 # Если sale_time не строка, а datetime
-                sale_date = datetime.fromtimestamp(order['create_at']).strftime('%Y-%m-%d')
+                sale_date = dt.fromtimestamp(order['create_at']).strftime('%Y-%m-%d')
             
             if sale_date == today_date:
                 today_orders.append(order)
@@ -800,7 +803,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         if not filtered_orders:
             await callback.message.edit_text(
                 text=f"У вас нет {title} сделок за сегодня.",
-                reply_markup=stat_inline()
+                reply_markup=stat_inline(profitable_trades, loss_trades)
             )
             return
         
@@ -824,7 +827,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 if isinstance(order.get('sale_time'), str):
                     time_str = order['sale_time']
                 else:
-                    time_str = datetime.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
+                    time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
@@ -857,7 +860,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         action_type = action.split('_')[0] + '_' + action.split('_')[1]  # profit_details или loss_details
         
         # Вычисляем начальную дату на основе типа периода
-        today = datetime.now()
+        today = dt.now()
         if period_type == 'week':
             start_date = (today - datetime.timedelta(days=7)).timestamp()
             period_text = "за неделю"
@@ -919,7 +922,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 if isinstance(order.get('sale_time'), str):
                     time_str = order['sale_time']
                 else:
-                    time_str = datetime.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
+                    time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
@@ -949,7 +952,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
     else:
         await callback.message.edit_text(
             text="Неизвестная команда. Возврат к главному меню статистики.",
-            reply_markup=stat_inline()
+            reply_markup=stat_inline(0, 0)
         )
 
 @router.message(Command("start"))
