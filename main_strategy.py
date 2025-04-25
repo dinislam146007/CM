@@ -31,6 +31,7 @@ from strategy_logic.user_strategy_params import load_user_params
 from strategy_logic.pump_dump import pump_dump_main
 from strategy_logic.cm_settings import load_cm_settings  # Импортируем функцию загрузки настроек CM
 from strategy_logic.divergence_settings import load_divergence_settings  # Импортируем функцию загрузки настроек дивергенции
+from strategy_logic.rsi_settings import load_rsi_settings  # Импортируем функцию загрузки настроек RSI
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -183,6 +184,9 @@ async def process_tf(tf: str):
                 # Загружаем индивидуальные настройки дивергенции для пользователя
                 divergence_settings = load_divergence_settings(uid)
                 
+                # Загружаем индивидуальные настройки RSI для пользователя
+                rsi_settings = load_rsi_settings(uid)
+                
                 # ---------- вход ----------
                 if open_order is None:
                     # Проверка на паттерны Price Action (перенесено выше для использования в условии)
@@ -190,11 +194,18 @@ async def process_tf(tf: str):
                     dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
                     dft = calculate_ema(dft)
                     cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
-                    dft = calculate_rsi(dft)
-                    dft = calculate_ema(dft)
-                    rsi = generate_signals_rsi(dft)
+                    
+                    # Рассчитываем RSI с пользовательскими настройками
+                    dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+                    dft = calculate_ema(dft, 
+                                       fast_period=rsi_settings['EMA_FAST'], 
+                                       slow_period=rsi_settings['EMA_SLOW'])
+                    
+                    # Генерируем сигналы RSI с пользовательскими настройками
+                    rsi = generate_signals_rsi(dft, 
+                                              overbought=rsi_settings['RSI_OVERBOUGHT'], 
+                                              oversold=rsi_settings['RSI_OVERSOLD'])
                     rsi_signal = rsi['signal_rsi'].iloc[-1]
-
 
                     diver_signals = generate_trading_signals(
                         dft, 

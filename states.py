@@ -24,4 +24,7 @@ class CMParamStates(StatesGroup):
 
 class DivergenceParamStates(StatesGroup):
     edit_param = State()
-    edit_stop_loss_type = State() 
+    edit_stop_loss_type = State()
+
+class RSIParamStates(StatesGroup):
+    edit_param = State() 

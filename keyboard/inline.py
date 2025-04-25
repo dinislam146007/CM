@@ -112,6 +112,7 @@ def settings_inline():
         [InlineKeyboardButton(text='Параметры торговой стратегии', callback_data='settings strategy')],
         [InlineKeyboardButton(text='Настройки CM индикатора', callback_data='settings cm')],
         [InlineKeyboardButton(text='Настройки индикатора дивергенции', callback_data='settings divergence')],
+        [InlineKeyboardButton(text='Настройки RSI индикатора', callback_data='settings rsi')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -234,6 +235,18 @@ def divergence_params_inline():
         [InlineKeyboardButton(text='ATR_LENGTH', callback_data='divergence ATR_LENGTH')],
         [InlineKeyboardButton(text='ATR_MULTIPLIER', callback_data='divergence ATR_MULTIPLIER')],
         [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='divergence reset')],
+        [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def rsi_params_inline():
+    kb = [
+        [InlineKeyboardButton(text='RSI_PERIOD', callback_data='rsi RSI_PERIOD')],
+        [InlineKeyboardButton(text='RSI_OVERBOUGHT', callback_data='rsi RSI_OVERBOUGHT')],
+        [InlineKeyboardButton(text='RSI_OVERSOLD', callback_data='rsi RSI_OVERSOLD')],
+        [InlineKeyboardButton(text='EMA_FAST', callback_data='rsi EMA_FAST')],
+        [InlineKeyboardButton(text='EMA_SLOW', callback_data='rsi EMA_SLOW')],
+        [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='rsi reset')],
         [InlineKeyboardButton(text='Назад', callback_data='settings start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)

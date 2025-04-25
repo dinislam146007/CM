@@ -23,7 +23,7 @@ def calculate_rsi(df, period=14):
     return df
 
 
-def calculate_ema(df, period1=21, period2=49):
+def calculate_ema(df, fast_period=21, slow_period=49):
     """Вычисление EMA для двух периодов без использования talib."""
 
     def ema(series, period):
@@ -36,11 +36,11 @@ def calculate_ema(df, period1=21, period2=49):
 
         return ema_values
 
-    df['ema21'] = ema(df['close'].values, period1)
-    df['ema49'] = ema(df['close'].values, period2)
+    df['ema21'] = ema(df['close'].values, fast_period)
+    df['ema49'] = ema(df['close'].values, slow_period)
     return df
 
-def generate_signals_rsi(df):
+def generate_signals_rsi(df, overbought=70, oversold=30):
     """Генерация сигналов на основе пересечения EMA и уровней RSI."""
     if 'rsi' not in df.columns:
         raise ValueError("Column 'rsi' not found in DataFrame")
@@ -52,10 +52,10 @@ def generate_signals_rsi(df):
     # Проверка условий на покупку или продажу
     for i in range(1, len(df)):
 
-        if df['ema21'].iloc[i] > df['ema49'].iloc[i] and df['rsi'].iloc[i] < 30:
-            signals.append("long")
-        elif df['ema21'].iloc[i] < df['ema49'].iloc[i] and df['rsi'].iloc[i] > 70:
-            signals.append("short")
+        if df['ema21'].iloc[i] > df['ema49'].iloc[i] and df['rsi'].iloc[i] < oversold:
+            signals.append("Long")
+        elif df['ema21'].iloc[i] < df['ema49'].iloc[i] and df['rsi'].iloc[i] > overbought:
+            signals.append("Short")
         else:
             signals.append("Hold")
     # Добавляем сигналы в DataFrame
