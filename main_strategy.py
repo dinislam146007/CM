@@ -180,6 +180,8 @@ async def process_tf(tf: str):
                 if open_order is None:
                     # Проверка на паттерны Price Action (перенесено выше для использования в условии)
                     pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], "spot")
+                    dft = calculate_ppo(dft)
+                    dft = calculate_ema(dft)
                     cm_signal, last_candle = find_cm_signal(dft)
                     dft = calculate_rsi(dft)
                     dft = calculate_ema(dft)
