@@ -15,7 +15,7 @@ from datetime import datetime as dt
 
 from basic.state import *
 from config import config
-from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates
+from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates, PumpDumpParamStates
 import re
 from db.orders import (get_open_order, get_user_balance, create_order, close_order, 
                       get_user_open_orders, get_user_closed_orders, get_all_orders)
@@ -30,9 +30,13 @@ from db.select import (get_user, get_signal, get_active_order, get_user_orders,
                      count_total_open, get_signal_data)
 from db.insert import set_user
 from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
-from strategy_logic.cm_settings import load_cm_settings, update_cm_setting, reset_cm_settings, get_cm_param_names_and_types
-from strategy_logic.divergence_settings import load_divergence_settings, update_divergence_setting, reset_divergence_settings, get_divergence_param_names_and_types
+from strategy_logic.cm_settings import load_cm_settings, reset_cm_settings, update_cm_setting  # Import CM settings functions
+from strategy_logic.divergence_settings import load_divergence_settings, reset_divergence_settings, update_divergence_setting  # Import divergence settings functions
 from strategy_logic.rsi_settings import load_rsi_settings, reset_rsi_settings, update_rsi_setting  # Import RSI settings functions
+from strategy_logic.pump_dump_settings import (
+    load_pump_dump_settings, reset_pump_dump_settings, update_pump_dump_setting,
+    add_subscriber, remove_subscriber, is_subscribed
+)  # Import pump_dump settings functions
 
 router = Router()
 
@@ -1474,6 +1478,45 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
             text=text,
             reply_markup=rsi_params_inline()
         )
+    elif action == 'pump_dump':
+        # Load pump_dump detector settings for the user
+        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки Pump/Dump детектора\n\n"
+        
+        # Display current parameters
+        text += "📊 Текущие параметры:\n"
+        text += f"VOLUME_THRESHOLD: {pump_dump_settings['VOLUME_THRESHOLD']:.1f}x\n"
+        text += f"PRICE_CHANGE_THRESHOLD: {pump_dump_settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
+        text += f"TIME_WINDOW: {pump_dump_settings['TIME_WINDOW']} минут\n"
+        text += f"MONITOR_INTERVALS: {', '.join(pump_dump_settings['MONITOR_INTERVALS'])}\n"
+        text += f"ENABLED: {'Включено' if pump_dump_settings['ENABLED'] else 'Выключено'}\n\n"
+        
+        # Show subscription status
+        is_subbed = is_subscribed(callback.from_user.id)
+        text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
+        
+        text += "Выберите параметр для изменения или управляйте подпиской:"
+        
+        # Create combined inline keyboard with settings and subscription options
+        kb = [
+            [InlineKeyboardButton(text='VOLUME_THRESHOLD', callback_data='pump_dump VOLUME_THRESHOLD')],
+            [InlineKeyboardButton(text='PRICE_CHANGE_THRESHOLD', callback_data='pump_dump PRICE_CHANGE_THRESHOLD')],
+            [InlineKeyboardButton(text='TIME_WINDOW', callback_data='pump_dump TIME_WINDOW')],
+            [InlineKeyboardButton(text='MONITOR_INTERVALS', callback_data='pump_dump MONITOR_INTERVALS')],
+            [InlineKeyboardButton(text='ENABLED', callback_data='pump_dump ENABLED')],
+            [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='pump_dump reset')],
+            [InlineKeyboardButton(
+                text='Отписаться от уведомлений' if is_subbed else 'Подписаться на уведомления', 
+                callback_data='pump_dump unsubscribe' if is_subbed else 'pump_dump subscribe'
+            )],
+            [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+        ]
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
 
 @router.callback_query(F.data.startswith('strategy'))
 async def strategy_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -2144,6 +2187,148 @@ async def process_rsi_param_edit(message: Message, state: FSMContext, bot: Bot):
             "Попробуйте еще раз:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Назад', callback_data='settings rsi')]
+            ])
+        )
+    
+    await state.clear()
+
+@router.callback_query(F.data.startswith('pump_dump'))
+async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    action = callback.data.split()[1]
+    
+    if action == 'reset':
+        # Reset pump_dump detector settings to default
+        reset_pump_dump_settings(callback.from_user.id)
+        await callback.answer("Настройки Pump/Dump детектора сброшены к стандартным значениям")
+        
+        # Get default settings
+        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки Pump/Dump детектора\n\n"
+        text += "Параметры сброшены к стандартным значениям.\n\n"
+        
+        # Display current parameters
+        text += "📊 Текущие параметры:\n"
+        text += f"VOLUME_THRESHOLD: {pump_dump_settings['VOLUME_THRESHOLD']:.1f}x\n"
+        text += f"PRICE_CHANGE_THRESHOLD: {pump_dump_settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
+        text += f"TIME_WINDOW: {pump_dump_settings['TIME_WINDOW']} минут\n"
+        text += f"MONITOR_INTERVALS: {', '.join(pump_dump_settings['MONITOR_INTERVALS'])}\n"
+        text += f"ENABLED: {'Включено' if pump_dump_settings['ENABLED'] else 'Выключено'}\n\n"
+        
+        is_subbed = is_subscribed(callback.from_user.id)
+        text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=pump_dump_params_inline()
+        )
+    elif action == 'subscribe':
+        # Subscribe to pump_dump notifications
+        success = add_subscriber(callback.from_user.id)
+        
+        if success:
+            await callback.answer("Вы успешно подписались на уведомления Pump/Dump")
+            # Redirect back to settings
+            await settings(callback, state, bot)
+        else:
+            await callback.answer("Ошибка при подписке на уведомления")
+    
+    elif action == 'unsubscribe':
+        # Unsubscribe from pump_dump notifications
+        success = remove_subscriber(callback.from_user.id)
+        
+        if success:
+            await callback.answer("Вы отписались от уведомлений Pump/Dump")
+            # Redirect back to settings
+            await settings(callback, state, bot)
+        else:
+            await callback.answer("Ошибка при отписке от уведомлений")
+    
+    elif action in ['VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'MONITOR_INTERVALS', 'ENABLED']:
+        # Edit pump_dump parameter
+        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
+        current_value = pump_dump_settings.get(action, "не установлено")
+        
+        # For list or boolean values, provide additional instructions
+        instructions = ""
+        if action == 'MONITOR_INTERVALS':
+            instructions = "\nВведите временные интервалы через запятую (например: 5m,15m,1h)"
+        elif action == 'ENABLED':
+            instructions = "\nВведите 'true' для включения или 'false' для выключения"
+        
+        kb = [
+            [InlineKeyboardButton(text='Назад', callback_data='settings pump_dump')]
+        ]
+        
+        msg = await callback.message.edit_text(
+            f"Изменение параметра: {action}\n"
+            f"Текущее значение: {current_value}{instructions}\n\n"
+            f"Введите новое значение:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+        
+        await state.set_state(PumpDumpParamStates.edit_param)
+        await state.update_data(param_name=action, last_msg=msg.message_id)
+
+@router.message(PumpDumpParamStates.edit_param)
+async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    param_name = data.get('param_name')
+    
+    try:
+        # Delete previous message
+        try:
+            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Get the input value
+        param_value = message.text.strip()
+        
+        # Update parameter
+        success = update_pump_dump_setting(message.from_user.id, param_name, param_value)
+        
+        if success:
+            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            
+            # Get updated settings
+            pump_dump_settings = load_pump_dump_settings(message.from_user.id)
+            
+            text = "⚙️ Настройки Pump/Dump детектора\n\n"
+            
+            # Display current parameters
+            text += "📊 Текущие параметры:\n"
+            text += f"VOLUME_THRESHOLD: {pump_dump_settings['VOLUME_THRESHOLD']:.1f}x\n"
+            text += f"PRICE_CHANGE_THRESHOLD: {pump_dump_settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
+            text += f"TIME_WINDOW: {pump_dump_settings['TIME_WINDOW']} минут\n"
+            text += f"MONITOR_INTERVALS: {', '.join(pump_dump_settings['MONITOR_INTERVALS'])}\n"
+            text += f"ENABLED: {'Включено' if pump_dump_settings['ENABLED'] else 'Выключено'}\n\n"
+            
+            is_subbed = is_subscribed(message.from_user.id)
+            text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
+            
+            text += "Выберите параметр для изменения:"
+            
+            # Show settings menu again with updated parameters
+            await message.answer(
+                text=text,
+                reply_markup=pump_dump_params_inline()
+            )
+        else:
+            await message.answer(f"Не удалось обновить параметр {param_name}")
+            await message.answer(
+                "⚙️ Настройки Pump/Dump детектора\n\n"
+                "Выберите параметр для изменения:",
+                reply_markup=pump_dump_params_inline()
+            )
+    except ValueError:
+        await message.answer(
+            "Ошибка: значение должно соответствовать типу параметра.\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings pump_dump')]
             ])
         )
     

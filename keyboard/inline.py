@@ -113,6 +113,7 @@ def settings_inline():
         [InlineKeyboardButton(text='Настройки CM индикатора', callback_data='settings cm')],
         [InlineKeyboardButton(text='Настройки индикатора дивергенции', callback_data='settings divergence')],
         [InlineKeyboardButton(text='Настройки RSI индикатора', callback_data='settings rsi')],
+        [InlineKeyboardButton(text='Настройки Pump/Dump детектора', callback_data='settings pump_dump')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -257,5 +258,25 @@ def stop_loss_type_inline():
         [InlineKeyboardButton(text='ATR (на основе ATR)', callback_data='divergence_sl_type ATR')],
         [InlineKeyboardButton(text='NONE (без стоп-лосса)', callback_data='divergence_sl_type NONE')],
         [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def pump_dump_params_inline():
+    kb = [
+        [InlineKeyboardButton(text='VOLUME_THRESHOLD', callback_data='pump_dump VOLUME_THRESHOLD')],
+        [InlineKeyboardButton(text='PRICE_CHANGE_THRESHOLD', callback_data='pump_dump PRICE_CHANGE_THRESHOLD')],
+        [InlineKeyboardButton(text='TIME_WINDOW', callback_data='pump_dump TIME_WINDOW')],
+        [InlineKeyboardButton(text='MONITOR_INTERVALS', callback_data='pump_dump MONITOR_INTERVALS')],
+        [InlineKeyboardButton(text='ENABLED', callback_data='pump_dump ENABLED')],
+        [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='pump_dump reset')],
+        [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def pump_dump_subscription_inline():
+    kb = [
+        [InlineKeyboardButton(text='Подписаться на уведомления', callback_data='pump_dump subscribe')],
+        [InlineKeyboardButton(text='Отписаться от уведомлений', callback_data='pump_dump unsubscribe')],
+        [InlineKeyboardButton(text='Назад к настройкам', callback_data='settings pump_dump')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)

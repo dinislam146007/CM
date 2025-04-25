@@ -6,7 +6,8 @@ import aiohttp
 from pybit.unified_trading import WebSocket
 from config import config
 from aiogram import Bot, types
-from strategy_logic.get_all_coins import get_usdt_pairs  # Добавляем импорт функции
+from strategy_logic.get_all_coins import get_usdt_pairs
+from strategy_logic.pump_dump_settings import load_pump_dump_settings, load_subscribers
 
 # Инициализируем бота
 bot = Bot(token=config.tg_bot_token)
@@ -44,23 +45,9 @@ class BybitPumpDumpScreener:
         
         self._ws = None
         
-        # Таймфреймы для поиска памп/дамп сигналов
-        self.TIMEFRAMES = [5, 10, 15, 30]
-        
         # ID канала для отправки сигналов
         self.CHANNEL_ID = config.public_channel_id
         
-        # Минимальные проценты изменения для сигнала
-        self.PUMP_SIZE = 3.0  # % роста для сигнала
-        self.DUMP_SIZE = 3.0  # % падения для сигнала
-        
-        # Таймаут между сигналами одной монеты в минутах
-        self.TIMEOUT_MINUTES = 60
-        
-        # Направления торговли
-        self.LONG_DIRECTION = True
-        self.SHORT_DIRECTION = True
-
         # Главный словарь с данными
         self._data = {}
         
@@ -77,6 +64,40 @@ class BybitPumpDumpScreener:
         self._runtime_data = {}
 
         self._loop = asyncio.get_event_loop()
+        
+        # Загружаем настройки для бота (используем ID 0 для общих настроек)
+        self._load_settings()
+
+    def _load_settings(self):
+        """
+        Загружает настройки для детектора из файла настроек
+        """
+        settings = load_pump_dump_settings(0)  # Используем ID 0 для общих настроек
+        
+        # Таймфреймы для поиска памп/дамп сигналов (преобразуем строки в минуты)
+        self.TIMEFRAMES = []
+        for tf in settings["MONITOR_INTERVALS"]:
+            if tf.endswith('m'):
+                self.TIMEFRAMES.append(int(tf[:-1]))
+            elif tf.endswith('h'):
+                self.TIMEFRAMES.append(int(tf[:-1]) * 60)
+        
+        # Минимальные проценты изменения для сигнала
+        self.PUMP_SIZE = settings["PRICE_CHANGE_THRESHOLD"]  # % роста для сигнала
+        self.DUMP_SIZE = settings["PRICE_CHANGE_THRESHOLD"]  # % падения для сигнала
+        
+        # Таймаут между сигналами одной монеты в минутах
+        self.TIMEOUT_MINUTES = settings["TIME_WINDOW"]
+        
+        # Минимальный объем
+        self.VOLUME_THRESHOLD = settings["VOLUME_THRESHOLD"]
+        
+        # Включен ли детектор
+        self.ENABLED = settings["ENABLED"]
+        
+        # Направления торговли (всегда включены для памп/дамп детектора)
+        self.LONG_DIRECTION = True
+        self.SHORT_DIRECTION = True
 
     def handle_ws_msg(self, msg: dict) -> None:
         """
@@ -199,60 +220,82 @@ class BybitPumpDumpScreener:
 
     def _process_symbol(self, symbol: str) -> None:
         """
-        Функция обрабатывает сообщения с вебсокета.
+        Обрабатывает данные для одного символа.
         """
+        # Проверяем, включен ли детектор
+        if not self.ENABLED:
+            return
+            
         try:
-            # Проверяем, есть ли данные для этого символа
+            # Проверяем объем
+            if symbol in self._volume_per_minute:
+                volume = self._volume_per_minute[symbol]
+                # Пропускаем монеты с малым объемом
+                if volume < self.VOLUME_THRESHOLD:
+                    return
+                    
+            if symbol in self._ignored_symbols:
+                return
+                
             if symbol not in self._data:
                 return
                 
-            candles = self._data[symbol]
-            
-            # Проверка на достаточное количество свечей
-            if len(candles) < max(self.TIMEFRAMES):
+            data = self._data[symbol]
+            if len(data) < 5:  # Минимум 5 минут данных требуется
                 return
                 
-            # Собираем словарь из данных
-            changes = self._get_changes(candles)
-
-            # Генерируем сигналы
-            signals = self._generate_signals(symbol, changes)
-
-            # Отправляем сигналы
+            # Получаем изменения по всем таймфреймам
+            changes_dict = self._get_changes(data)
+            
+            # Генерируем сигналы, если есть изменения
+            signals = self._generate_signals(symbol, changes_dict)
+            
+            # Отправляем сигналы, если они есть
             if signals:
                 asyncio.run_coroutine_threadsafe(self._send_signals(signals), self._loop)
         except Exception as e:
-            print(f"Error processing symbol {symbol}: {e}")
+            print(f"Ошибка в обработке символа {symbol}: {e}")
 
     async def _send_signals(self, signals: list[Signal]) -> None:
         """
-        Функция готовит сообщение и отправляет его.
+        Функция отправляет уведомления в Telegram канал.
         """
-        for signal in signals:
-            try:
-                if signal.price_change > 0:
-                    signal_title = "🟢🔥 #Pump рост"
-                else:
-                    signal_title = "🔴🔥 #Dump падение"
-
-                bybit_link = f"<a href='https://www.bybit.com/trade/usdt/{signal.symbol}'>Futures</a>"
-                tw_link = f"<a href='https://www.tradingview.com/chart/?symbol=BYBIT:{signal.symbol}.P'>TradingView</a>"
-
-                signal_text = (f"#{signal.symbol} (#{signal.timeframe}min) #Bybit #Futures\n"
-                                f"{signal_title} {round(signal.price_change, 2)}%\n\n"
-                                f"{bybit_link} {tw_link}")
-
-                # Отправляем сообщение в публичный канал
-                await bot.send_message(
-                    chat_id=self.CHANNEL_ID,
-                    text=signal_text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
+        if not signals or not self.ENABLED:
+            return
+            
+        try:
+            # Получаем список подписчиков
+            subscribers = load_subscribers()
+            
+            for signal in signals:
+                # Определение типа сигнала (памп или дамп)
+                signal_type = "🟢 PUMP" if signal.price_change > 0 else "🔴 DUMP"
+                price_change = abs(signal.price_change)
+                
+                # Формируем текст сообщения
+                message_text = (
+                    f"{signal_type} {signal.symbol}\n\n"
+                    f"💰 Изменение цены: {price_change:.2f}%\n"
+                    f"⏱ Таймфрейм: {signal.timeframe} минут\n\n"
+                    f"📊 Биржа: Bybit"
                 )
-                print(f"Signal sent: {signal.symbol} {signal.price_change}% to channel {self.CHANNEL_ID}")
+                
+                # Отправляем сообщение в публичный канал, если он настроен
+                if self.CHANNEL_ID:
+                    try:
+                        await bot.send_message(chat_id=self.CHANNEL_ID, text=message_text)
+                    except Exception as e:
+                        print(f"Ошибка при отправке в канал: {e}")
+                
+                # Отправляем сообщение каждому подписчику
+                for user_id in subscribers:
+                    try:
+                        await bot.send_message(chat_id=user_id, text=message_text)
+                    except Exception as e:
+                        print(f"Ошибка при отправке пользователю {user_id}: {e}")
 
-            except Exception as e:
-                print(f"Error sending signal: {e}")
+        except Exception as e:
+            print(f"Ошибка при отправке сигналов: {e}")
 
     def _generate_signals(self, symbol: str, changes_dict: dict[int, Changes]) -> list[Signal]:
         """
@@ -391,6 +434,8 @@ async def pump_dump_main():
         await screener.start_service()
                 
         while True:
+            # Периодически перезагружаем настройки
+            screener._load_settings()
             await asyncio.sleep(60)
             
     except KeyboardInterrupt:

@@ -27,4 +27,7 @@ class DivergenceParamStates(StatesGroup):
     edit_stop_loss_type = State()
 
 class RSIParamStates(StatesGroup):
+    edit_param = State()
+
+class PumpDumpParamStates(StatesGroup):
     edit_param = State() 
