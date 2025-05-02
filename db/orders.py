@@ -15,6 +15,9 @@ async def get_user_balance(user_id):
         return row['balance']
     return 0.0  # Если пользователь не найден, возвращаем 0
 
+
+
+
 async def update_user_balance(user_id, amount):
     """Обновление баланса пользователя"""
     conn = await connect()
@@ -48,35 +51,28 @@ async def create_order(user_id, symbol, interval, side, qty,
     else:
         investment_amount = qty * buy_price
     
+    # Проверяем, достаточно ли средств у пользователя
+    user_balance = await get_user_balance(user_id)
+    if user_balance < investment_amount:
+        raise ValueError(f"Недостаточно средств: {user_balance} < {investment_amount}")
+    
     # Списываем средства с баланса
+    await update_user_balance(user_id, -investment_amount)
+    
+    # Создаем запись о сделке с учетом типа торговли и плеча
     conn = await connect()
     try:
-        # Начинаем транзакцию
-        tr = conn.transaction()
-        await tr.start()
-        
-        # Обновляем баланс пользователя (списываем средства)
-        await conn.execute("""
-            UPDATE users SET balance = balance - $2 WHERE user_id=$1
-        """, user_id, investment_amount)
-        
-        # Создаем запись о сделке с учетом типа торговли и плеча
-        await conn.execute("""
+        order_id = await conn.fetchval("""
             INSERT INTO orders (user_id, symbol, interval, side, qty,
                                coin_buy_price, tp_price, sl_price, buy_time,
                                investment_amount_usdt, trading_type, leverage)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id
         """, user_id, symbol, interval, side.upper(), qty,
             buy_price, tp, sl, dt.datetime.utcnow(), investment_amount,
             trading_type, leverage)
         
-        # Завершаем транзакцию
-        await tr.commit()
-    except Exception as e:
-        # В случае ошибки отменяем все изменения
-        await tr.rollback()
-        print(f"Ошибка при создании ордера: {e}")
-        raise
+        return order_id
     finally:
         await conn.close()
 
@@ -103,19 +99,25 @@ async def close_order(order_id, sale_price):
         
         # Получаем данные ордера перед закрытием
         order_data = await conn.fetchrow("""
-            SELECT user_id, qty, coin_buy_price, investment_amount_usdt, side, trading_type, leverage
+            SELECT user_id, qty, coin_buy_price, investment_amount_usdt, side, trading_type, leverage, status
             FROM orders WHERE id=$1
         """, order_id)
         
         if not order_data:
             raise Exception(f"Ордер с ID {order_id} не найден")
+            
+        # Проверка на статус ордера
+        if order_data['status'] == 'CLOSED':
+            print(f"Предупреждение: Ордер {order_id} уже закрыт. Пропускаем закрытие.")
+            await tr.rollback()
+            return None
         
         user_id = order_data['user_id']
-        qty = order_data['qty']
-        entry_price = order_data['coin_buy_price']
+        qty = float(order_data['qty'])
+        entry_price = float(order_data['coin_buy_price'])
         side = order_data['side']
         trading_type = order_data['trading_type']
-        leverage = order_data['leverage']
+        leverage = int(order_data['leverage'])
         
         # Рассчитываем прибыль/убыток с учетом типа позиции и плеча
         if side == 'LONG':
@@ -134,7 +136,9 @@ async def close_order(order_id, sale_price):
             pnl_usdt = (entry_price - sale_price) * qty
         
         # Сумма к возврату: вложенные средства + прибыль (или - убыток)
-        invested = order_data['investment_amount_usdt']
+        # Преобразуем Decimal в float
+        invested = float(order_data['investment_amount_usdt'])
+        pnl_usdt = float(pnl_usdt)
         return_amount = invested + pnl_usdt
         
         # Проверка на ликвидацию (для futures с плечом)
@@ -158,12 +162,22 @@ async def close_order(order_id, sale_price):
                 pnl_percent=$4::numeric,
                 pnl_usdt=$5::real,
                 return_amount_usdt=$6::real
-            WHERE id=$1
+            WHERE id=$1 AND status='OPEN'
             RETURNING id, user_id, qty, coin_buy_price, CAST($2 AS real) as coin_sale_price, 
                       CAST($4 AS numeric) as pnl_percent, CAST($5 AS real) as pnl_usdt, 
                       CAST($6 AS real) as return_amount_usdt, side, trading_type, leverage
         """, order_id, sale_price, dt.datetime.utcnow(), 
             pnl_percent, pnl_usdt, return_amount)
+        
+        # Проверяем, был ли обновлен ордер (если ордер уже был закрыт, result будет None)
+        if not result:
+            print(f"Предупреждение: Ордер {order_id} не был обновлен (возможно уже закрыт). Отменяем транзакцию.")
+            await tr.rollback()
+            return None
+            
+        # Получаем новый баланс пользователя для логирования
+        new_balance = await get_user_balance(user_id)
+        print(f"Новый баланс пользователя {user_id} после закрытия ордера: {new_balance} (+{return_amount})")
         
         # Завершаем транзакцию
         await tr.commit()
@@ -286,6 +300,51 @@ async def get_active_btc_position_size(user_id):
     """, user_id)
     await conn.close()
     return row['position_size'] if row and row['position_size'] is not None else 0.0
+
+async def init_db():
+    """Инициализирует базу данных, проверяет и добавляет необходимые колонки."""
+    conn = await connect()
+    try:
+        # Создаем таблицу users, если она еще не существует
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                username TEXT,
+                balance REAL DEFAULT 1000.0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Создаем таблицу orders, если она еще не существует
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                symbol TEXT,
+                interval TEXT,
+                side TEXT,
+                qty REAL,
+                coin_buy_price REAL,
+                coin_sale_price REAL,
+                buy_time TIMESTAMP,
+                sale_time TIMESTAMP,
+                tp_price REAL,
+                sl_price REAL,
+                status TEXT DEFAULT 'OPEN',
+                pnl_percent NUMERIC,
+                pnl_usdt REAL,
+                return_amount_usdt REAL,
+                investment_amount_usdt REAL,
+                trading_type TEXT DEFAULT 'spot',
+                leverage INTEGER DEFAULT 1
+            )
+        """)
+        
+        print("База данных инициализирована успешно")
+    except Exception as e:
+        print(f"Ошибка при инициализации базы данных: {e}")
+    finally:
+        await conn.close()
 
 async def calculate_max_position_size(user_id, symbol, leverage=1):
     """

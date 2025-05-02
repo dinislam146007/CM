@@ -2251,15 +2251,7 @@ async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot)
         text += "Параметры сброшены к стандартным значениям.\n\n"
         
         # Display current parameters
-        text += "📊 Текущие параметры:\n"
-        text += f"VOLUME_THRESHOLD: {pump_dump_settings['VOLUME_THRESHOLD']:.1f}x\n"
-        text += f"PRICE_CHANGE_THRESHOLD: {pump_dump_settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
-        text += f"TIME_WINDOW: {pump_dump_settings['TIME_WINDOW']} минут\n"
-        text += f"MONITOR_INTERVALS: {', '.join(pump_dump_settings['MONITOR_INTERVALS'])}\n"
-        text += f"ENABLED: {'Включено' if pump_dump_settings['ENABLED'] else 'Выключено'}\n\n"
-        
-        is_subbed = is_subscribed(callback.from_user.id)
-        text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
+        text += format_pump_dump_settings(pump_dump_settings, callback.from_user.id)
         
         text += "Выберите параметр для изменения:"
         
@@ -2289,7 +2281,16 @@ async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot)
         else:
             await callback.answer("Ошибка при отписке от уведомлений")
     
-    elif action in ['VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'MONITOR_INTERVALS', 'ENABLED']:
+    elif action == 'TRADE_TYPE':
+        # Show trade type selection keyboard
+        await callback.message.edit_text(
+            "Выберите тип торговли:\n\n"
+            "SPOT - Спотовый рынок (без кредитного плеча)\n"
+            "FUTURES - Фьючерсы (с кредитным плечом)",
+            reply_markup=trade_type_inline()
+        )
+    
+    elif action in ['VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'MONITOR_INTERVALS', 'ENABLED', 'LEVERAGE', 'ENABLE_SHORT_TRADES']:
         # Edit pump_dump parameter
         pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
         current_value = pump_dump_settings.get(action, "не установлено")
@@ -2298,8 +2299,13 @@ async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot)
         instructions = ""
         if action == 'MONITOR_INTERVALS':
             instructions = "\nВведите временные интервалы через запятую (например: 5m,15m,1h)"
-        elif action == 'ENABLED':
+        elif action == 'ENABLED' or action == 'ENABLE_SHORT_TRADES':
             instructions = "\nВведите 'true' для включения или 'false' для выключения"
+        elif action == 'LEVERAGE':
+            instructions = "\nВведите значение от 1 до 25 (целое число)"
+            # Check if trade type is SPOT, and if so, show warning
+            if pump_dump_settings.get('TRADE_TYPE') == 'SPOT':
+                instructions += "\n⚠️ Внимание: Кредитное плечо работает только в режиме FUTURES!"
         
         kb = [
             [InlineKeyboardButton(text='Назад', callback_data='settings pump_dump')]
@@ -2314,6 +2320,38 @@ async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot)
         
         await state.set_state(PumpDumpParamStates.edit_param)
         await state.update_data(param_name=action, last_msg=msg.message_id)
+
+@router.callback_query(F.data.startswith('pump_dump_trade_type'))
+async def pump_dump_trade_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    trade_type = callback.data.split()[1]  # SPOT or FUTURES
+    
+    # Update the trade type parameter
+    success = update_pump_dump_setting(callback.from_user.id, 'TRADE_TYPE', trade_type)
+    
+    if success:
+        await callback.answer(f"Тип торговли изменен на {trade_type}")
+        
+        # Get updated settings
+        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки Pump/Dump детектора\n\n"
+        
+        # Display current parameters
+        text += format_pump_dump_settings(pump_dump_settings, callback.from_user.id)
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=pump_dump_params_inline()
+        )
+    else:
+        await callback.answer("Ошибка при изменении типа торговли")
+        await callback.message.edit_text(
+            "⚙️ Настройки Pump/Dump детектора\n\n"
+            "Выберите параметр для изменения:",
+            reply_markup=pump_dump_params_inline()
+        )
 
 @router.message(PumpDumpParamStates.edit_param)
 async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot: Bot):
@@ -2342,15 +2380,7 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
             text = "⚙️ Настройки Pump/Dump детектора\n\n"
             
             # Display current parameters
-            text += "📊 Текущие параметры:\n"
-            text += f"VOLUME_THRESHOLD: {pump_dump_settings['VOLUME_THRESHOLD']:.1f}x\n"
-            text += f"PRICE_CHANGE_THRESHOLD: {pump_dump_settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
-            text += f"TIME_WINDOW: {pump_dump_settings['TIME_WINDOW']} минут\n"
-            text += f"MONITOR_INTERVALS: {', '.join(pump_dump_settings['MONITOR_INTERVALS'])}\n"
-            text += f"ENABLED: {'Включено' if pump_dump_settings['ENABLED'] else 'Выключено'}\n\n"
-            
-            is_subbed = is_subscribed(message.from_user.id)
-            text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
+            text += format_pump_dump_settings(pump_dump_settings, message.from_user.id)
             
             text += "Выберите параметр для изменения:"
             
@@ -2376,6 +2406,141 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
         )
     
     await state.clear()
+
+# Helper function to format pump_dump settings display
+def format_pump_dump_settings(settings, user_id):
+    text = "📊 Текущие параметры:\n"
+    text += f"VOLUME_THRESHOLD: {settings['VOLUME_THRESHOLD']:.1f}x\n"
+    text += f"PRICE_CHANGE_THRESHOLD: {settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
+    text += f"TIME_WINDOW: {settings['TIME_WINDOW']} минут\n"
+    text += f"MONITOR_INTERVALS: {', '.join(settings['MONITOR_INTERVALS'])}\n"
+    text += f"ENABLED: {'Включено' if settings['ENABLED'] else 'Выключено'}\n"
+    text += f"TRADE_TYPE: {settings['TRADE_TYPE']} ({'Спот' if settings['TRADE_TYPE'] == 'SPOT' else 'Фьючерсы'})\n"
+    text += f"LEVERAGE: {settings['LEVERAGE']}x"
+    if settings['TRADE_TYPE'] == 'SPOT':
+        text += " (не используется в режиме SPOT)\n"
+    else:
+        text += "\n"
+    text += f"ENABLE_SHORT_TRADES: {'Включено' if settings['ENABLE_SHORT_TRADES'] else 'Выключено'}\n\n"
+    
+    is_subbed = is_subscribed(user_id)
+    text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
+    
+    return text
+
+@router.callback_query(F.data.startswith('trading_type'))
+async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    try:
+        parts = callback.data.split()
+        if len(parts) < 2:
+            # Handle the case where there's no second element
+            await callback.answer("Ошибка в формате данных. Пожалуйста, попробуйте снова.")
+            # Redirect back to settings
+            await settings(callback, state, bot)
+            return
+            
+        trading_type = parts[1]  # SPOT or FUTURES
+        
+        # Update the trading type setting
+        success = update_trading_type_setting(callback.from_user.id, trading_type)
+        
+        if success:
+            await callback.answer(f"Тип торговли изменен на {trading_type}")
+            
+            # Get updated settings
+            trading_type_settings = load_trading_type_settings(callback.from_user.id)
+            
+            text = "⚙️ Настройки типа торговли\n\n"
+            
+            # Display current setting
+            text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n\n"
+            
+            text += "Выберите тип торговли:"
+            
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=trading_type_settings_inline()
+            )
+        else:
+            await callback.answer("Ошибка при изменении типа торговли")
+            await callback.message.edit_text(
+                "⚙️ Настройки типа торговли\n\n"
+                "Выберите тип торговли:",
+                reply_markup=trading_type_settings_inline()
+            )
+    except Exception as e:
+        print(f"Error in trading_type_select: {e}")
+        await callback.answer("Произошла ошибка. Пожалуйста, попробуйте снова.")
+        # Safely redirect to settings
+        try:
+            await settings(callback, state, bot)
+        except Exception as inner_e:
+            print(f"Error redirecting to settings: {inner_e}")
+            # Last resort fallback
+            await callback.message.edit_text(
+                "Произошла ошибка. Пожалуйста, вернитесь в главное меню.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Назад', callback_data='start')]])
+            )
+
+@router.callback_query(F.data == 'trading_type_leverage')
+async def trading_type_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    # Load trading type settings for the user
+    trading_type_settings = load_trading_type_settings(callback.from_user.id)
+    
+    # Check if trading type is FUTURES
+    if trading_type_settings['TRADING_TYPE'] != 'FUTURES':
+        await callback.answer("Кредитное плечо доступно только для FUTURES", show_alert=True)
+        return
+    
+    text = "⚙️ Настройки кредитного плеча\n\n"
+    text += f"Текущее кредитное плечо: {trading_type_settings['LEVERAGE']}x\n\n"
+    text += "Выберите значение кредитного плеча:"
+    
+    from keyboard.inline import leverage_inline
+    
+    await callback.message.edit_text(
+        text=text,
+        reply_markup=leverage_inline()
+    )
+
+@router.callback_query(F.data.startswith('set_leverage'))
+async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    leverage = int(callback.data.split()[1])
+    
+    # Import the module
+    from strategy_logic.trading_type_settings import update_leverage_setting, load_trading_type_settings
+    
+    # Update the leverage setting
+    success = update_leverage_setting(callback.from_user.id, leverage)
+    
+    if success:
+        await callback.answer(f"Кредитное плечо изменено на {leverage}x")
+        
+        # Get updated settings
+        trading_type_settings = load_trading_type_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки типа торговли\n\n"
+        
+        # Display current trading type
+        text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
+        
+        # Show leverage if FUTURES is selected
+        if trading_type_settings['TRADING_TYPE'] == 'FUTURES':
+            text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n"
+        
+        text += "\nВыберите тип торговли:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=trading_type_settings_inline()
+        )
+    else:
+        await callback.answer("Ошибка при изменении кредитного плеча")
+        await callback.message.edit_text(
+            "⚙️ Настройки кредитного плеча\n\n"
+            "Произошла ошибка. Выберите значение кредитного плеча:",
+            reply_markup=leverage_inline()
+        )
 
 @router.callback_query(F.data == 'trading_settings')
 async def handle_trading_settings(callback: CallbackQuery):
