@@ -33,10 +33,12 @@ from strategy_logic.user_strategy_params import load_user_params, update_user_pa
 from strategy_logic.cm_settings import load_cm_settings, reset_cm_settings, update_cm_setting  # Import CM settings functions
 from strategy_logic.divergence_settings import load_divergence_settings, reset_divergence_settings, update_divergence_setting  # Import divergence settings functions
 from strategy_logic.rsi_settings import load_rsi_settings, reset_rsi_settings, update_rsi_setting  # Import RSI settings functions
+from strategy_logic.trading_settings import load_trading_settings, update_trading_settings  # Import trading settings functions
 from strategy_logic.pump_dump_settings import (
     load_pump_dump_settings, reset_pump_dump_settings, update_pump_dump_setting,
     add_subscriber, remove_subscriber, is_subscribed
 )  # Import pump_dump settings functions
+from strategy_logic.admin_commands import register_trading_settings_handlers  # Import trading settings handlers
 
 router = Router()
 
@@ -1367,6 +1369,19 @@ async def monitoring(callback: CallbackQuery, state: FSMContext):
         await state.update_data(action=action, last_msg=msg.message_id, call='monitor')
 
 
+def settings_inline():
+    kb = [
+        [InlineKeyboardButton(text='📊 Процент списания', callback_data='settings percent')],
+        [InlineKeyboardButton(text='🧠 Стратегия Moon Bot', callback_data='settings strategy')],
+        [InlineKeyboardButton(text='📈 Настройки индикатора CM', callback_data='settings cm')],
+        [InlineKeyboardButton(text='📊 Настройки индикатора дивергенции', callback_data='settings divergence')],
+        [InlineKeyboardButton(text='📉 Настройки индикатора RSI', callback_data='settings rsi')],
+        [InlineKeyboardButton(text='🔄 Настройки P/D детектора', callback_data='settings pump_dump')],
+        [InlineKeyboardButton(text='💱 Настройки типа торговли', callback_data='settings trading')],
+        [InlineKeyboardButton(text='Назад', callback_data='start')]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
 @router.callback_query(F.data.startswith('settings'))
 async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
     action = callback.data.split()[1]
@@ -1516,6 +1531,34 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await callback.message.edit_text(
             text=text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+    elif action == 'trading':
+        # Загружаем настройки торговли для пользователя
+        trading_settings = load_trading_settings(callback.from_user.id)
+        
+        text = "💱 Настройки типа торговли\n\n"
+        
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"Тип торговли: <b>{trading_settings['trading_type'].upper()}</b>\n"
+        text += f"Кредитное плечо: <b>x{trading_settings['leverage']}</b>\n\n"
+        
+        if trading_settings['trading_type'] == 'spot':
+            text += "🔹 В режиме SPOT доступны только LONG позиции без плеча.\n\n"
+        else:
+            text += "🔹 В режиме FUTURES доступны:\n"
+            text += "  - LONG и SHORT позиции\n"
+            text += f"  - Торговля с плечом до x{trading_settings['leverage']}\n\n"
+        
+        text += "Введите команду /trading для настройки типа торговли и плеча"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Настроить торговлю', callback_data='trading_settings')],
+                [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+            ]),
+            parse_mode='HTML'
         )
 
 @router.callback_query(F.data.startswith('strategy'))
@@ -2333,3 +2376,20 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
         )
     
     await state.clear()
+
+@router.callback_query(F.data == 'trading_settings')
+async def handle_trading_settings(callback: CallbackQuery):
+    """Forward to the trading settings command handler"""
+    # Create a fake message object to simulate /trading command
+    message = callback.message
+    message.from_user = callback.from_user
+    message.text = "/trading"
+    
+    # Import the command handler directly from admin_commands
+    from strategy_logic.admin_commands import cmd_trading_settings
+    
+    # Call the command handler directly
+    await cmd_trading_settings(message)
+    
+    # Delete the original message to avoid duplication
+    await callback.message.delete()

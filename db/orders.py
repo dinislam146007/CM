@@ -1,6 +1,7 @@
 import asyncpg, datetime as dt
 from db.connect import connect
 import aiosqlite
+from strategy_logic.trading_settings import load_trading_settings
 
 async def get_user_balance(user_id):
     """Получение баланса пользователя из таблицы users"""
@@ -26,10 +27,26 @@ async def update_user_balance(user_id, amount):
     return await get_user_balance(user_id)
 
 async def create_order(user_id, symbol, interval, side, qty,
-                       buy_price, tp, sl):
+                       buy_price, tp, sl, trading_type=None, leverage=None):
     """Создание ордера и списание средств с баланса пользователя"""
-    # Рассчитываем сумму инвестиции
-    investment_amount = qty * buy_price
+    # Если trading_type и leverage не указаны, загружаем из настроек пользователя
+    if trading_type is None or leverage is None:
+        trading_settings = load_trading_settings(user_id)
+        trading_type = trading_settings["trading_type"] if trading_type is None else trading_type
+        leverage = trading_settings["leverage"] if leverage is None else leverage
+    
+    # Валидация параметров
+    if trading_type == "spot" and side.upper() == "SHORT":
+        raise ValueError("SHORT позиции недоступны для spot торговли")
+    
+    if trading_type == "spot" and leverage != 1:
+        leverage = 1  # Для spot торговли плечо всегда 1
+    
+    # Рассчитываем сумму инвестиции с учетом плеча
+    if trading_type == "futures":
+        investment_amount = (qty * buy_price) / leverage
+    else:
+        investment_amount = qty * buy_price
     
     # Списываем средства с баланса
     conn = await connect()
@@ -43,14 +60,15 @@ async def create_order(user_id, symbol, interval, side, qty,
             UPDATE users SET balance = balance - $2 WHERE user_id=$1
         """, user_id, investment_amount)
         
-        # Создаем запись о сделке
+        # Создаем запись о сделке с учетом типа торговли и плеча
         await conn.execute("""
             INSERT INTO orders (user_id, symbol, interval, side, qty,
                                coin_buy_price, tp_price, sl_price, buy_time,
-                               investment_amount_usdt)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        """, user_id, symbol, interval, side, qty,
-            buy_price, tp, sl, dt.datetime.utcnow(), investment_amount)
+                               investment_amount_usdt, trading_type, leverage)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        """, user_id, symbol, interval, side.upper(), qty,
+            buy_price, tp, sl, dt.datetime.utcnow(), investment_amount,
+            trading_type, leverage)
         
         # Завершаем транзакцию
         await tr.commit()
@@ -85,7 +103,7 @@ async def close_order(order_id, sale_price):
         
         # Получаем данные ордера перед закрытием
         order_data = await conn.fetchrow("""
-            SELECT user_id, qty, coin_buy_price, investment_amount_usdt
+            SELECT user_id, qty, coin_buy_price, investment_amount_usdt, side, trading_type, leverage
             FROM orders WHERE id=$1
         """, order_id)
         
@@ -95,12 +113,36 @@ async def close_order(order_id, sale_price):
         user_id = order_data['user_id']
         qty = order_data['qty']
         entry_price = order_data['coin_buy_price']
+        side = order_data['side']
+        trading_type = order_data['trading_type']
+        leverage = order_data['leverage']
         
-        # Рассчитываем прибыль/убыток
-        pnl_percent = float(((sale_price - entry_price) / entry_price) * 100)
+        # Рассчитываем прибыль/убыток с учетом типа позиции и плеча
+        if side == 'LONG':
+            price_change_percent = ((sale_price - entry_price) / entry_price) * 100
+            # Для futures учитываем плечо
+            if trading_type == 'futures':
+                pnl_percent = price_change_percent * leverage
+            else:
+                pnl_percent = price_change_percent
+                
+            pnl_usdt = (sale_price - entry_price) * qty
+        else:  # SHORT
+            price_change_percent = ((entry_price - sale_price) / entry_price) * 100
+            # Для futures учитываем плечо (SHORT доступен только в futures)
+            pnl_percent = price_change_percent * leverage
+            pnl_usdt = (entry_price - sale_price) * qty
+        
         # Сумма к возврату: вложенные средства + прибыль (или - убыток)
-        return_amount = float(qty * sale_price)  # Текущая стоимость позиции
-        pnl_usdt = float((sale_price - entry_price) * qty)
+        invested = order_data['investment_amount_usdt']
+        return_amount = invested + pnl_usdt
+        
+        # Проверка на ликвидацию (для futures с плечом)
+        # Если потери превышают вложенную сумму, возвращаем 0
+        if trading_type == 'futures' and return_amount < 0:
+            return_amount = 0
+            pnl_percent = -100
+            pnl_usdt = -invested
         
         # Обновляем баланс пользователя (возвращаем средства с учетом P&L)
         await conn.execute("""
@@ -118,7 +160,8 @@ async def close_order(order_id, sale_price):
                 return_amount_usdt=$6::real
             WHERE id=$1
             RETURNING id, user_id, qty, coin_buy_price, CAST($2 AS real) as coin_sale_price, 
-                      CAST($4 AS numeric) as pnl_percent, CAST($5 AS real) as pnl_usdt, CAST($6 AS real) as return_amount_usdt
+                      CAST($4 AS numeric) as pnl_percent, CAST($5 AS real) as pnl_usdt, 
+                      CAST($6 AS real) as return_amount_usdt, side, trading_type, leverage
         """, order_id, sale_price, dt.datetime.utcnow(), 
             pnl_percent, pnl_usdt, return_amount)
         
@@ -225,9 +268,9 @@ async def get_open_orders(user_id):
     """Алиас для get_user_open_orders для совместимости"""
     return await get_user_open_orders(user_id)
     
-async def save_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price):
+async def save_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price, trading_type=None, leverage=None):
     """Сохранение нового ордера (алиас для create_order для совместимости)"""
-    return await create_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price)
+    return await create_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price, trading_type, leverage)
 
 async def get_active_positions(user_id):
     """Получение всех активных позиций пользователя"""
@@ -243,5 +286,35 @@ async def get_active_btc_position_size(user_id):
     """, user_id)
     await conn.close()
     return row['position_size'] if row and row['position_size'] is not None else 0.0
+
+async def calculate_max_position_size(user_id, symbol, leverage=1):
+    """
+    Расчет максимального размера позиции с учетом плеча
+    :param user_id: ID пользователя
+    :param symbol: Торговая пара
+    :param leverage: Плечо (по умолчанию 1 для spot)
+    :return: Максимальный размер позиции в единицах базовой валюты
+    """
+    # Получаем баланс пользователя
+    balance = await get_user_balance(user_id)
+    
+    # Получаем текущую цену актива
+    # Здесь предполагается, что у вас есть функция для получения текущей цены
+    # Например:
+    # current_price = await get_current_price(symbol)
+    # Для примера предположим, что цена BTC - 50000 USDT
+    current_price = 50000  # Замените на реальное получение цены
+    
+    # Рассчитываем максимальное количество с учетом плеча
+    # Обычно используется не весь баланс, а часть (например, 80%)
+    safe_balance = balance * 0.8  # Используем 80% от доступного баланса
+    
+    # С учетом плеча
+    max_position_value = safe_balance * leverage
+    
+    # Конвертируем в количество базовой валюты
+    max_qty = max_position_value / current_price
+    
+    return max_qty
 
 

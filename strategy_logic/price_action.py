@@ -8,7 +8,8 @@ async def get_pattern_price_action(candles: list, market_type) -> str:
         "0.01575800",       // Low
         "0.01577100",       // Close
     ]
-    :return:
+    :param market_type: Тип торговли ('spot' или 'futures')
+    :return: Название паттерна или None
     """
 
     def __get_ohlc(c: list) -> tuple[float, float, float, float]:
@@ -45,9 +46,9 @@ async def get_pattern_price_action(candles: list, market_type) -> str:
                 if max_shadow == upper_shadow:  # Значит что большая тень сверху
                     if market_type == "spot":  # На споте шорт сигналы не нужны
                         return
-                    return "PinBar Short"
+                    return "Bear PinBar"  # Переименовано для единообразия
                 else:  # Значит что большая тень снизу
-                    return "PinBar Long"
+                    return "Bull PinBar"  # Переименовано для единообразия
 
         return
 
@@ -71,7 +72,7 @@ async def get_pattern_price_action(candles: list, market_type) -> str:
         #     return False
 
         if h2 > h1 and l1 > l2:
-            return "InsideBar Long"
+            return "Bull InsideBar"  # Переименовано для единообразия
 
         return
 
@@ -99,9 +100,9 @@ async def get_pattern_price_action(candles: list, market_type) -> str:
                 if stabbing_upper:
                     if market_type == "spot":
                         return
-                    return "Fakey Short"
+                    return "Bear Fakey"  # Переименовано для единообразия
                 elif stabbing_lower:
-                    return "Fakey long"
+                    return "Bull Fakey"  # Переименовано для единообразия
 
         return
 
@@ -125,10 +126,10 @@ async def get_pattern_price_action(candles: list, market_type) -> str:
         if curr_candle_color == "RED":
             if market_type == "spot":
                 return
-            return "OutsideBar Short"
+            return "Bear OutsideBar"  # Переименовано для единообразия
 
         elif curr_candle_color == "GREEN":
-            return "OutsideBar Long"
+            return "Bull OutsideBar"  # Переименовано для единообразия
 
         return
 
@@ -156,13 +157,13 @@ async def get_pattern_price_action(candles: list, market_type) -> str:
 
         if curr_candle_color == "GREEN":
             if c1 > h2 and l1 > l2:
-                return "PPR Long"
+                return "Bull PPR"  # Переименовано для единообразия
 
         elif curr_candle_color == "RED":
             if market_type == "spot":
                 return
             if c1 < l2 and h1 < h2:
-                return "PPR Short"
+                return "Bear PPR"  # Переименовано для единообразия
 
         return
 

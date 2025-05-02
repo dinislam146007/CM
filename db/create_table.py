@@ -32,16 +32,25 @@ async def create_tables():
         # Создание таблицы orders
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
                 user_id BIGINT,
                 symbol TEXT,
                 interval TEXT,  
-                coin_buy_price REAL, -- цена покупки монеты (BTC: 96k)
-                coin_sale_price REAL, -- цена продажи монеты
-                buy_price REAL,  -- цена, за которую пользователь купил (5 процентов от баланса)
-                sale_price REAL, 
-                buy_time TEXT,
-                sale_time TEXT,
-                PRIMARY KEY (user_id, symbol, interval)
+                side TEXT DEFAULT 'LONG',    -- Тип позиции: LONG или SHORT
+                trading_type TEXT DEFAULT 'spot',  -- Тип торговли: spot или futures 
+                leverage INTEGER DEFAULT 1,  -- Кредитное плечо, по умолчанию 1 (для spot)
+                qty REAL,                    -- Количество монет
+                coin_buy_price REAL,         -- Цена покупки монеты (BTC: 96k)
+                coin_sale_price REAL,        -- Цена продажи монеты
+                tp_price REAL,               -- Цена тейк-профита
+                sl_price REAL,               -- Цена стоп-лосса
+                buy_time TIMESTAMP,          -- Время покупки
+                sale_time TIMESTAMP,         -- Время продажи
+                status TEXT DEFAULT 'OPEN',  -- Статус ордера: OPEN или CLOSED
+                pnl_percent NUMERIC,         -- Процент прибыли/убытка
+                pnl_usdt REAL,               -- Прибыль/убыток в USDT
+                investment_amount_usdt REAL, -- Сумма инвестиции в USDT
+                return_amount_usdt REAL      -- Сумма возврата в USDT
             );
         """)
 

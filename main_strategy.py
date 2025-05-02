@@ -32,6 +32,7 @@ from strategy_logic.pump_dump import pump_dump_main
 from strategy_logic.cm_settings import load_cm_settings  # Импортируем функцию загрузки настроек CM
 from strategy_logic.divergence_settings import load_divergence_settings  # Импортируем функцию загрузки настроек дивергенции
 from strategy_logic.rsi_settings import load_rsi_settings  # Импортируем функцию загрузки настроек RSI
+from strategy_logic.trading_settings import load_trading_settings  # Импортируем функцию загрузки настроек торговли
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -187,10 +188,15 @@ async def process_tf(tf: str):
                 # Загружаем индивидуальные настройки RSI для пользователя
                 rsi_settings = load_rsi_settings(uid)
                 
+                # Загружаем индивидуальные настройки торговли для пользователя
+                trading_settings = load_trading_settings(uid)
+                trading_type = trading_settings["trading_type"]
+                leverage = trading_settings["leverage"]
+                
                 # ---------- вход ----------
                 if open_order is None:
                     # Проверка на паттерны Price Action (перенесено выше для использования в условии)
-                    pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], "spot")
+                    pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
                     dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
                     dft = calculate_ema(dft)
                     cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
@@ -219,34 +225,59 @@ async def process_tf(tf: str):
                         atr_multiplier=divergence_settings['ATR_MULTIPLIER']
                     )
                     
-                    # Определяем, какие сигналы активны
-                    price_action_active = pattern is not None and pattern != ""
-                    cm_active = cm_signal == "long"
-                    moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
-                    rsi_active = rsi_signal == "Long"
+                    # Определяем, какой тип позиции открывать (LONG или SHORT)
+                    # По умолчанию LONG, для spot доступен только LONG
+                    position_side = "LONG"
                     
-                    # Проверка на дивергенцию
-                    regular_bullish = diver_signals['divergence']['regular_bullish']
-                    hidden_bullish = diver_signals['divergence']['hidden_bullish']
-                    regular_bearish = diver_signals['divergence']['regular_bearish']
-                    hidden_bearish = diver_signals['divergence']['hidden_bearish']
+                    # Для futures типа торговли, можно открывать SHORT позиции
+                    if trading_type == "futures":
+                        # Если есть сигнал на SHORT - меняем тип позиции
+                        if cm_signal == "short" or rsi_signal == "Short":
+                            position_side = "SHORT"
                     
-                    # Проверяем, есть ли хотя бы одна активная бычья дивергенция
-                    divergence_active = False
-                    divergence_type = ""
+                    # Определяем, какие сигналы активны в зависимости от типа позиции
+                    if position_side == "LONG":
+                        price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
+                        cm_active = cm_signal == "long"
+                        moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
+                        rsi_active = rsi_signal == "Long"
+                        
+                        # Проверка на бычью дивергенцию
+                        regular_bullish = diver_signals['divergence']['regular_bullish']
+                        hidden_bullish = diver_signals['divergence']['hidden_bullish']
+                        divergence_active = False
+                        divergence_type = ""
+                        
+                        if isinstance(regular_bullish, bool) and regular_bullish:
+                            divergence_active = True
+                            divergence_type += "Regular Bullish "
+                        if isinstance(hidden_bullish, bool) and hidden_bullish:
+                            divergence_active = True
+                            divergence_type += "Hidden Bullish "
+                    else:  # SHORT позиция
+                        price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
+                        cm_active = cm_signal == "short"
+                        moonbot_active = False  # MoonBot только для LONG
+                        rsi_active = rsi_signal == "Short"
+                        
+                        # Проверка на медвежью дивергенцию
+                        regular_bearish = diver_signals['divergence']['regular_bearish']
+                        hidden_bearish = diver_signals['divergence']['hidden_bearish']
+                        divergence_active = False
+                        divergence_type = ""
+                        
+                        if isinstance(regular_bearish, bool) and regular_bearish:
+                            divergence_active = True
+                            divergence_type += "Regular Bearish "
+                        if isinstance(hidden_bearish, bool) and hidden_bearish:
+                            divergence_active = True
+                            divergence_type += "Hidden Bearish "
                     
-                    if isinstance(regular_bullish, bool) and regular_bullish:
-                        divergence_active = True
-                        divergence_type += "Regular Bullish "
-                    if isinstance(hidden_bullish, bool) and hidden_bullish:
-                        divergence_active = True
-                        divergence_type += "Hidden Bullish "
+                    # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
+                    any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
                     
-                    # Общий флаг для проверки наличия хотя бы одного сигнала на покупку
-                    any_buy_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
-                    
-                    # Открываем сделку, если есть хотя бы один активный сигнал на покупку
-                    if any_buy_signal:
+                    # Открываем сделку, если есть хотя бы один активный сигнал
+                    if any_signal:
                         # Если сработала стратегия мун бота, используем ее данные, иначе создаем базовый ордер
                         if moonbot_active:
                             order_dict = user_moon.build_order(dft)
@@ -257,15 +288,32 @@ async def process_tf(tf: str):
                             # Базовый ордер на основе текущей цены при срабатывании других сигналов
                             current_price = dft["close"].iloc[-1]
                             entry = current_price
-                            # Базовый TP: +3% от цены входа
-                            tp = entry * 1.03
-                            # Базовый SL: -2% от цены входа
-                            sl = entry * 0.98
+                            
+                            # Рассчитываем TP и SL в зависимости от типа позиции
+                            if position_side == "LONG":
+                                # Базовый TP: +3% от цены входа
+                                tp = entry * 1.03
+                                # Базовый SL: -2% от цены входа
+                                sl = entry * 0.98
+                            else:  # SHORT
+                                # Базовый TP: -3% от цены входа
+                                tp = entry * 0.97
+                                # Базовый SL: +2% от цены входа
+                                sl = entry * 1.02
                         
-                        # Получаем баланс пользователя и рассчитываем объем на 5% от баланса
+                        # Получаем баланс пользователя
                         user_balance = await get_user_balance(uid)
-                        investment_amount = user_balance * 0.05  # 5% от баланса
-                        qty = investment_amount / entry  # Количество монет, которое можно купить
+                        
+                        # Рассчитываем сумму инвестиции (5% от баланса)
+                        investment_amount = user_balance * 0.05
+                        
+                        # Рассчитываем объем позиции с учетом типа торговли и плеча
+                        if trading_type == "futures":
+                            # Для фьючерсов учитываем плечо при расчете объема
+                            qty = (investment_amount * leverage) / entry
+                        else:
+                            # Для спот торговли - обычный расчет
+                            qty = investment_amount / entry
                         
                         # Форматируем количество с учетом минимального шага для торговли
                         qty = round(qty, 6)  # Округляем до 6 знаков после запятой
@@ -277,7 +325,7 @@ async def process_tf(tf: str):
                         
                         # Создаем ордер с автоматическим списанием средств с баланса
                         try:
-                            await create_order(uid, symbol, tf, "long", qty, entry, tp, sl)
+                            await create_order(uid, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                             
                             # Получаем обновленный баланс после списания средств
                             new_balance = await get_user_balance(uid)
@@ -290,12 +338,23 @@ async def process_tf(tf: str):
                             rsi_status = "✅" if rsi_active else "❌"
                             divergence_status = "✅" if divergence_active else "❌"
                             
+                            # Определяем эмодзи для типа позиции
+                            position_emoji = "🔰" if position_side == "LONG" else "🔻"
+                            transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                            position_text = "ПОКУПКА" if position_side == "LONG" else "ПРОДАЖА"
+                            
+                            # Добавляем информацию о типе торговли и плече
+                            trading_info = f"Тип торговли: {trading_type.upper()}"
+                            if trading_type == "futures":
+                                trading_info += f" | Плечо: x{leverage}"
+                            
                             # Формируем сообщение по новому шаблону
                             message = (
-                                f"🟢 ПОКУПКА {symbol} {tf}\n"
+                                f"{transaction_emoji} {position_text} {symbol} {tf}\n"
+                                f"{trading_info}\n"
                                 f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
                                 f"♻️Точка входа: {entry:.2f}$\n"
-                                f"Направление: Long🔰\n\n"
+                                f"Направление: {position_side} {position_emoji}\n\n"
                                 f"🎯TP: {tp:.4f}$\n"
                                 f"📛SL: {sl:.4f}$\n\n"
                                 f"⚠️Сделка открыта по сигналам с:\n"
@@ -304,21 +363,32 @@ async def process_tf(tf: str):
                                 f"{moonbot_status} MoonBot\n"
                                 f"{rsi_status} RSI\n"
                                 f"{divergence_status} Divergence {divergence_type if divergence_active else ''}\n\n"
-                                f"💰 Баланс: {new_balance:.2f} USDT (-{(qty * entry):.2f} USDT)"
+                                f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
                             )
                             
                             await bot.send_message(uid, message)
                             
                         except Exception as e:
                             print(f"Ошибка при создании ордера: {e}")
+                            await bot.send_message(uid, f"Ошибка при создании ордера: {e}")
                 # ---------- выход ----------
                 else:
                     last_price = dft["close"].iloc[-1]
-                    hit_tp = last_price >= open_order["tp_price"]
-                    hit_sl = last_price <= open_order["sl_price"]
+                    side = open_order["side"]
+                    
+                    # Проверка на достижение TP/SL в зависимости от типа позиции
+                    if side == "LONG":
+                        hit_tp = last_price >= open_order["tp_price"]
+                        hit_sl = last_price <= open_order["sl_price"]
+                    else:  # SHORT
+                        hit_tp = last_price <= open_order["tp_price"]
+                        hit_sl = last_price >= open_order["sl_price"]
 
                     if hit_tp or hit_sl:
                         try:
+                            # Определяем причину закрытия для сообщения
+                            close_reason = "TP" if hit_tp else "SL"
+                            
                             # Закрываем ордер и получаем информацию о P&L с автоматическим возвратом средств
                             closed_order = await close_order(open_order["id"], last_price)
                             
@@ -327,16 +397,28 @@ async def process_tf(tf: str):
                             entry_price = closed_order["coin_buy_price"]
                             exit_price = closed_order["coin_sale_price"]
                             qty = closed_order["qty"]
+                            position_side = closed_order["side"]
                             pnl_percent = closed_order["pnl_percent"]
                             pnl_usdt = closed_order["pnl_usdt"]
                             return_amount = closed_order["return_amount_usdt"]
+                            trading_type = closed_order["trading_type"]
+                            leverage = closed_order["leverage"]
                             
                             # Получаем обновленный баланс после возврата средств
                             new_balance = await get_user_balance(uid)
                             
-                            # Определяем цвет и эмодзи в зависимости от P&L
-                            pnl_emoji = "🔴" if pnl_percent < 0 else "🟢"
-                            pnl_text = "Убыток" if pnl_percent < 0 else "Прибыль"
+                            # Определяем цвет и эмодзи в зависимости от P&L и типа позиции
+                            if position_side == "LONG":
+                                position_emoji = "🔰"
+                                transaction_emoji = "🔴"  # Продажа при закрытии LONG
+                                action_text = "ПРОДАЖА"
+                            else:  # SHORT
+                                position_emoji = "🔻"
+                                transaction_emoji = "🟢"  # Покупка при закрытии SHORT
+                                action_text = "ПОКУПКА"
+                                
+                            pnl_emoji = "🔋" if pnl_percent > 0 else "🪫"
+                            pnl_text = "Прибыль" if pnl_percent > 0 else "Убыток"
                             
                             # Получаем текущую дату и время в московском времени (+3 часа)
                             moscow_tz = pytz.timezone('Europe/Moscow')
@@ -354,34 +436,41 @@ async def process_tf(tf: str):
                             today = dt.date.today()
                             daily_profit = await get_daily_profit(uid, today)
                             
-                            # Создаем сообщение в зависимости от типа закрытия (TP или SL)
+                            # Добавляем информацию о типе торговли и плече
+                            trading_info = f"Тип торговли: {trading_type.upper()}"
+                            if trading_type == "futures":
+                                trading_info += f" | Плечо: x{leverage}"
+                            
+                            # Создаем сообщение в зависимости от причины закрытия (TP или SL)
                             if hit_tp:
                                 message = (
-                                    f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n\n"
+                                    f"{transaction_emoji} <b>{action_text}</b> {symbol} {tf}\n"
+                                    f"{trading_info}\n\n"
                                     f"🎯✅ Достигнут Тейк-Профит\n"
-                                    f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
+                                    f"💸{pnl_emoji}{pnl_text} по сделке: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
                                     f"♻️Точка входа: {entry_price:.2f}$\n"
-                                    f"📈Цена продажи: {exit_price:.4f}$\n"
-                                    f"🛑Продано: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * exit_price):.2f} USDT)\n\n"
+                                    f"📈Цена {action_text.lower()}: {exit_price:.4f}$\n"
+                                    f"🛑{action_text.capitalize()}: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * exit_price):.2f} USDT)\n\n"
                                     f"📆Сделка была открыта: {buy_date}\n"
                                     f"🕐Время открытия: {buy_time} Мск\n"
                                     f"📉ТФ открытия сделки: {tf}\n"
-                                    f"Направление: Long 🔰\n\n"
+                                    f"Направление: {position_side} {position_emoji}\n\n"
                                     f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
                                     f"💰 Текущий баланс: {new_balance:.2f} USDT"
                                 )
                             else:  # hit_sl
                                 message = (
-                                    f"🔴 <b>ПРОДАЖА</b> {symbol} {tf}\n"
+                                    f"{transaction_emoji} <b>{action_text}</b> {symbol} {tf}\n"
+                                    f"{trading_info}\n"
                                     f"📛Закрыто по Стоп-лоссу\n"
-                                    f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
+                                    f"🤕{pnl_emoji}Убыток по сделке: {pnl_percent:.2f}% ({pnl_usdt:.2f} USDT)\n\n"
                                     f"♻️Точка входа: {entry_price:.2f}$\n"
-                                    f"📈Цена продажи: {exit_price:.4f}$\n"
-                                    f"🛑Продано: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * exit_price):.2f} USDT)\n\n"
+                                    f"📈Цена {action_text.lower()}: {exit_price:.4f}$\n"
+                                    f"🛑{action_text.capitalize()}: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * exit_price):.2f} USDT)\n\n"
                                     f"📆Сделка была открыта: {buy_date}\n"
                                     f"🕐Время открытия: {buy_time} Мск\n"
                                     f"📉ТФ открытия сделки: {tf}\n"
-                                    f"Направление: Long 🔰\n\n"
+                                    f"Направление: {position_side} {position_emoji}\n\n"
                                     f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
                                     f"💰 Текущий баланс: {new_balance:.2f} USDT"
                                 )
@@ -389,9 +478,7 @@ async def process_tf(tf: str):
                             await bot.send_message(uid, message)
                             
                         except Exception as e:
-                            await bot.send_message(uid, f"Ошибка при закрытии ордера")
                             await bot.send_message(uid, f"Ошибка при закрытии ордера: {e}")
-
                             print(f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
         await wait_for_next_candle(tf)
@@ -414,14 +501,25 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
         # Закрываем ордер и обновляем данные
         await close_order(order_id, current_price)
         
-        # Рассчитываем прибыль/убыток
-        entry_price = order['entry_price']
-        pnl_percent = ((current_price - entry_price) / entry_price) * 100
-        if order['position_side'] == 'SHORT':
-            pnl_percent = -pnl_percent
-        pnl = (current_price - entry_price) * order['qty']
-        if order['position_side'] == 'SHORT':
-            pnl = -pnl
+        # Получаем данные из заказа
+        entry_price = order['coin_buy_price']
+        position_side = order['side']
+        trading_type = order['trading_type']
+        leverage = order['leverage']
+        
+        # Рассчитываем прибыль/убыток с учетом типа позиции и плеча
+        if position_side == 'LONG':
+            price_change_percent = ((current_price - entry_price) / entry_price) * 100
+            if trading_type == 'futures':
+                pnl_percent = price_change_percent * leverage
+            else:
+                pnl_percent = price_change_percent
+                
+            pnl = (current_price - entry_price) * order['qty']
+        else:  # SHORT
+            price_change_percent = ((entry_price - current_price) / entry_price) * 100
+            pnl_percent = price_change_percent * leverage  # SHORT возможен только на futures
+            pnl = (entry_price - current_price) * order['qty']
             
         # Получаем текущую дату и время в МСК
         moscow_tz = pytz.timezone('Europe/Moscow')
@@ -430,7 +528,7 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
         current_time = now.strftime('%H:%M')
         
         # Конвертируем время открытия ордера из UTC в МСК
-        buy_time_utc = dt.datetime.fromtimestamp(order['open_time'])
+        buy_time_utc = dt.datetime.fromtimestamp(order['buy_time'].timestamp())
         buy_time_moscow = pytz.utc.localize(buy_time_utc).astimezone(moscow_tz)
         buy_date = buy_time_moscow.strftime('%d.%m.%Y')
         buy_time = buy_time_moscow.strftime('%H:%M')
@@ -442,37 +540,52 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
         new_balance = await get_user_balance(user_id)
         
         # Определяем направление и символ
-        direction = "Long 🔰" if order['position_side'] == 'LONG' else "Short 🔻"
+        position_emoji = "🔰" if position_side == "LONG" else "🔻"
+        transaction_emoji = "🔴" if position_side == "LONG" else "🟢"
+        action_text = "ПРОДАЖА" if position_side == "LONG" else "ПОКУПКА"
+        
+        # Получаем базовый символ (без USDT)
         symbol_base = order['symbol'].replace('USDT', '')
         
-        # Форматируем разные сообщения в зависимости от причины закрытия
+        # Добавляем информацию о типе торговли и плече
+        trading_info = f"Тип торговли: {trading_type.upper()}"
+        if trading_type == "futures":
+            trading_info += f" | Плечо: x{leverage}"
+            
+        # Определяем эмодзи в зависимости от P&L
+        pnl_emoji = "🔋" if pnl_percent > 0 else "🪫"
+        pnl_text = "Прибыль" if pnl_percent > 0 else "Убыток"
+        
+        # Формируем разные сообщения в зависимости от причины закрытия
         if close_reason == "TP":
             message = (
-                f"🔴 <b>ПРОДАЖА</b> {order['symbol']} {order['timeframe']}\n\n"
+                f"{transaction_emoji} <b>{action_text}</b> {order['symbol']} {order['interval']}\n"
+                f"{trading_info}\n\n"
                 f"🎯✅ Достигнут Тейк-Профит\n"
-                f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                f"💸{pnl_emoji}{pnl_text} по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
                 f"♻️Точка входа: {entry_price:.2f}$\n"
-                f"📈Цена продажи: {current_price:.4f}$\n"
-                f"🛑Продано: {order['qty']:.6f} {symbol_base} ({(order['qty'] * current_price):.2f} USDT)\n\n"
+                f"📈Цена {action_text.lower()}: {current_price:.4f}$\n"
+                f"🛑{action_text.capitalize()}: {order['qty']:.6f} {symbol_base} ({(order['qty'] * current_price):.2f} USDT)\n\n"
                 f"📆Сделка была открыта: {buy_date}\n"
                 f"🕐Время открытия: {buy_time} Мск\n"
-                f"📉ТФ открытия сделки: {order['timeframe']}\n"
-                f"Направление: {direction}\n\n"
+                f"📉ТФ открытия сделки: {order['interval']}\n"
+                f"Направление: {position_side} {position_emoji}\n\n"
                 f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
                 f"💰 Текущий баланс: {new_balance:.2f} USDT"
             )
         else:  # SL
             message = (
-                f"🔴 <b>ПРОДАЖА</b> {order['symbol']} {order['timeframe']}\n"
+                f"{transaction_emoji} <b>{action_text}</b> {order['symbol']} {order['interval']}\n"
+                f"{trading_info}\n"
                 f"📛Закрыто по Стоп-лоссу\n"
-                f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                f"🤕{pnl_emoji}{pnl_text} по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
                 f"♻️Точка входа: {entry_price:.2f}$\n"
-                f"📈Цена продажи: {current_price:.4f}$\n"
-                f"🛑Продано: {order['qty']:.6f} {symbol_base} ({(order['qty'] * current_price):.2f} USDT)\n\n"
+                f"📈Цена {action_text.lower()}: {current_price:.4f}$\n"
+                f"🛑{action_text.capitalize()}: {order['qty']:.6f} {symbol_base} ({(order['qty'] * current_price):.2f} USDT)\n\n"
                 f"📆Сделка была открыта: {buy_date}\n"
                 f"🕐Время открытия: {buy_time} Мск\n"
-                f"📉ТФ открытия сделки: {order['timeframe']}\n"
-                f"Направление: {direction}\n\n"
+                f"📉ТФ открытия сделки: {order['interval']}\n"
+                f"Направление: {position_side} {position_emoji}\n\n"
                 f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
                 f"💰 Текущий баланс: {new_balance:.2f} USDT"
             )
