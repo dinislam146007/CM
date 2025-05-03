@@ -25,11 +25,10 @@ async def show_trading_settings(message: types.Message, user_id: int):
     text += "Выберите параметр для изменения:"
     
     # Создаем клавиатуру с кнопками для изменения настроек
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type"),
-        InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type")],
+        [InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")]
+    ])
     
     await message.answer(text=text, reply_markup=keyboard)
 
@@ -39,11 +38,12 @@ async def process_callback_trading_type(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
     
     # Создаем клавиатуру для выбора типа торговли
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
-        InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
+            InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
+        ]
+    ])
     
     await callback_query.message.edit_text(
         text="Выберите тип торговли:\n\n"
@@ -65,20 +65,26 @@ async def process_callback_leverage(callback_query: types.CallbackQuery):
         await callback_query.message.edit_text(
             text="⚠️ Кредитное плечо доступно только для FUTURES торговли.\n\n"
             "Сначала измените тип торговли на FUTURES.",
-            reply_markup=InlineKeyboardMarkup().add(
-                InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")
-            )
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")]
+            ])
         )
         await callback_query.answer()
         return
     
     # Создаем клавиатуру для выбора кредитного плеча
-    keyboard = InlineKeyboardMarkup(row_width=5)
-    # Добавляем кнопки с разными значениями плеча
     leverage_options = [1, 2, 3, 5, 10, 20, 50, 100]
     buttons = [InlineKeyboardButton(text=f"x{lev}", callback_data=f"set_leverage:{lev}") for lev in leverage_options]
-    keyboard.add(*buttons)
-    keyboard.add(InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings"))
+    
+    # Разбиваем кнопки на ряды по 5 кнопок
+    keyboard_buttons = []
+    for i in range(0, len(buttons), 4):
+        keyboard_buttons.append(buttons[i:i+4])
+    
+    # Добавляем кнопку назад
+    keyboard_buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await callback_query.message.edit_text(
         text=f"Выберите кредитное плечо для FUTURES торговли:\n"
@@ -121,11 +127,10 @@ async def process_callback_set_trading_type(callback_query: types.CallbackQuery)
     text += "Выберите параметр для изменения:"
     
     # Создаем клавиатуру с кнопками для изменения настроек
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type"),
-        InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type")],
+        [InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")]
+    ])
     
     await callback_query.message.edit_text(text=text, reply_markup=keyboard)
     await callback_query.answer()
@@ -154,11 +159,10 @@ async def process_callback_set_leverage(callback_query: types.CallbackQuery):
     text += "Выберите параметр для изменения:"
     
     # Создаем клавиатуру с кнопками для изменения настроек
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type"),
-        InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type")],
+        [InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")]
+    ])
     
     await callback_query.message.edit_text(text=text, reply_markup=keyboard)
     await callback_query.answer()
@@ -176,13 +180,14 @@ async def process_callback_back_to_settings(callback_query: types.CallbackQuery)
     text += "Выберите параметр для изменения:"
     
     # Создаем клавиатуру с кнопками для изменения настроек
-    keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(
-        InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type"),
-        InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Изменить тип торговли", callback_data="change_trading_type")],
+        [InlineKeyboardButton(text="📈 Изменить кредитное плечо", callback_data="change_leverage")]
+    ])
     
     await callback_query.message.edit_text(text=text, reply_markup=keyboard)
     await callback_query.answer()
 
 # Функция для регистрации обработчиков в диспетчере
+def register_trading_settings_handlers(dp):
+    dp.include_router(trading_router)
