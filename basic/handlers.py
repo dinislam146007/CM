@@ -2542,16 +2542,8 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == 'trading_settings')
 async def handle_trading_settings(callback: CallbackQuery):
     """Forward to the trading settings command handler"""
-    # Create a fake message object to simulate /trading command
-    message = callback.message
-    message.from_user = callback.from_user
-    message.text = "/trading"
+    # Import the function directly from admin_commands
+    from strategy_logic.admin_commands import show_trading_settings
     
-    # Import the command handler directly from admin_commands
-    from strategy_logic.admin_commands import cmd_trading_settings
-    
-    # Call the command handler directly
-    await cmd_trading_settings(message)
-    
-    # Delete the original message to avoid duplication
-    await callback.message.delete()
+    # Вызываем вспомогательную функцию напрямую
+    await show_trading_settings(callback.message, callback.from_user.id)

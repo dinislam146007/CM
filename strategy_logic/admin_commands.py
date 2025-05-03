@@ -9,7 +9,13 @@ trading_router = Router()
 @trading_router.message(Command("trading"))
 async def cmd_trading_settings(message: types.Message):
     """Показывает текущие настройки торговли и предлагает изменить их"""
+    # Получаем user_id из message
     user_id = message.from_user.id
+    await show_trading_settings(message, user_id)
+
+# Вспомогательная функция для отображения настроек
+async def show_trading_settings(message: types.Message, user_id: int):
+    """Отображает настройки торговли и клавиатуру для их изменения"""
     settings = load_trading_settings(user_id)
     
     # Создаем сообщение с текущими настройками
@@ -180,6 +186,3 @@ async def process_callback_back_to_settings(callback_query: types.CallbackQuery)
     await callback_query.answer()
 
 # Функция для регистрации обработчиков в диспетчере
-def register_trading_settings_handlers(dp):
-    # В aiogram 3.x мы просто включаем роутер в диспетчер
-    dp.include_router(trading_router) 
