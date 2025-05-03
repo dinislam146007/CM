@@ -2428,15 +2428,23 @@ def format_pump_dump_settings(settings, user_id):
 @router.callback_query(F.data.startswith('trading_type'))
 async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
     try:
-        parts = callback.data.split()
-        if len(parts) < 2:
-            # Handle the case where there's no second element
+        trading_type = None
+        
+        # Handle both formats: "trading_type spot" and "set_trading_type:spot"
+        if ':' in callback.data:
+            # Format: "set_trading_type:spot"
+            trading_type = callback.data.split(':')[1]
+        else:
+            # Format: "trading_type spot"
+            parts = callback.data.split()
+            if len(parts) >= 2:
+                trading_type = parts[1]
+        
+        if not trading_type:
             await callback.answer("Ошибка в формате данных. Пожалуйста, попробуйте снова.")
             # Redirect back to settings
             await settings(callback, state, bot)
             return
-            
-        trading_type = parts[1]  # SPOT or FUTURES
         
         # Update the trading type setting
         success = update_trading_type_setting(callback.from_user.id, trading_type)
@@ -2502,42 +2510,64 @@ async def trading_type_leverage(callback: CallbackQuery, state: FSMContext, bot:
 
 @router.callback_query(F.data.startswith('set_leverage'))
 async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    leverage = int(callback.data.split()[1])
-    
-    # Import the module
-    from strategy_logic.trading_type_settings import update_leverage_setting, load_trading_type_settings
-    
-    # Update the leverage setting
-    success = update_leverage_setting(callback.from_user.id, leverage)
-    
-    if success:
-        await callback.answer(f"Кредитное плечо изменено на {leverage}x")
+    # Handle both formats: "set_leverage 10" and "set_leverage:10"
+    try:
+        if ':' in callback.data:
+            leverage = int(callback.data.split(':')[1])
+        else:
+            leverage = int(callback.data.split()[1])
         
-        # Get updated settings
-        trading_type_settings = load_trading_type_settings(callback.from_user.id)
+        # Import the module
+        from strategy_logic.trading_type_settings import update_leverage_setting, load_trading_type_settings
         
-        text = "⚙️ Настройки типа торговли\n\n"
+        # Update the leverage setting
+        success = update_leverage_setting(callback.from_user.id, leverage)
         
-        # Display current trading type
-        text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
-        
-        # Show leverage if FUTURES is selected
-        if trading_type_settings['TRADING_TYPE'] == 'FUTURES':
-            text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n"
-        
-        text += "\nВыберите тип торговли:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=trading_type_settings_inline()
-        )
-    else:
-        await callback.answer("Ошибка при изменении кредитного плеча")
-        await callback.message.edit_text(
-            "⚙️ Настройки кредитного плеча\n\n"
-            "Произошла ошибка. Выберите значение кредитного плеча:",
-            reply_markup=leverage_inline()
-        )
+        if success:
+            await callback.answer(f"Кредитное плечо изменено на {leverage}x")
+            
+            # Get updated settings
+            trading_type_settings = load_trading_type_settings(callback.from_user.id)
+            
+            text = "⚙️ Настройки типа торговли\n\n"
+            
+            # Display current trading type
+            text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
+            
+            # Show leverage if FUTURES is selected
+            if trading_type_settings['TRADING_TYPE'] == 'FUTURES':
+                text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n"
+            
+            text += "\nВыберите тип торговли:"
+            
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=trading_type_settings_inline()
+            )
+        else:
+            await callback.answer("Ошибка при изменении кредитного плеча")
+            await callback.message.edit_text(
+                "⚙️ Настройки кредитного плеча\n\n"
+                "Произошла ошибка. Выберите значение кредитного плеча:",
+                reply_markup=leverage_inline()
+            )
+    except (IndexError, ValueError) as e:
+        # Handle parsing errors gracefully
+        await callback.answer(f"Ошибка при обработке выбора плеча: {str(e)}", show_alert=True)
+        # Try to safely return to previous menu
+        try:
+            from keyboard.inline import leverage_inline
+            await callback.message.edit_text(
+                "⚙️ Настройки кредитного плеча\n\n"
+                "Произошла ошибка. Выберите значение кредитного плеча:",
+                reply_markup=leverage_inline()
+            )
+        except Exception:
+            # Last resort fallback
+            await callback.message.edit_text(
+                "Произошла ошибка. Пожалуйста, вернитесь в главное меню.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Назад', callback_data='start')]])
+            )
 
 @router.callback_query(F.data == 'trading_settings')
 async def handle_trading_settings(callback: CallbackQuery):
