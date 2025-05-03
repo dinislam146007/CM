@@ -17,28 +17,25 @@ from basic.state import *
 from config import config
 from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates, PumpDumpParamStates
 import re
-from db.orders import (get_open_order, get_user_balance, create_order, close_order, 
-                      get_user_open_orders, get_user_closed_orders, get_all_orders)
-from db.select import (get_user, get_signal, get_active_order, get_user_orders, 
-                     get_user_subscriptions, get_subscribed_users, get_order, 
-                     get_all_user_id, get_all_orders, get_signals, 
-                     get_statistics_for_period, get_stat_db, all_signals, count_signals, 
+from db.orders import ( 
+                    get_all_orders)
+from db.select import (get_user, get_signal, 
+                     get_user_subscriptions, 
+                    get_all_orders, get_signals, 
+                     get_statistics_for_period, all_signals, count_signals, 
                      get_daily_statistics, all_signals_no_signal, 
                      get_all_intervals_for_pairs_with_status, fetch_signals, fetch_stat,
-                     select_user_signals_stat, get_user_liked_coins, get_symbol_data,
-                     get_signal_data_by_symbol_tf, select_count, get_tf_stat,
-                     count_total_open, get_signal_data)
+                     )
 from db.insert import set_user
-from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params, get_param_names_and_types
+from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params
 from strategy_logic.cm_settings import load_cm_settings, reset_cm_settings, update_cm_setting  # Import CM settings functions
 from strategy_logic.divergence_settings import load_divergence_settings, reset_divergence_settings, update_divergence_setting  # Import divergence settings functions
 from strategy_logic.rsi_settings import load_rsi_settings, reset_rsi_settings, update_rsi_setting  # Import RSI settings functions
-from strategy_logic.trading_settings import load_trading_settings, update_trading_settings  # Import trading settings functions
+from strategy_logic.trading_settings import load_trading_settings  # Import trading settings functions
 from strategy_logic.pump_dump_settings import (
     load_pump_dump_settings, reset_pump_dump_settings, update_pump_dump_setting,
     add_subscriber, remove_subscriber, is_subscribed
 )  # Import pump_dump settings functions
-from strategy_logic.admin_commands import register_trading_settings_handlers  # Import trading settings handlers
 
 router = Router()
 
