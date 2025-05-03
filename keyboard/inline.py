@@ -280,3 +280,47 @@ def pump_dump_subscription_inline():
         [InlineKeyboardButton(text='Назад к настройкам', callback_data='settings pump_dump')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def leverage_inline():
+    """
+    Create a keyboard for selecting leverage values
+    Support both callback formats: 'set_leverage:10' and 'set_leverage 10'
+    """
+    # Common leverage values for futures trading
+    leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
+    
+    # Split buttons into rows of 4
+    buttons = []
+    current_row = []
+    
+    for value in leverage_values:
+        # Using the colon format to match admin_commands.py
+        current_row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"set_leverage:{value}"))
+        
+        if len(current_row) == 4:
+            buttons.append(current_row)
+            current_row = []
+    
+    # Add any remaining buttons
+    if current_row:
+        buttons.append(current_row)
+    
+    # Add back button
+    buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def trading_type_settings_inline():
+    """
+    Create a keyboard for selecting trading type (SPOT or FUTURES)
+    Support both callback formats: 'set_trading_type:spot' and 'trading_type spot'
+    """
+    kb = [
+        [
+            InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
+            InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
+        ],
+        [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
+        [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
