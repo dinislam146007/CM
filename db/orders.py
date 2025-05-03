@@ -147,8 +147,9 @@ async def close_order(order_id, sale_price):
             return_amount = 0
             pnl_percent = -100
             pnl_usdt = -invested
-        
-        # Обновляем баланс пользователя (возвращаем средства с учетом P&L)
+          
+          
+        # Обновляем баланс пользователя (в озвращаем средства с учетом P&L)
         await conn.execute("""
             UPDATE users SET balance = balance + $2 WHERE user_id=$1
         """, user_id, return_amount)
