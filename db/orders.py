@@ -307,43 +307,50 @@ async def init_db():
     conn = await connect()
     try:
         # Создаем таблицу users, если она еще не существует
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id BIGINT PRIMARY KEY,
-                username TEXT,
-                balance REAL DEFAULT 1000.0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        try:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    balance REAL DEFAULT 1000.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        except asyncpg.exceptions.InsufficientPrivilegeError:
+            print("Недостаточно прав для создания таблицы users. Продолжаем работу с существующей.")
         
         # Создаем таблицу orders, если она еще не существует
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS orders (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT,
-                symbol TEXT,
-                interval TEXT,
-                side TEXT,
-                qty REAL,
-                coin_buy_price REAL,
-                coin_sale_price REAL,
-                buy_time TIMESTAMP,
-                sale_time TIMESTAMP,
-                tp_price REAL,
-                sl_price REAL,
-                status TEXT DEFAULT 'OPEN',
-                pnl_percent NUMERIC,
-                pnl_usdt REAL,
-                return_amount_usdt REAL,
-                investment_amount_usdt REAL,
-                trading_type TEXT DEFAULT 'spot',
-                leverage INTEGER DEFAULT 1
-            )
-        """)
+        try:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS orders (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    symbol TEXT,
+                    interval TEXT,
+                    side TEXT,
+                    qty REAL,
+                    coin_buy_price REAL,
+                    coin_sale_price REAL,
+                    buy_time TIMESTAMP,
+                    sale_time TIMESTAMP,
+                    tp_price REAL,
+                    sl_price REAL,
+                    status TEXT DEFAULT 'OPEN',
+                    pnl_percent NUMERIC,
+                    pnl_usdt REAL,
+                    return_amount_usdt REAL,
+                    investment_amount_usdt REAL,
+                    trading_type TEXT DEFAULT 'spot',
+                    leverage INTEGER DEFAULT 1
+                )
+            """)
+        except asyncpg.exceptions.InsufficientPrivilegeError:
+            print("Недостаточно прав для создания таблицы orders. Продолжаем работу с существующей.")
         
         print("База данных инициализирована успешно")
     except Exception as e:
         print(f"Ошибка при инициализации базы данных: {e}")
+        # Продолжаем работу даже при ошибках
     finally:
         await conn.close()
 
