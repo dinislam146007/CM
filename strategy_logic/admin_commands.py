@@ -1,5 +1,5 @@
 from aiogram import Bot, types
-from aiogram.dispatcher import Dispatcher
+from aiogram import Dispatcher
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from strategy_logic.trading_settings import load_trading_settings, update_trading_settings
 
