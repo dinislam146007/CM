@@ -2611,9 +2611,13 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
             # Add back button
             buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
             
+            # Добавляем случайное число к тексту, чтобы избежать ошибки "message is not modified"
+            import random
+            error_id = random.randint(1000, 9999)
+            
             await callback.message.edit_text(
-                "⚙️ Настройки кредитного плеча\n\n"
-                "Произошла ошибка. Выберите значение кредитного плеча:",
+                f"⚙️ Настройки кредитного плеча\n\n"
+                f"Произошла ошибка при изменении плеча (ID: {error_id}). Выберите значение кредитного плеча:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
             )
     except (IndexError, ValueError) as e:
@@ -2645,9 +2649,13 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
         buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
         
         try:
+            # Добавляем случайное число к тексту, чтобы избежать ошибки "message is not modified"
+            import random
+            error_id = random.randint(1000, 9999)
+            
             await callback.message.edit_text(
-                "⚙️ Настройки кредитного плеча\n\n"
-                "Произошла ошибка. Выберите значение кредитного плеча:",
+                f"⚙️ Настройки кредитного плеча\n\n"
+                f"Произошла ошибка (ID: {error_id}). Выберите значение кредитного плеча:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
             )
         except Exception:
