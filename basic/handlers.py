@@ -19,23 +19,27 @@ from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyPa
 import re
 from db.orders import ( 
                     get_all_orders)
-from db.select import (get_user, get_signal, 
-                     get_user_subscriptions, 
-                    get_all_orders, get_signals, 
+from db.select import (get_signal, 
                      get_statistics_for_period, all_signals, count_signals, 
                      get_daily_statistics, all_signals_no_signal, 
                      get_all_intervals_for_pairs_with_status, fetch_signals, fetch_stat,
-                     )
-from db.insert import set_user
-from strategy_logic.user_strategy_params import load_user_params, update_user_param, reset_user_params
-from strategy_logic.cm_settings import load_cm_settings, reset_cm_settings, update_cm_setting  # Import CM settings functions
-from strategy_logic.divergence_settings import load_divergence_settings, reset_divergence_settings, update_divergence_setting  # Import divergence settings functions
-from strategy_logic.rsi_settings import load_rsi_settings, reset_rsi_settings, update_rsi_setting  # Import RSI settings functions
-from strategy_logic.trading_settings import load_trading_settings  # Import trading settings functions
-from strategy_logic.pump_dump_settings import (
+                     get_signals)
+
+# Replace old imports with new centralized user_settings module
+from user_settings import (
+    load_user_params, update_user_param, reset_user_params,
+    load_cm_settings, reset_cm_settings, update_cm_setting,
+    load_divergence_settings, reset_divergence_settings, update_divergence_setting,
+    load_rsi_settings, reset_rsi_settings, update_rsi_setting,
+    load_trading_settings, load_trading_type_settings, update_trading_type_setting, update_leverage_setting,
     load_pump_dump_settings, reset_pump_dump_settings, update_pump_dump_setting,
-    add_subscriber, remove_subscriber, is_subscribed
-)  # Import pump_dump settings functions
+    add_subscriber, remove_subscriber, is_subscribed,
+    get_user, set_user, update_user_setting,
+    add_crypto_pair_to_db, delete_crypto_pair_from_db,
+    add_monitor_pair_to_db, delete_monitor_pair_from_db,
+    add_subscription, remove_subscription, get_user_subscriptions,
+    migrate_user_settings
+)
 
 router = Router()
 
@@ -963,6 +967,9 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
 
 @router.message(Command("start"))
 async def start_message(message: Message, bot: Bot):
+    # Run migration at first start
+    migrate_user_settings()
+    
     if not await get_user(message.from_user.id):
         await set_user(message.from_user.id, 5.0, 50000.0)
         # Initialize default strategy parameters for the new user
