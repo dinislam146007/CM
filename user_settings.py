@@ -274,15 +274,15 @@ def update_leverage_setting(user_id: int, leverage: int) -> bool:
 
 # === User Settings Functions ===
 
-def get_user(user_id: int) -> Dict[str, Any]:
+async def get_user(user_id: int) -> Dict[str, Any]:
     """Get basic user settings"""
     return get_settings_category(user_id, "user")
 
-def update_user_setting(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_user_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a user setting"""
     return update_user_settings(user_id, "user", param_name, param_value)
 
-def set_user(user_id: int, percent: float, balance: float) -> bool:
+async def set_user(user_id: int, percent: float, balance: float) -> bool:
     """Set main user parameters"""
     settings = load_user_settings(user_id)
     settings["user"]["percent"] = percent
@@ -291,7 +291,7 @@ def set_user(user_id: int, percent: float, balance: float) -> bool:
 
 # === Crypto Pairs Functions ===
 
-def add_crypto_pair_to_db(user_id: int, pair: str) -> bool:
+async def add_crypto_pair_to_db(user_id: int, pair: str) -> bool:
     """Add a pair to user's favorite list"""
     settings = load_user_settings(user_id)
     pairs = settings["user"].get("crypto_pairs", "").split(',') if settings["user"].get("crypto_pairs", "") else []
@@ -302,7 +302,7 @@ def add_crypto_pair_to_db(user_id: int, pair: str) -> bool:
     settings["user"]["crypto_pairs"] = ','.join(filter(None, pairs))
     return save_user_settings(user_id, settings)
 
-def delete_crypto_pair_from_db(user_id: int, pair: str) -> bool:
+async def delete_crypto_pair_from_db(user_id: int, pair: str) -> bool:
     """Remove a pair from user's favorite list"""
     settings = load_user_settings(user_id)
     pairs = settings["user"].get("crypto_pairs", "").split(',') if settings["user"].get("crypto_pairs", "") else []
@@ -315,7 +315,7 @@ def delete_crypto_pair_from_db(user_id: int, pair: str) -> bool:
 
 # === Monitor Pairs Functions ===
 
-def add_monitor_pair_to_db(user_id: int, pair: str) -> bool:
+async def add_monitor_pair_to_db(user_id: int, pair: str) -> bool:
     """Add a pair to user's monitor list"""
     settings = load_user_settings(user_id)
     pairs = settings["user"].get("monitor_pairs", "").split(',') if settings["user"].get("monitor_pairs", "") else []
@@ -326,7 +326,7 @@ def add_monitor_pair_to_db(user_id: int, pair: str) -> bool:
     settings["user"]["monitor_pairs"] = ','.join(filter(None, pairs))
     return save_user_settings(user_id, settings)
 
-def delete_monitor_pair_from_db(user_id: int, pair: str) -> bool:
+async def delete_monitor_pair_from_db(user_id: int, pair: str) -> bool:
     """Remove a pair from user's monitor list"""
     settings = load_user_settings(user_id)
     pairs = settings["user"].get("monitor_pairs", "").split(',') if settings["user"].get("monitor_pairs", "") else []
@@ -339,7 +339,7 @@ def delete_monitor_pair_from_db(user_id: int, pair: str) -> bool:
 
 # === Subscription Functions ===
 
-def add_subscription(user_id: int, symbol: str, interval: str) -> bool:
+async def add_subscription(user_id: int, symbol: str, interval: str) -> bool:
     """Add a subscription to a pair and interval"""
     settings = load_user_settings(user_id)
     
@@ -356,7 +356,7 @@ def add_subscription(user_id: int, symbol: str, interval: str) -> bool:
     
     return save_user_settings(user_id, settings)
 
-def remove_subscription(user_id: int, symbol: str, interval: str) -> bool:
+async def remove_subscription(user_id: int, symbol: str, interval: str) -> bool:
     """Remove a subscription to a pair and interval"""
     settings = load_user_settings(user_id)
     
@@ -367,26 +367,26 @@ def remove_subscription(user_id: int, symbol: str, interval: str) -> bool:
     
     return True  # Subscription not found, nothing to remove
 
-def get_user_subscriptions(user_id: int) -> list:
+async def get_user_subscriptions(user_id: int) -> list:
     """Get user's subscriptions"""
     settings = load_user_settings(user_id)
     return settings.get("subscriptions", [])
 
 # === Pump/Dump Subscriber Functions ===
 
-def add_subscriber(user_id: int) -> bool:
+async def add_subscriber(user_id: int) -> bool:
     """Subscribe user to pump/dump notifications"""
     settings = load_user_settings(user_id)
     settings["pump_dump_subscriber"] = True
     return save_user_settings(user_id, settings)
 
-def remove_subscriber(user_id: int) -> bool:
+async def remove_subscriber(user_id: int) -> bool:
     """Unsubscribe user from pump/dump notifications"""
     settings = load_user_settings(user_id)
     settings["pump_dump_subscriber"] = False
     return save_user_settings(user_id, settings)
 
-def is_subscribed(user_id: int) -> bool:
+async def is_subscribed(user_id: int) -> bool:
     """Check if user is subscribed to pump/dump notifications"""
     settings = load_user_settings(user_id)
     return settings.get("pump_dump_subscriber", False)

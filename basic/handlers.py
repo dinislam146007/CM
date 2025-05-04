@@ -967,7 +967,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
 
 @router.message(Command("start"))
 async def start_message(message: Message, bot: Bot):
-    # Run migration at first start
+    # Run migration at first start - don't await since it's not async
     migrate_user_settings()
     
     if not await get_user(message.from_user.id):
