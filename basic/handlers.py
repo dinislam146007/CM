@@ -2587,6 +2587,9 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
         else:
             await callback.answer("Ошибка при изменении кредитного плеча")
             
+            # Инициализируем переменную leverage_inline перед использованием
+            leverage_inline = InlineKeyboardMarkup(inline_keyboard=[])
+            
             # Create leverage keyboard inline
             leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
             
@@ -2616,6 +2619,9 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
     except (IndexError, ValueError) as e:
         # Handle parsing errors gracefully
         await callback.answer(f"Ошибка при обработке выбора плеча: {str(e)}", show_alert=True)
+        
+        # Инициализируем переменную leverage_inline перед использованием
+        leverage_inline = InlineKeyboardMarkup(inline_keyboard=[])
         
         # Create leverage keyboard inline as fallback
         leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
