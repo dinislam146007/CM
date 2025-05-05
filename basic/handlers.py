@@ -2468,6 +2468,9 @@ async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: B
 @router.callback_query(F.data == 'trading_type_leverage')
 async def trading_type_leverage(callback: CallbackQuery):
     try:
+        # Отладка для проверки callback
+        print(f"Обработка кнопки плеча, callback.data: {callback.data}")
+        
         # Получаем информацию о пользователе
         user = await get_user(callback.from_user.id)
         print(f"Showing leverage options for user: {user}")
@@ -2545,7 +2548,7 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
                         InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
                         InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
                     ],
-                    [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
+                    [InlineKeyboardButton(text="Настроить плечо", callback_data="show_leverage_options")],
                     [InlineKeyboardButton(text="« Назад", callback_data="settings trading")]
                 ]
                 
@@ -2640,9 +2643,6 @@ async def show_trading_types(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith('trading_type_'))
 async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    # Здесь мы получаем тип торговли из callback.data напрямую
-    # callback.data имеет вид 'trading_type_SPOT' или 'trading_type_FUTURES'
-    # Не нужно делать redirect в settings с некорректными данными
     try:
         trading_type = callback.data.split('_')[2].lower()  # Это будет 'spot' или 'futures'
         
@@ -2660,7 +2660,7 @@ async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: B
         # Создаем клавиатуру
         kb = [
             [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
-            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="trading_type_leverage")],
+            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="show_leverage_options")],
             [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
         ]
         
@@ -2704,7 +2704,7 @@ async def set_leverage_simple(callback: CallbackQuery):
         # Создаем клавиатуру
         kb = [
             [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
-            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="trading_type_leverage")],
+            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="show_leverage_options")],
             [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
         ]
         
@@ -2738,7 +2738,7 @@ async def settings_trading(callback: CallbackQuery):
         # Создаем клавиатуру
         kb = [
             [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
-            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="trading_type_leverage")],
+            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="show_leverage_options")],
             [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
         ]
         
@@ -2751,5 +2751,48 @@ async def settings_trading(callback: CallbackQuery):
         print(f"Ошибка в settings_trading: {e}")
         await callback.message.edit_text(
             f"Ошибка при отображении настроек торговли: {e}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
+        )
+
+@router.callback_query(F.data == 'show_leverage_options')
+async def show_leverage_options(callback: CallbackQuery):
+    try:
+        # Получаем информацию о пользователе
+        user = await get_user(callback.from_user.id)
+        print(f"Showing leverage options for user: {user}")
+        
+        # Создаем UI
+        text = "⚙️ Настройки кредитного плеча\n\n"
+        text += f"Текущее кредитное плечо: x{user.get('leverage', 1)}\n\n"
+        text += "Выберите значение кредитного плеча:"
+        
+        # Значения плеча
+        leverage_values = [1, 2, 3, 5, 10, 20]
+        
+        # Создаем кнопки в два ряда
+        buttons = []
+        row = []
+        for value in leverage_values:
+            row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"leverage_{value}"))
+            if len(row) == 3:
+                buttons.append(row)
+                row = []
+        
+        # Добавляем оставшиеся кнопки
+        if row:
+            buttons.append(row)
+            
+        # Добавляем кнопку назад
+        buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings trading")])
+        
+        # Отправляем сообщение
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    except Exception as e:
+        print(f"Ошибка в show_leverage_options: {e}")
+        await callback.message.edit_text(
+            f"Ошибка при настройке плеча: {e}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
         )
