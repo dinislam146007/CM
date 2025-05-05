@@ -1553,13 +1553,14 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
             text += "🔹 В режиме FUTURES доступны:\n"
             text += "  - LONG и SHORT позиции\n"
             text += f"  - Торговля с плечом до x{trading_settings['leverage']}\n\n"
-        
-        text += "Введите команду /trading для настройки типа торговли и плеча"
-        
+
+        text += "Выберите действие:" # Changed instruction text
+
         await callback.message.edit_text(
             text=text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Настроить торговлю', callback_data='trading_settings')],
+                [InlineKeyboardButton(text='Изменить тип торговли', callback_data='trading_settings')], # Changed button
+                [InlineKeyboardButton(text='Изменить кредитное плечо', callback_data='trading_type_leverage')], # Added button
                 [InlineKeyboardButton(text='Назад', callback_data='settings start')]
             ]),
             parse_mode='HTML'
@@ -2566,30 +2567,36 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 await callback.answer(f"Кредитное плечо изменено на {leverage}x. Тип торговли установлен на FUTURES.")
                 
                 # Get updated settings
-                trading_type_settings = load_trading_type_settings(callback.from_user.id)
+                trading_settings = load_trading_settings(callback.from_user.id)
                 
-                text = "⚙️ Настройки типа торговли\n\n"
+                text = "💱 Настройки типа торговли\n\n"
                 
-                # Display current trading type - should now be FUTURES
-                text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
-                text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n\n"
-                text += "⚠️ Автоматически установлен режим FUTURES, так как кредитное плечо доступно только в этом режиме.\n\n"
+                # Отображаем текущие параметры
+                text += "📊 Текущие параметры:\n"
+                text += f"Тип торговли: <b>{trading_settings['trading_type'].upper()}</b>\n"
+                text += f"Кредитное плечо: <b>x{trading_settings['leverage']}</b>\n\n"
+
+                if trading_settings['trading_type'] == 'spot':
+                    text += "🔹 В режиме SPOT доступны только LONG позиции без плеча.\n\n"
+                else:
+                    text += "🔹 В режиме FUTURES доступны:\n"
+                    text += "  - LONG и SHORT позиции\n"
+                    text += f"  - Торговля с плечом до x{trading_settings['leverage']}\n\n"
                 
-                text += "Выберите тип торговли:"
+                text += "Выберите действие:" 
                 
-                # Create trading type settings keyboard inline
+                # Create the same keyboard as in the settings handler
                 kb = [
-                    [
-                        InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
-                        InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
-                    ],
-                    [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
-                    [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]
+                    [InlineKeyboardButton(text='Изменить тип торговли', callback_data='trading_settings')], 
+                    [InlineKeyboardButton(text='Изменить кредитное плечо', callback_data='trading_type_leverage')],
+                    [InlineKeyboardButton(text='Назад', callback_data='settings start')]
                 ]
-                
+                # --- End: Replaced code --- 
+
                 await callback.message.edit_text(
                     text=text,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=kb),
+                    parse_mode='HTML' # Added parse_mode
                 )
             else:
                 # More descriptive error message
