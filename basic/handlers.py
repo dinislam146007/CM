@@ -2971,9 +2971,12 @@ async def show_exchanges_settings(callback: CallbackQuery):
     # Add back button
     buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
     
+    # Add timestamp to force message update
+    timestamp = f"\n\n{dt.now().timestamp()}"
+    
     # Send message
     await callback.message.edit_text(
-        text=text,
+        text=text + timestamp,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -3011,9 +3014,12 @@ async def toggle_exchange_status(callback: CallbackQuery):
     # Add back button
     buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
     
+    # Add timestamp to force message update
+    timestamp = f"\n\n{dt.now().timestamp()}"
+    
     # Update message
     await callback.message.edit_text(
-        text=text,
+        text=text + timestamp,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     
