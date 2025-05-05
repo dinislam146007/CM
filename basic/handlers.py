@@ -2954,20 +2954,13 @@ async def set_trading_type_by_button(callback: CallbackQuery):
 async def show_exchanges_settings(callback: CallbackQuery):
     # Get exchanges information
     user_exchanges = await get_user_exchanges(callback.from_user.id)
-    print(f"Текущие биржи пользователя: {user_exchanges}")
     
     # Available exchanges
     all_exchanges = ['Binance', 'Bybit', 'MEXC']
     
     # Create UI
     text = "🏛️ Настройки бирж\n\n"
-    text += "Выберите биржи для торговли:\n\n"
-    
-    for exchange in all_exchanges:
-        status_icon = "✅" if exchange in user_exchanges else "❌"
-        text += f"{status_icon} {exchange}\n"
-    
-    text += "\nВыберите биржу для изменения статуса:"
+    text += "Выберите биржи для торговли:"
     
     # Create keyboard for toggling exchange status
     buttons = []
@@ -2991,7 +2984,6 @@ async def show_exchanges_settings(callback: CallbackQuery):
 async def toggle_exchange_status(callback: CallbackQuery):
     # Get exchange name from callback_data
     exchange = callback.data.split('_')[2]
-    print(f"Toggling exchange status: {exchange}")
     
     # Toggle exchange status in database
     await toggle_exchange(callback.from_user.id, exchange)
@@ -3011,13 +3003,7 @@ async def toggle_exchange_status(callback: CallbackQuery):
     
     # Create UI text
     text = "🏛️ Настройки бирж\n\n"
-    text += "Выберите биржи для торговли:\n\n"
-    
-    for exch in all_exchanges:
-        status_icon = "✅" if exch in user_exchanges else "❌"
-        text += f"{status_icon} {exch}\n"
-    
-    text += "\nВыберите биржу для изменения статуса:"
+    text += "Выберите биржи для торговли:"
     
     # Create keyboard for toggling exchange status
     buttons = []
@@ -3037,6 +3023,3 @@ async def toggle_exchange_status(callback: CallbackQuery):
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     
-    # Show confirmation
-    status_msg = "добавлена" if exchange in user_exchanges else "удалена"
-    await callback.answer(f"Биржа {exchange} {status_msg} из списка для торговли")
