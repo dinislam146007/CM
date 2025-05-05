@@ -270,6 +270,14 @@ async def update_trading_type_setting(user_id: int, trading_type: str) -> bool:
 
 async def update_leverage_setting(user_id: int, leverage: int) -> bool:
     """Update leverage setting"""
+    # First check if trading type is SPOT, if so, change it to FUTURES
+    settings = load_user_settings(user_id)
+    if settings["trading"]["trading_type"].lower() != "futures":
+        print(f"Automatically changing trading type to FUTURES for user {user_id} when setting leverage")
+        # Update trading type to FUTURES
+        await update_user_settings(user_id, "trading", "trading_type", "futures")
+    
+    # Now set the leverage
     return await update_user_settings(user_id, "trading", "leverage", int(leverage))
 
 # === User Settings Functions ===

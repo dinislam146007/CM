@@ -2559,24 +2559,23 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         try:
             # Update the leverage setting - make sure to await it
+            # This will now automatically change trading type to FUTURES if needed
             success = await update_leverage_setting(callback.from_user.id, leverage)
             
             if success:
-                await callback.answer(f"Кредитное плечо изменено на {leverage}x")
+                await callback.answer(f"Кредитное плечо изменено на {leverage}x. Тип торговли установлен на FUTURES.")
                 
                 # Get updated settings
                 trading_type_settings = load_trading_type_settings(callback.from_user.id)
                 
                 text = "⚙️ Настройки типа торговли\n\n"
                 
-                # Display current trading type
+                # Display current trading type - should now be FUTURES
                 text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
+                text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n\n"
+                text += "⚠️ Автоматически установлен режим FUTURES, так как кредитное плечо доступно только в этом режиме.\n\n"
                 
-                # Show leverage if FUTURES is selected
-                if trading_type_settings['TRADING_TYPE'] == 'FUTURES':
-                    text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n"
-                
-                text += "\nВыберите тип торговли:"
+                text += "Выберите тип торговли:"
                 
                 # Create trading type settings keyboard inline
                 kb = [
