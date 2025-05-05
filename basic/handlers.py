@@ -2971,12 +2971,9 @@ async def show_exchanges_settings(callback: CallbackQuery):
     # Add back button
     buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
     
-    # Add random suffix to avoid "message not modified" error
-    random_suffix = f"\n\n[{random.randint(1000, 9999)}]"
-    
     # Send message
     await callback.message.edit_text(
-        text=text + random_suffix,
+        text=text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -3014,12 +3011,9 @@ async def toggle_exchange_status(callback: CallbackQuery):
     # Add back button
     buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
     
-    # Add random suffix to avoid "message not modified" error
-    random_suffix = f"\n\n[{random.randint(1000, 9999)}]"
-    
     # Update message
     await callback.message.edit_text(
-        text=text + random_suffix,
+        text=text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     
