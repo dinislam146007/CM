@@ -39,7 +39,8 @@ from user_settings import (
     add_crypto_pair_to_db, delete_crypto_pair_from_db,
     add_monitor_pair_to_db, delete_monitor_pair_from_db,
     add_subscription, remove_subscription, get_user_subscriptions,
-    migrate_user_settings
+    migrate_user_settings,
+    get_user_exchanges, update_user_exchanges, toggle_exchange
 )
 
 router = Router()
@@ -1383,6 +1384,7 @@ def settings_inline():
         [InlineKeyboardButton(text='📉 Настройки индикатора RSI', callback_data='settings rsi')],
         [InlineKeyboardButton(text='🔄 Настройки P/D детектора', callback_data='settings pump_dump')],
         [InlineKeyboardButton(text='💱 Настройки типа торговли', callback_data='settings trading')],
+        [InlineKeyboardButton(text='🏛️ Выбор бирж', callback_data='settings exchanges')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -1540,6 +1542,9 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
     elif action == 'trading':
         # Перенаправляем на отдельный обработчик settings_trading
         await settings_trading(callback)
+    elif action == 'exchanges':
+        # Перенаправляем на отдельный обработчик show_exchanges_settings
+        await show_exchanges_settings(callback)
     else:
         # Неизвестное действие - возвращаемся к началу настроек
         await callback.message.edit_text(
@@ -2943,3 +2948,110 @@ async def set_trading_type_by_button(callback: CallbackQuery):
             f"Ошибка при изменении типа торговли: {e}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
         )
+
+@router.callback_query(F.data == 'settings exchanges')
+async def show_exchanges_settings(callback: CallbackQuery):
+    try:
+        # Получаем информацию о пользователе
+        user_exchanges = await get_user_exchanges(callback.from_user.id)
+        print(f"Текущие биржи пользователя: {user_exchanges}")
+        
+        # Доступные биржи
+        all_exchanges = ['Binance', 'Bybit', 'MEXC']
+        
+        # Создаем UI
+        text = "🏛️ Настройки бирж\n\n"
+        text += "Выберите биржи для торговли:\n\n"
+        
+        for exchange in all_exchanges:
+            if exchange in user_exchanges:
+                text += f"✅ {exchange}\n"
+            else:
+                text += f"❌ {exchange}\n"
+        
+        text += "\nВыберите биржу для изменения статуса:"
+        
+        # Создаем клавиатуру для переключения статуса бирж
+        buttons = []
+        for exchange in all_exchanges:
+            status = "✅" if exchange in user_exchanges else "❌"
+            buttons.append([InlineKeyboardButton(text=f"{status} {exchange}", callback_data=f"toggle_exchange_{exchange}")])
+        
+        # Добавляем кнопку назад
+        buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
+        
+        # Отправляем сообщение
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    except Exception as e:
+        print(f"Ошибка в show_exchanges_settings: {e}")
+        await callback.message.edit_text(
+            f"Ошибка при отображении настроек бирж: {e}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
+        )
+
+@router.callback_query(F.data.startswith('toggle_exchange_'))
+async def toggle_exchange_status(callback: CallbackQuery):
+    try:
+        # Получаем название биржи из callback_data
+        exchange = callback.data.split('_')[2]
+        print(f"Переключаем статус биржи: {exchange}")
+        
+        # Переключаем статус биржи
+        success = await toggle_exchange(callback.from_user.id, exchange)
+        
+        if success:
+            # Получаем обновленный список бирж
+            user_exchanges = await get_user_exchanges(callback.from_user.id)
+            
+            # Проверяем, что остался хотя бы один выбранный обменник
+            if not user_exchanges:
+                # Если все биржи были отключены, включаем Binance по умолчанию
+                await update_user_exchanges(callback.from_user.id, ['Binance'])
+                await callback.answer("Должна быть выбрана хотя бы одна биржа. Binance установлена по умолчанию.")
+                user_exchanges = ['Binance']
+            
+            # Доступные биржи
+            all_exchanges = ['Binance', 'Bybit', 'MEXC']
+            
+            # Создаем UI
+            text = "🏛️ Настройки бирж\n\n"
+            text += "Выберите биржи для торговли:\n\n"
+            
+            for exch in all_exchanges:
+                if exch in user_exchanges:
+                    text += f"✅ {exch}\n"
+                else:
+                    text += f"❌ {exch}\n"
+            
+            text += "\nВыберите биржу для изменения статуса:"
+            
+            # Создаем клавиатуру для переключения статуса бирж
+            buttons = []
+            for exch in all_exchanges:
+                status = "✅" if exch in user_exchanges else "❌"
+                buttons.append([InlineKeyboardButton(text=f"{status} {exch}", callback_data=f"toggle_exchange_{exch}")])
+            
+            # Добавляем кнопку назад
+            buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
+            
+            # Отправляем сообщение
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+            )
+            
+            # Сообщаем о результате
+            if exchange in user_exchanges:
+                await callback.answer(f"Биржа {exchange} добавлена в список для торговли")
+            else:
+                await callback.answer(f"Биржа {exchange} удалена из списка для торговли")
+        else:
+            await callback.answer("Ошибка при изменении статуса биржи")
+    except Exception as e:
+        print(f"Ошибка в toggle_exchange_status: {e}")
+        await callback.answer(f"Ошибка: {e}")
+        # В случае ошибки возвращаемся к экрану настроек бирж
+        await show_exchanges_settings(callback)

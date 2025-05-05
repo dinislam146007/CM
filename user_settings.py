@@ -290,12 +290,42 @@ async def update_user_setting(user_id: int, param_name: str, param_value: Any) -
     """Update a user setting"""
     return await update_user_settings(user_id, "user", param_name, param_value)
 
-async def set_user(user_id: int, percent: float, balance: float) -> bool:
-    """Set main user parameters"""
-    settings = load_user_settings(user_id)
-    settings["user"]["percent"] = percent
-    settings["user"]["balance"] = balance
-    return save_user_settings(user_id, settings)
+async def set_user(user_id: int, percent: float, balance: float, 
+               trading_type: str = 'spot', leverage: int = 1, 
+               exchanges: list = None) -> bool:
+    """Создает или обновляет пользователя"""
+    try:
+        user = {
+            'user_id': user_id,
+            'percent': percent,
+            'balance': balance,
+            'trading_type': trading_type,
+            'leverage': leverage
+        }
+        
+        if exchanges is not None:
+            user['exchanges'] = exchanges
+        
+        os.makedirs(f"data/users/{user_id}", exist_ok=True)
+        
+        # Загружаем существующие настройки, если они есть
+        try:
+            with open(f"data/users/{user_id}/settings.json", "r") as f:
+                existing_settings = json.load(f)
+                # Сохраняем все существующие ключи, кроме тех, которые обновляем
+                for key in existing_settings:
+                    if key not in ['user_id', 'percent', 'balance', 'trading_type', 'leverage'] and key not in user:
+                        user[key] = existing_settings[key]
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+            
+        with open(f"data/users/{user_id}/settings.json", "w") as f:
+            json.dump(user, f, indent=4)
+            
+        return True
+    except Exception as e:
+        print(f"Error in set_user: {e}")
+        return False
 
 # === Crypto Pairs Functions ===
 
@@ -560,4 +590,43 @@ def migrate_user_settings():
         # Save the migrated settings
         save_user_settings(user_id, settings)
     
-    print(f"Migration completed for {len(user_ids)} users") 
+    print(f"Migration completed for {len(user_ids)} users")
+
+# Добавляю функции для работы с выбором бирж
+
+async def get_user_exchanges(user_id: int) -> list:
+    """
+    Получить список выбранных бирж пользователя
+    """
+    user = await get_user(user_id)
+    # По умолчанию выбрана Binance
+    return user.get('exchanges', ['Binance'])
+
+async def update_user_exchanges(user_id: int, exchanges: list) -> bool:
+    """
+    Обновить список выбранных бирж пользователя
+    """
+    try:
+        user = await get_user(user_id)
+        user['exchanges'] = exchanges
+        await set_user(user_id, user.get('percent', 5.0), user.get('balance', 50000.0), 
+                     trading_type=user.get('trading_type', 'spot'), 
+                     leverage=user.get('leverage', 1),
+                     exchanges=exchanges)
+        return True
+    except Exception as e:
+        print(f"Ошибка при обновлении списка бирж: {e}")
+        return False
+
+async def toggle_exchange(user_id: int, exchange: str) -> bool:
+    """
+    Переключить статус биржи (добавить если нет, удалить если есть)
+    """
+    exchanges = await get_user_exchanges(user_id)
+    
+    if exchange in exchanges:
+        exchanges.remove(exchange)
+    else:
+        exchanges.append(exchange)
+    
+    return await update_user_exchanges(user_id, exchanges) 
