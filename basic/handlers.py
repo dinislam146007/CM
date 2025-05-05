@@ -1537,33 +1537,26 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
     elif action == 'trading':
-        # Загружаем настройки торговли для пользователя
-        trading_settings = load_trading_settings(callback.from_user.id)
+        # Получаем информацию о пользователе
+        user = await get_user(callback.from_user.id)
         
-        text = "💱 Настройки типа торговли\n\n"
+        # Создаем UI
+        text = "📊 Настройки торговли\n\n"
+        text += f"🔹 Тип торговли: {user.get('trading_type', 'SPOT').upper()}\n"
+        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
+        text += "Выберите действие:"
         
-        # Отображаем текущие параметры
-        text += "📊 Текущие параметры:\n"
-        text += f"Тип торговли: <b>{trading_settings['trading_type'].upper()}</b>\n"
-        text += f"Кредитное плечо: <b>x{trading_settings['leverage']}</b>\n\n"
+        # Создаем клавиатуру
+        kb = [
+            [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
+            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="trading_type_leverage")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
+        ]
         
-        if trading_settings['trading_type'] == 'spot':
-            text += "🔹 В режиме SPOT доступны только LONG позиции без плеча.\n\n"
-        else:
-            text += "🔹 В режиме FUTURES доступны:\n"
-            text += "  - LONG и SHORT позиции\n"
-            text += f"  - Торговля с плечом до x{trading_settings['leverage']}\n\n"
-
-        text += "Выберите действие:" # Changed instruction text
-
+        # Отправляем сообщение
         await callback.message.edit_text(
             text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Изменить тип торговли', callback_data='trading_settings')], # Changed button
-                [InlineKeyboardButton(text='Изменить кредитное плечо', callback_data='trading_type_leverage')], # Added button
-                [InlineKeyboardButton(text='Назад', callback_data='settings start')]
-            ]),
-            parse_mode='HTML'
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
 
 @router.callback_query(F.data.startswith('strategy'))
@@ -2499,42 +2492,27 @@ async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: B
             )
 
 @router.callback_query(F.data == 'trading_type_leverage')
-async def trading_type_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    # Load trading settings for the user
-    trading_settings = load_trading_settings(callback.from_user.id)
-    
-    # Check if trading type is FUTURES
-    if trading_settings['trading_type'] != 'FUTURES':
-        await callback.answer("Кредитное плечо доступно только для FUTURES. Сначала измените тип торговли.", show_alert=True)
-        # Return to trading settings with the same UI
-        await handle_trading_settings(callback)
-        return
-    
+async def trading_type_leverage(callback: CallbackQuery):
+    # Простая функция для отображения клавиатуры с плечами
     text = "⚙️ Настройки кредитного плеча\n\n"
-    text += f"Текущее кредитное плечо: {trading_settings['leverage']}x\n\n"
     text += "Выберите значение кредитного плеча:"
     
-    # Create leverage keyboard inline
-    leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
+    # Значения плеча
+    leverage_values = [1, 2, 3, 5, 10, 20]
     
-    # Split buttons into rows of 4
+    # Создаем кнопки в два ряда
     buttons = []
-    current_row = []
-    
+    row = []
     for value in leverage_values:
-        current_row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"set_leverage:{value}"))
-        
-        if len(current_row) == 4:
-            buttons.append(current_row)
-            current_row = []
+        row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"leverage_{value}"))
+        if len(row) == 3:
+            buttons.append(row)
+            row = []
     
-    # Add any remaining buttons
-    if current_row:
-        buttons.append(current_row)
+    # Добавляем кнопку назад
+    buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings trading")])
     
-    # Add back button
-    buttons.append([InlineKeyboardButton(text="« Назад", callback_data="trading_settings")])
-    
+    # Отправляем сообщение
     await callback.message.edit_text(
         text=text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -2637,87 +2615,110 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
         )
 
 @router.callback_query(F.data == 'trading_settings')
-async def handle_trading_settings(callback: CallbackQuery):
-    """Display trading settings screen"""
+async def show_trading_types(callback: CallbackQuery):
     try:
-        # Load trading settings directly
-        trading_settings = load_trading_settings(callback.from_user.id)
+        # Получаем информацию о пользователе
+        user = await get_user(callback.from_user.id)
         
-        # Create UI with consistent format
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Тип торговли: {trading_settings['trading_type'].upper()}\n"
-        text += f"🔹 Кредитное плечо: x{trading_settings['leverage']}\n\n"
-        text += "Выберите параметр для изменения:"
+        # Создаем UI
+        text = "⚙️ Выбор типа торговли\n\n"
+        text += f"Текущий тип: {user.get('trading_type', 'SPOT').upper()}\n\n"
+        text += "Выберите тип торговли:"
         
-        # Create keyboard that matches the format
+        # Создаем клавиатуру
         kb = [
             [
-                InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
-                InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
+                InlineKeyboardButton(text="SPOT", callback_data="trading_type_SPOT"),
+                InlineKeyboardButton(text="FUTURES", callback_data="trading_type_FUTURES")
             ],
-            [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
             [InlineKeyboardButton(text="« Назад", callback_data="settings trading")]
         ]
         
-        # EDIT message instead of sending new one
+        # Отправляем сообщение
         await callback.message.edit_text(
             text=text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
     except Exception as e:
-        print(f"Error in handle_trading_settings: {e}")
-        await callback.answer("Произошла ошибка. Пожалуйста, попробуйте снова.")
+        print(f"Ошибка в show_trading_types: {e}")
+        await callback.answer("Произошла ошибка. Попробуйте снова.")
+        # Возвращаемся в меню настроек
         await callback.message.edit_text(
-            "Произошла ошибка при загрузке настроек торговли. Пожалуйста, вернитесь в главное меню.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Главное меню', callback_data='start')]])
+            "Произошла ошибка. Пожалуйста, попробуйте еще раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings trading")]])
         )
 
-@router.callback_query(F.data == 'back_to_trading_settings')
-async def back_to_trading_settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    """Return to trading settings screen"""
+@router.callback_query(F.data.startswith('trading_type_'))
+async def set_trading_type_simple(callback: CallbackQuery):
     try:
-        # Simply call our handle_trading_settings function
-        await handle_trading_settings(callback)
-    except Exception as e:
-        print(f"Error in back_to_trading_settings: {e}")
-        await callback.answer("Произошла ошибка. Пожалуйста, попробуйте снова.")
+        # Получаем тип торговли из callback_data
+        trading_type = callback.data.split('_')[2].lower()
         
-        # Fallback to main menu
+        # Обновляем настройку пользователя
+        user = await get_user(callback.from_user.id)
+        user['trading_type'] = trading_type
+        await update_user_setting(callback.from_user.id, 'trading_type', trading_type)
+        
+        # Отображаем настройки торговли
+        text = "📊 Настройки торговли\n\n"
+        text += f"🔹 Тип торговли: {trading_type.upper()}\n"
+        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
+        text += "Выберите действие:"
+        
+        # Создаем клавиатуру
+        kb = [
+            [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
+            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="trading_type_leverage")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
+        ]
+        
+        # Отправляем сообщение
         await callback.message.edit_text(
-            "Произошла ошибка при возврате к настройкам. Пожалуйста, вернитесь в главное меню.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Главное меню', callback_data='start')]])
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        )
+        
+        await callback.answer(f"Тип торговли изменен на {trading_type.upper()}")
+    except Exception as e:
+        print(f"Ошибка при изменении типа торговли: {e}")
+        await callback.answer("Произошла ошибка. Попробуйте еще раз.")
+        await callback.message.edit_text(
+            "Произошла ошибка. Пожалуйста, попробуйте еще раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings trading")]])
         )
 
-@router.callback_query(F.data.startswith('set_trading_type'))
-async def set_trading_type(callback: CallbackQuery, state: FSMContext, bot: Bot):
+@router.callback_query(F.data.startswith('leverage_'))
+async def set_leverage_simple(callback: CallbackQuery):
     try:
-        # Extract trading type from callback data
-        if ':' in callback.data:
-            trading_type = callback.data.split(':')[1]
-        else:
-            trading_type = callback.data.split()[1]
+        # Получаем значение плеча из callback_data
+        leverage = int(callback.data.split('_')[1])
         
-        # Import from our centralized user_settings module
-        from user_settings import update_trading_type_setting, load_trading_settings
+        # Обновляем настройку пользователя
+        user = await get_user(callback.from_user.id)
+        user['leverage'] = leverage
+        await update_user_setting(callback.from_user.id, 'leverage', leverage)
         
-        # Update the trading type setting
-        success = await update_trading_type_setting(callback.from_user.id, trading_type)
+        # Отображаем настройки торговли
+        text = "📊 Настройки торговли\n\n"
+        text += f"🔹 Тип торговли: {user.get('trading_type', 'SPOT').upper()}\n"
+        text += f"🔹 Кредитное плечо: x{leverage}\n\n"
+        text += "Выберите действие:"
         
-        if success:
-            await callback.answer(f"Тип торговли изменен на {trading_type.upper()}")
-            
-            # Get updated settings and show trading settings screen
-            await handle_trading_settings(callback)
-        else:
-            await callback.answer("Ошибка при изменении типа торговли")
-            await callback.message.edit_text(
-                "Произошла ошибка при изменении типа торговли. Пожалуйста, попробуйте снова.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="trading_settings")]])
-            )
-    except Exception as e:
-        print(f"Error in set_trading_type: {e}")
-        await callback.answer("Произошла ошибка. Пожалуйста, попробуйте снова.")
+        # Создаем клавиатуру
+        kb = [
+            [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
+            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="trading_type_leverage")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
+        ]
+        
+        # Отправляем сообщение
         await callback.message.edit_text(
-            "Произошла ошибка при изменении типа торговли. Пожалуйста, попробуйте снова.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="trading_settings")]])
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
+        
+        await callback.answer(f"Кредитное плечо изменено на x{leverage}")
+    except Exception as e:
+        print(f"Ошибка при изменении плеча: {e}")
+        await callback.answer("Произошла ошибка. Попробуйте еще раз.")
+        await trading_type_leverage(callback)
