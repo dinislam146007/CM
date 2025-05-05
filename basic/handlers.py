@@ -973,7 +973,7 @@ async def start_message(message: Message, bot: Bot):
     if not await get_user(message.from_user.id):
         await set_user(message.from_user.id, 5.0, 50000.0)
         # Initialize default strategy parameters for the new user
-        reset_user_params(message.from_user.id)
+        await reset_user_params(message.from_user.id)
     user = await get_user(message.from_user.id)
     await message.answer(
         f"Бот по обработке фильтра CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms\nВаш баланс: {round(user['balance'])}$  💸",
@@ -2453,8 +2453,11 @@ async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: B
             await settings(callback, state, bot)
             return
         
-        # Update the trading type setting
-        success = update_trading_type_setting(callback.from_user.id, trading_type)
+        # Import from our centralized user_settings module
+        from user_settings import update_trading_type_setting, load_trading_type_settings
+        
+        # Update the trading type setting - make sure to await it
+        success = await update_trading_type_setting(callback.from_user.id, trading_type)
         
         if success:
             await callback.answer(f"Тип торговли изменен на {trading_type}")
@@ -2496,12 +2499,10 @@ async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: B
 
 @router.callback_query(F.data == 'trading_type_leverage')
 async def trading_type_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    # Load trading type settings for the user
-    from strategy_logic.trading_type_settings import load_trading_type_settings
+    # Load trading type settings for the user - use our centralized user_settings module
+    from user_settings import load_trading_type_settings
     
-    # Create necessary directories
-    import os
-    os.makedirs(f"data/users/{callback.from_user.id}", exist_ok=True)
+    # Create necessary directories (not needed with our new module)
     
     # Load trading type settings for the user
     trading_type_settings = load_trading_type_settings(callback.from_user.id)
@@ -2550,57 +2551,93 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
         else:
             leverage = int(callback.data.split()[1])
         
-        # Import the module
-        from strategy_logic.trading_type_settings import update_leverage_setting, load_trading_type_settings
+        # Import the module - now we're using our centralized user_settings module
+        from user_settings import update_leverage_setting, load_trading_type_settings
         
-        # Create necessary directories
-        import os
-        os.makedirs(f"data/users/{callback.from_user.id}", exist_ok=True)
+        # Debug log
+        print(f"Setting leverage to {leverage} for user {callback.from_user.id}")
         
-        # Update the leverage setting
-        success = update_leverage_setting(callback.from_user.id, leverage)
-        
-        if success:
-            await callback.answer(f"Кредитное плечо изменено на {leverage}x")
+        try:
+            # Update the leverage setting - make sure to await it
+            success = await update_leverage_setting(callback.from_user.id, leverage)
             
-            # Get updated settings
-            trading_type_settings = load_trading_type_settings(callback.from_user.id)
+            if success:
+                await callback.answer(f"Кредитное плечо изменено на {leverage}x")
+                
+                # Get updated settings
+                trading_type_settings = load_trading_type_settings(callback.from_user.id)
+                
+                text = "⚙️ Настройки типа торговли\n\n"
+                
+                # Display current trading type
+                text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
+                
+                # Show leverage if FUTURES is selected
+                if trading_type_settings['TRADING_TYPE'] == 'FUTURES':
+                    text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n"
+                
+                text += "\nВыберите тип торговли:"
+                
+                # Create trading type settings keyboard inline
+                kb = [
+                    [
+                        InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
+                        InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
+                    ],
+                    [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
+                    [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]
+                ]
+                
+                await callback.message.edit_text(
+                    text=text,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+                )
+            else:
+                # More descriptive error message
+                await callback.answer("Ошибка при изменении кредитного плеча. Проверьте консоль.")
+                print(f"Failed to update leverage setting for user {callback.from_user.id}")
+                
+                # Create leverage keyboard inline
+                leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
+                
+                # Split buttons into rows of 4
+                buttons = []
+                current_row = []
+                
+                for value in leverage_values:
+                    current_row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"set_leverage:{value}"))
+                    
+                    if len(current_row) == 4:
+                        buttons.append(current_row)
+                        current_row = []
+                
+                # Add any remaining buttons
+                if current_row:
+                    buttons.append(current_row)
+                
+                # Add back button
+                buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
+                
+                # Добавляем случайное число к тексту, чтобы избежать ошибки "message is not modified"
+                import random
+                error_id = random.randint(1000, 9999)
+                
+                await callback.message.edit_text(
+                    f"⚙️ Настройки кредитного плеча\n\n"
+                    f"Произошла ошибка при изменении плеча (ID: {error_id}). Выберите значение кредитного плеча:",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+                )
+        except Exception as inner_e:
+            # Catch any exceptions from the update_leverage_setting call
+            print(f"Exception updating leverage setting: {inner_e}")
+            await callback.answer(f"Ошибка: {str(inner_e)}")
             
-            text = "⚙️ Настройки типа торговли\n\n"
-            
-            # Display current trading type
-            text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n"
-            
-            # Show leverage if FUTURES is selected
-            if trading_type_settings['TRADING_TYPE'] == 'FUTURES':
-                text += f"Кредитное плечо: {trading_type_settings['LEVERAGE']}x\n"
-            
-            text += "\nВыберите тип торговли:"
-            
-            # Create trading type settings keyboard inline
-            kb = [
-                [
-                    InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
-                    InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
-                ],
-                [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
-                [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]
-            ]
-            
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-            )
-        else:
-            await callback.answer("Ошибка при изменении кредитного плеча")
-            
-            # Инициализируем переменную leverage_inline перед использованием
-            leverage_inline = InlineKeyboardMarkup(inline_keyboard=[])
+            # Fallback to error screen
+            import random
+            error_id = random.randint(1000, 9999)
             
             # Create leverage keyboard inline
             leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
-            
-            # Split buttons into rows of 4
             buttons = []
             current_row = []
             
@@ -2611,33 +2648,24 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
                     buttons.append(current_row)
                     current_row = []
             
-            # Add any remaining buttons
             if current_row:
                 buttons.append(current_row)
             
-            # Add back button
             buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
-            
-            # Добавляем случайное число к тексту, чтобы избежать ошибки "message is not modified"
-            import random
-            error_id = random.randint(1000, 9999)
             
             await callback.message.edit_text(
                 f"⚙️ Настройки кредитного плеча\n\n"
-                f"Произошла ошибка при изменении плеча (ID: {error_id}). Выберите значение кредитного плеча:",
+                f"Произошла внутренняя ошибка при изменении плеча (ID: {error_id}). Попробуйте позже.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
             )
+            
     except (IndexError, ValueError) as e:
         # Handle parsing errors gracefully
         await callback.answer(f"Ошибка при обработке выбора плеча: {str(e)}", show_alert=True)
-        
-        # Инициализируем переменную leverage_inline перед использованием
-        leverage_inline = InlineKeyboardMarkup(inline_keyboard=[])
+        print(f"Error parsing leverage value: {e}")
         
         # Create leverage keyboard inline as fallback
         leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
-        
-        # Split buttons into rows of 4
         buttons = []
         current_row = []
         
@@ -2648,11 +2676,9 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 buttons.append(current_row)
                 current_row = []
         
-        # Add any remaining buttons
         if current_row:
             buttons.append(current_row)
         
-        # Add back button
         buttons.append([InlineKeyboardButton(text="« Назад", callback_data="back_to_trading_settings")])
         
         try:
@@ -2662,7 +2688,7 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
             
             await callback.message.edit_text(
                 f"⚙️ Настройки кредитного плеча\n\n"
-                f"Произошла ошибка (ID: {error_id}). Выберите значение кредитного плеча:",
+                f"Произошла ошибка форматирования (ID: {error_id}). Выберите значение кредитного плеча:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
             )
         except Exception:

@@ -117,7 +117,7 @@ def save_user_settings(user_id: int, settings: Dict[str, Any]) -> bool:
         print(f"Error saving settings for user {user_id}: {e}")
         return False
 
-def update_user_settings(user_id: int, category: str, param: str, value: Any) -> bool:
+async def update_user_settings(user_id: int, category: str, param: str, value: Any) -> bool:
     """Update a specific parameter in user settings"""
     settings = load_user_settings(user_id)
     
@@ -145,7 +145,7 @@ def update_user_settings(user_id: int, category: str, param: str, value: Any) ->
     # Save settings
     return save_user_settings(user_id, settings)
 
-def reset_user_settings(user_id: int, category: str = None) -> bool:
+async def reset_user_settings(user_id: int, category: str = None) -> bool:
     """Reset settings to default values"""
     settings = load_user_settings(user_id)
     
@@ -176,11 +176,11 @@ def load_user_params(user_id: int) -> Dict[str, Any]:
         params["CoinsBlackList"] = set(params["CoinsBlackList"])
     return params
 
-def update_user_param(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_user_param(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a strategy parameter"""
-    return update_user_settings(user_id, "strategy", param_name, param_value)
+    return await update_user_settings(user_id, "strategy", param_name, param_value)
 
-def reset_user_params(user_id: int) -> bool:
+async def reset_user_params(user_id: int) -> bool:
     """Reset strategy parameters to default"""
     return reset_user_settings(user_id, "strategy")
 
@@ -190,11 +190,11 @@ def load_cm_settings(user_id: int) -> Dict[str, Any]:
     """Load CM indicator settings"""
     return get_settings_category(user_id, "cm")
 
-def update_cm_setting(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_cm_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a CM indicator setting"""
-    return update_user_settings(user_id, "cm", param_name, param_value)
+    return await update_user_settings(user_id, "cm", param_name, param_value)
 
-def reset_cm_settings(user_id: int) -> bool:
+async def reset_cm_settings(user_id: int) -> bool:
     """Reset CM indicator settings to default"""
     return reset_user_settings(user_id, "cm")
 
@@ -204,11 +204,11 @@ def load_divergence_settings(user_id: int) -> Dict[str, Any]:
     """Load divergence indicator settings"""
     return get_settings_category(user_id, "divergence")
 
-def update_divergence_setting(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_divergence_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a divergence indicator setting"""
-    return update_user_settings(user_id, "divergence", param_name, param_value)
+    return await update_user_settings(user_id, "divergence", param_name, param_value)
 
-def reset_divergence_settings(user_id: int) -> bool:
+async def reset_divergence_settings(user_id: int) -> bool:
     """Reset divergence indicator settings to default"""
     return reset_user_settings(user_id, "divergence")
 
@@ -218,11 +218,11 @@ def load_rsi_settings(user_id: int) -> Dict[str, Any]:
     """Load RSI indicator settings"""
     return get_settings_category(user_id, "rsi")
 
-def update_rsi_setting(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_rsi_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update an RSI indicator setting"""
-    return update_user_settings(user_id, "rsi", param_name, param_value)
+    return await update_user_settings(user_id, "rsi", param_name, param_value)
 
-def reset_rsi_settings(user_id: int) -> bool:
+async def reset_rsi_settings(user_id: int) -> bool:
     """Reset RSI indicator settings to default"""
     return reset_user_settings(user_id, "rsi")
 
@@ -232,11 +232,11 @@ def load_pump_dump_settings(user_id: int) -> Dict[str, Any]:
     """Load pump/dump detector settings"""
     return get_settings_category(user_id, "pump_dump")
 
-def update_pump_dump_setting(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_pump_dump_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a pump/dump detector setting"""
-    return update_user_settings(user_id, "pump_dump", param_name, param_value)
+    return await update_user_settings(user_id, "pump_dump", param_name, param_value)
 
-def reset_pump_dump_settings(user_id: int) -> bool:
+async def reset_pump_dump_settings(user_id: int) -> bool:
     """Reset pump/dump detector settings to default"""
     return reset_user_settings(user_id, "pump_dump")
 
@@ -246,11 +246,11 @@ def load_trading_settings(user_id: int) -> Dict[str, Any]:
     """Load trading settings"""
     return get_settings_category(user_id, "trading")
 
-def update_trading_setting(user_id: int, param_name: str, param_value: Any) -> bool:
+async def update_trading_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a trading setting"""
-    return update_user_settings(user_id, "trading", param_name, param_value)
+    return await update_user_settings(user_id, "trading", param_name, param_value)
 
-def reset_trading_settings(user_id: int) -> bool:
+async def reset_trading_settings(user_id: int) -> bool:
     """Reset trading settings to default"""
     return reset_user_settings(user_id, "trading")
 
@@ -264,13 +264,13 @@ def load_trading_type_settings(user_id: int) -> Dict[str, Any]:
         "LEVERAGE": trading_settings.get("leverage", 3)
     }
 
-def update_trading_type_setting(user_id: int, trading_type: str) -> bool:
+async def update_trading_type_setting(user_id: int, trading_type: str) -> bool:
     """Update trading type"""
-    return update_user_settings(user_id, "trading", "trading_type", trading_type.lower())
+    return await update_user_settings(user_id, "trading", "trading_type", trading_type.lower())
 
-def update_leverage_setting(user_id: int, leverage: int) -> bool:
+async def update_leverage_setting(user_id: int, leverage: int) -> bool:
     """Update leverage setting"""
-    return update_user_settings(user_id, "trading", "leverage", int(leverage))
+    return await update_user_settings(user_id, "trading", "leverage", int(leverage))
 
 # === User Settings Functions ===
 
@@ -280,7 +280,7 @@ async def get_user(user_id: int) -> Dict[str, Any]:
 
 async def update_user_setting(user_id: int, param_name: str, param_value: Any) -> bool:
     """Update a user setting"""
-    return update_user_settings(user_id, "user", param_name, param_value)
+    return await update_user_settings(user_id, "user", param_name, param_value)
 
 async def set_user(user_id: int, percent: float, balance: float) -> bool:
     """Set main user parameters"""
