@@ -2611,19 +2611,23 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == 'trading_settings')
 async def show_trading_types(callback: CallbackQuery):
     try:
+        # Отладка для проверки callback
+        print(f"В обработчике show_trading_types, callback.data={callback.data}")
+        
         # Получаем информацию о пользователе
         user = await get_user(callback.from_user.id)
+        print(f"Showing trading types for user: {user}")
         
         # Создаем UI
         text = "⚙️ Выбор типа торговли\n\n"
         text += f"Текущий тип: {user.get('trading_type', 'SPOT').upper()}\n\n"
         text += "Выберите тип торговли:"
         
-        # Создаем клавиатуру
+        # Создаем клавиатуру с исправленными callback_data
         kb = [
             [
-                InlineKeyboardButton(text="SPOT", callback_data="trading_type_SPOT"),
-                InlineKeyboardButton(text="FUTURES", callback_data="trading_type_FUTURES")
+                InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
+                InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
             ],
             [InlineKeyboardButton(text="« Назад", callback_data="settings trading")]
         ]
@@ -2638,7 +2642,7 @@ async def show_trading_types(callback: CallbackQuery):
         await callback.answer("Произошла ошибка. Попробуйте снова.")
         # Возвращаемся в меню настроек
         await callback.message.edit_text(
-            "Произошла ошибка. Пожалуйста, попробуйте еще раз.",
+            f"Ошибка при отображении типов торговли: {e}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings trading")]])
         )
 
