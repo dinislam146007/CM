@@ -2428,68 +2428,54 @@ def format_pump_dump_settings(settings, user_id):
 
 @router.callback_query(F.data.startswith('trading_type'))
 async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    try:
-        trading_type = None
+    trading_type = None
+    
+    # Handle both formats: "trading_type spot" and "set_trading_type:spot"
+    if ':' in callback.data:
+        # Format: "set_trading_type:spot"
+        trading_type = callback.data.split(':')[1]
+    else:
+        # Format: "trading_type spot"
+        parts = callback.data.split()
+        if len(parts) >= 2:
+            trading_type = parts[1]
+    
+    if not trading_type:
+        await callback.answer("Ошибка в формате данных. Пожалуйста, попробуйте снова.")
+        # Redirect back to settings
+        await settings(callback, state, bot)
+        return
+    
+    # Import from our centralized user_settings module
+    from user_settings import update_trading_type_setting, load_trading_type_settings
+    
+    # Update the trading type setting - make sure to await it
+    success = await update_trading_type_setting(callback.from_user.id, trading_type)
+    
+    if success:
+        await callback.answer(f"Тип торговли изменен на {trading_type}")
         
-        # Handle both formats: "trading_type spot" and "set_trading_type:spot"
-        if ':' in callback.data:
-            # Format: "set_trading_type:spot"
-            trading_type = callback.data.split(':')[1]
-        else:
-            # Format: "trading_type spot"
-            parts = callback.data.split()
-            if len(parts) >= 2:
-                trading_type = parts[1]
+        # Get updated settings
+        trading_type_settings = load_trading_type_settings(callback.from_user.id)
         
-        if not trading_type:
-            await callback.answer("Ошибка в формате данных. Пожалуйста, попробуйте снова.")
-            # Redirect back to settings
-            await settings(callback, state, bot)
-            return
+        text = "⚙️ Настройки типа торговли\n\n"
         
-        # Import from our centralized user_settings module
-        from user_settings import update_trading_type_setting, load_trading_type_settings
+        # Display current setting
+        text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n\n"
         
-        # Update the trading type setting - make sure to await it
-        success = await update_trading_type_setting(callback.from_user.id, trading_type)
+        text += "Выберите тип торговли:"
         
-        if success:
-            await callback.answer(f"Тип торговли изменен на {trading_type}")
-            
-            # Get updated settings
-            trading_type_settings = load_trading_type_settings(callback.from_user.id)
-            
-            text = "⚙️ Настройки типа торговли\n\n"
-            
-            # Display current setting
-            text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n\n"
-            
-            text += "Выберите тип торговли:"
-            
-            await callback.message.edit_text(
-                text=text,
-                reply_markup=trading_type_settings_inline()
-            )
-        else:
-            await callback.answer("Ошибка при изменении типа торговли")
-            await callback.message.edit_text(
-                "⚙️ Настройки типа торговли\n\n"
-                "Выберите тип торговли:",
-                reply_markup=trading_type_settings_inline()
-            )
-    except Exception as e:
-        print(f"Error in trading_type_select: {e}")
-        await callback.answer("Произошла ошибка. Пожалуйста, попробуйте снова.")
-        # Safely redirect to settings
-        try:
-            await settings(callback, state, bot)
-        except Exception as inner_e:
-            print(f"Error redirecting to settings: {inner_e}")
-            # Last resort fallback
-            await callback.message.edit_text(
-                "Произошла ошибка. Пожалуйста, вернитесь в главное меню.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Назад', callback_data='start')]])
-            )
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=trading_type_settings_inline()
+        )
+    else:
+        await callback.answer("Ошибка при изменении типа торговли")
+        await callback.message.edit_text(
+            "⚙️ Настройки типа торговли\n\n"
+            "Выберите тип торговли:",
+            reply_markup=trading_type_settings_inline()
+        )
 
 @router.callback_query(F.data == 'trading_type_leverage')
 async def trading_type_leverage(callback: CallbackQuery):
