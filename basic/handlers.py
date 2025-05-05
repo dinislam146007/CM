@@ -2980,17 +2980,30 @@ async def show_exchanges_settings(callback: CallbackQuery):
         # Добавляем кнопку назад
         buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
         
+        # Отправляем сообщение с небольшим изменением текста, чтобы избежать ошибки
+        random_suffix = f"\n\n[{hash(tuple(user_exchanges))%1000:03d}]"
+        
         # Отправляем сообщение
         await callback.message.edit_text(
-            text=text,
+            text=text + random_suffix,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
         )
     except Exception as e:
         print(f"Ошибка в show_exchanges_settings: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при отображении настроек бирж: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
+        if "message is not modified" in str(e):
+            # Игнорируем ошибку о неизмененном сообщении
+            await callback.answer("Настройки бирж уже отображаются")
+        else:
+            # Для других ошибок показываем сообщение
+            await callback.answer(f"Ошибка: {str(e)}")
+            try:
+                await callback.message.edit_text(
+                    f"Ошибка при отображении настроек бирж",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
+                )
+            except Exception:
+                # Если даже это не помогает, просто даем знать пользователю через callback
+                await callback.answer("Произошла ошибка. Нажмите на 'Настройки' снова.")
 
 @router.callback_query(F.data.startswith('toggle_exchange_'))
 async def toggle_exchange_status(callback: CallbackQuery):
@@ -3037,9 +3050,12 @@ async def toggle_exchange_status(callback: CallbackQuery):
             # Добавляем кнопку назад
             buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
             
+            # Добавляем случайный суффикс, чтобы избежать ошибки
+            random_suffix = f"\n\n[{hash(tuple(user_exchanges) + (exchange,))%1000:03d}]"
+            
             # Отправляем сообщение
             await callback.message.edit_text(
-                text=text,
+                text=text + random_suffix,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
             )
             
@@ -3052,6 +3068,18 @@ async def toggle_exchange_status(callback: CallbackQuery):
             await callback.answer("Ошибка при изменении статуса биржи")
     except Exception as e:
         print(f"Ошибка в toggle_exchange_status: {e}")
-        await callback.answer(f"Ошибка: {e}")
-        # В случае ошибки возвращаемся к экрану настроек бирж
-        await show_exchanges_settings(callback)
+        if "message is not modified" in str(e):
+            # Если сообщение не изменилось, просто показываем уведомление
+            if exchange in await get_user_exchanges(callback.from_user.id):
+                await callback.answer(f"Биржа {exchange} уже добавлена")
+            else:
+                await callback.answer(f"Биржа {exchange} уже удалена")
+        else:
+            # Для других ошибок
+            await callback.answer(f"Ошибка: {str(e)}")
+            try:
+                # Возвращаемся к экрану настроек бирж
+                await show_exchanges_settings(callback)
+            except Exception:
+                # В крайнем случае, уведомляем пользователя
+                await callback.answer("Произошла ошибка. Попробуйте снова.")
