@@ -291,8 +291,7 @@ async def update_user_setting(user_id: int, param_name: str, param_value: Any) -
     return await update_user_settings(user_id, "user", param_name, param_value)
 
 async def set_user(user_id: int, percent: float, balance: float, 
-               trading_type: str = 'spot', leverage: int = 1, 
-               exchanges: list = None) -> bool:
+               trading_type: str = 'spot', leverage: int = 1) -> bool:
     """Создает или обновляет пользователя"""
     try:
         user = {
@@ -302,9 +301,6 @@ async def set_user(user_id: int, percent: float, balance: float,
             'trading_type': trading_type,
             'leverage': leverage
         }
-        
-        if exchanges is not None:
-            user['exchanges'] = exchanges
         
         os.makedirs(f"data/users/{user_id}", exist_ok=True)
         
@@ -599,7 +595,27 @@ async def get_user_exchanges(user_id: int) -> list:
     Получить список выбранных бирж пользователя
     """
     user = await get_user(user_id)
-    # По умолчанию выбрана Binance
+    
+    # Check if exchanges are stored in new format (as separate keys)
+    all_exchanges = ['Binance', 'Bybit', 'MEXC']
+    selected_exchanges = []
+    
+    # Check if any exchange is stored in the new format
+    has_new_format = False
+    for exchange in all_exchanges:
+        if exchange.lower() in user:
+            has_new_format = True
+            break
+    
+    # If new format is used, get exchanges from it
+    if has_new_format:
+        for exchange in all_exchanges:
+            if user.get(exchange.lower(), False):
+                selected_exchanges.append(exchange)
+                
+        return selected_exchanges
+        
+    # Otherwise, get from old format or return default
     return user.get('exchanges', ['Binance'])
 
 async def update_user_exchanges(user_id: int, exchanges: list) -> bool:
@@ -608,11 +624,20 @@ async def update_user_exchanges(user_id: int, exchanges: list) -> bool:
     """
     try:
         user = await get_user(user_id)
-        user['exchanges'] = exchanges
+        
+        # Remove old 'exchanges' key if it exists
+        if 'exchanges' in user:
+            del user['exchanges']
+        
+        # Set each exchange as a separate key
+        all_exchanges = ['Binance', 'Bybit', 'MEXC']
+        for exchange in all_exchanges:
+            user[exchange.lower()] = exchange in exchanges
+            
+        # Update user but without the 'user' key
         await set_user(user_id, user.get('percent', 5.0), user.get('balance', 50000.0), 
                      trading_type=user.get('trading_type', 'spot'), 
-                     leverage=user.get('leverage', 1),
-                     exchanges=exchanges)
+                     leverage=user.get('leverage', 1))
         return True
     except Exception as e:
         print(f"Ошибка при обновлении списка бирж: {e}")
