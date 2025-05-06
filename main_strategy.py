@@ -139,7 +139,10 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             # Форматируем разные сообщения в зависимости от причины закрытия
             if close_reason == "TP":
                 message = (
-                    f"🔴 <b>ПРОДАЖА</b> {symbol} {timeframe}\n\n"
+                    f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                    f"Биржа: {order.get('exchange', 'Bybit')}\n"
+                    f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
+                    f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
                     f"🎯✅ Достигнут Тейк-Профит\n"
                     f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
@@ -154,7 +157,10 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 )
             else:  # SL
                 message = (
-                    f"🔴 <b>ПРОДАЖА</b> {symbol} {timeframe}\n"
+                    f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                    f"Биржа: {order.get('exchange', 'Bybit')}\n"
+                    f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
+                    f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
                     f"📛Закрыто по Стоп-лоссу\n"
                     f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
@@ -481,17 +487,13 @@ async def process_tf(tf: str):
                             # Определяем эмодзи для типа позиции
                             position_emoji = "🔰" if position_side == "LONG" else "🔻"
                             transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
-                            position_text = "ПОКУПКА" if position_side == "LONG" else "ПРОДАЖА"
-                            
-                            # Добавляем информацию о типе торговли и плече
-                            trading_info = f"Тип торговли: {trading_type.upper()}"
-                            if trading_type == "futures":
-                                trading_info += f" | Плечо: x{leverage}"
                             
                             # Формируем сообщение по новому шаблону
                             message = (
-                                f"{transaction_emoji} {position_text} {symbol} {tf}\n"
-                                f"{trading_info}\n"
+                                f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                                f"Биржа: Bybit\n"
+                                f"Тип торговли: {trading_type.upper()}"
+                                f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                                 f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
                                 f"♻️Точка входа: {entry:.2f}$\n"
                                 f"Направление: {position_side} {position_emoji}\n\n"
