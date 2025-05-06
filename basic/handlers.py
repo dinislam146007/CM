@@ -2954,8 +2954,8 @@ async def set_trading_type_by_button(callback: CallbackQuery):
 async def show_exchanges_settings(callback: CallbackQuery):
     # Get exchanges information
     user_exchanges = await get_user_exchanges(callback.from_user.id)
+    await callback.answer(f"Текущие биржи: {user_exchanges}")
     
-    # Available exchanges
     all_exchanges = ['Binance', 'Bybit', 'MEXC']
     
     # Create UI
@@ -2971,34 +2971,26 @@ async def show_exchanges_settings(callback: CallbackQuery):
     # Add back button
     buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
     
-    # Add timestamp to force message update
-    timestamp = f"\n\n{dt.now().timestamp()}"
     
     # Send message
     await callback.message.edit_text(
-        text=text + timestamp,
+        text=text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
 @router.callback_query(F.data.startswith('toggle_exchange_'))
 async def toggle_exchange_status(callback: CallbackQuery):
-    # Get exchange name from callback_data
     exchange = callback.data.split('_')[2]
     
-    # Toggle exchange status in database
     await toggle_exchange(callback.from_user.id, exchange)
     
-    # Get updated exchanges list
     user_exchanges = await get_user_exchanges(callback.from_user.id)
     
-    # Make sure at least one exchange remains selected
     if not user_exchanges:
-        # If all exchanges were disabled, enable Binance by default
         await update_user_exchanges(callback.from_user.id, ['Binance'])
         await callback.answer("Должна быть выбрана хотя бы одна биржа. Binance установлена по умолчанию.")
         user_exchanges = ['Binance']
     
-    # Available exchanges
     all_exchanges = ['Binance', 'Bybit', 'MEXC']
     
     # Create UI text
