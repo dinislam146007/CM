@@ -38,22 +38,35 @@ async def create_order(user_id, symbol, interval, side, qty,
         trading_type = trading_settings["trading_type"] if trading_type is None else trading_type
         leverage = trading_settings["leverage"] if leverage is None else leverage
     
+    print(f"DEBUG [create_order]: user_id={user_id}, symbol={symbol}, trading_type={trading_type}, leverage={leverage}")
+    
     # Валидация параметров
     if trading_type == "spot" and side.upper() == "SHORT":
+        print(f"ОШИБКА: SHORT позиции недоступны для spot торговли user_id={user_id}")
         raise ValueError("SHORT позиции недоступны для spot торговли")
     
     if trading_type == "spot" and leverage != 1:
+        print(f"ПРЕДУПРЕЖДЕНИЕ: Для spot торговли плечо всегда 1, исправлено с {leverage} для user_id={user_id}")
         leverage = 1  # Для spot торговли плечо всегда 1
+    
+    # Проверка валидности плеча
+    if trading_type == "futures" and (leverage < 1 or leverage > 125):
+        original_leverage = leverage
+        leverage = max(1, min(125, leverage))
+        print(f"ПРЕДУПРЕЖДЕНИЕ: Некорректное плечо {original_leverage}, исправлено на {leverage} для user_id={user_id}")
     
     # Рассчитываем сумму инвестиции с учетом плеча
     if trading_type == "futures":
         investment_amount = (qty * buy_price) / leverage
+        print(f"Расчет futures: qty={qty}, price={buy_price}, leverage={leverage}, investment={investment_amount}")
     else:
         investment_amount = qty * buy_price
+        print(f"Расчет spot: qty={qty}, price={buy_price}, investment={investment_amount}")
     
     # Проверяем, достаточно ли средств у пользователя
     user_balance = await get_user_balance(user_id)
     if user_balance < investment_amount:
+        print(f"ОШИБКА: Недостаточно средств: баланс={user_balance}, требуется={investment_amount} для user_id={user_id}")
         raise ValueError(f"Недостаточно средств: {user_balance} < {investment_amount}")
     
     # Списываем средства с баланса
@@ -72,6 +85,7 @@ async def create_order(user_id, symbol, interval, side, qty,
             buy_price, tp, sl, dt.datetime.utcnow(), investment_amount,
             trading_type, leverage)
         
+        print(f"УСПЕХ: Создан ордер id={order_id} для user_id={user_id}, symbol={symbol}, side={side}, leverage={leverage}")
         return order_id
     finally:
         await conn.close()

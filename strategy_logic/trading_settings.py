@@ -10,24 +10,75 @@ DEFAULT_TRADING_SETTINGS = {
 def load_trading_settings(user_id=None):
     """
     Load trading settings for a specific user or default if not found
+    
+    Now supports reading from both:
+    1. user_settings/{user_id}.json (primary source)
+    2. data/users/{user_id}/trading_settings.json (legacy source)
     """
-    settings_file = f"data/users/{user_id}/trading_settings.json" if user_id else "data/default/trading_settings.json"
+    # Default settings
+    default_settings = DEFAULT_TRADING_SETTINGS.copy()
+    
+    if user_id is None:
+        return default_settings
+        
+    # First try to load from user_settings/{user_id}.json (new format)
+    try:
+        user_settings_file = f"user_settings/{user_id}.json"
+        if os.path.exists(user_settings_file):
+            with open(user_settings_file, 'r') as f:
+                user_data = json.load(f)
+                
+                print(f"DEBUG: Загружены настройки для {user_id} из {user_settings_file}")
+                
+                # Extract trading settings from user settings
+                if "user" in user_data and isinstance(user_data["user"], dict):
+                    # Load trading_type
+                    if "trading_type" in user_data["user"]:
+                        default_settings["trading_type"] = user_data["user"]["trading_type"]
+                        print(f"DEBUG: Найден trading_type в user: {user_data['user']['trading_type']}")
+                    
+                    # Load leverage
+                    if "leverage" in user_data["user"]:
+                        default_settings["leverage"] = int(user_data["user"]["leverage"])
+                        print(f"DEBUG: Найден leverage в user: {user_data['user']['leverage']}")
+                
+                # Also check trading section if exists
+                if "trading" in user_data and isinstance(user_data["trading"], dict):
+                    if "trading_type" in user_data["trading"] and not "trading_type" in user_data.get("user", {}):
+                        default_settings["trading_type"] = user_data["trading"]["trading_type"]
+                        print(f"DEBUG: Найден trading_type в trading: {user_data['trading']['trading_type']}")
+                    
+                    if "leverage" in user_data["trading"] and not "leverage" in user_data.get("user", {}):
+                        default_settings["leverage"] = int(user_data["trading"]["leverage"])
+                        print(f"DEBUG: Найден leverage в trading: {user_data['trading']['leverage']}")
+                
+                # Validate settings
+                result = validate_trading_settings(default_settings)
+                print(f"DEBUG: Финальные настройки: {result}")
+                return result
+    except Exception as e:
+        print(f"Error loading from user_settings/{user_id}.json: {e}")
+        
+    # Fallback: try legacy settings file
+    settings_file = f"data/users/{user_id}/trading_settings.json"
     
     try:
         if os.path.exists(settings_file):
             with open(settings_file, 'r') as f:
-                return json.load(f)
+                settings = json.load(f)
+                print(f"DEBUG: Загружены legacy настройки для {user_id}: {settings}")
+                return validate_trading_settings(settings)
         else:
-            # If user directory doesn't exist, create it
-            if user_id:
-                os.makedirs(os.path.dirname(settings_file), exist_ok=True)
+            # If user directory doesn't exist, create it 
+            os.makedirs(os.path.dirname(settings_file), exist_ok=True)
             
             # Save and return default settings
-            save_trading_settings(DEFAULT_TRADING_SETTINGS, user_id)
-            return DEFAULT_TRADING_SETTINGS
+            save_trading_settings(default_settings, user_id)
+            print(f"DEBUG: Созданы дефолтные настройки для {user_id}: {default_settings}")
+            return default_settings
     except Exception as e:
         print(f"Error loading trading settings: {e}")
-        return DEFAULT_TRADING_SETTINGS
+        return default_settings
 
 def save_trading_settings(settings, user_id=None):
     """

@@ -459,16 +459,39 @@ async def process_tf(tf: str):
                         # Получаем баланс пользователя
                         user_balance = await get_user_balance(uid)
                         
+                        # ВАЖНО: Проверяем настройки плеча и типа торговли перед использованием
+                        print(f"Настройки для {uid}: тип={trading_type}, плечо={leverage}")
+                        
+                        # Проверка валидности плеча для futures
+                        if trading_type == "futures" and leverage < 1:
+                            print(f"Внимание: плечо {leverage} для {uid} исправлено на 1x")
+                            leverage = 1
+                        
                         # Рассчитываем объем позиции с учетом типа торговли и плеча
                         if trading_type == "futures":
                             # Для фьючерсов учитываем плечо при расчете объема
                             investment_amount = user_balance * 0.05  # 5% от баланса
+                            
+                            # Добавляем проверку плеча
+                            if leverage <= 0:
+                                print(f"ОШИБКА: Некорректное плечо {leverage} для {uid}, используем 1x")
+                                leverage = 1
+                                
+                            # Правильно рассчитываем объем с учетом плеча
                             qty = (investment_amount * leverage) / entry
+                            print(f"Расчет объема futures: {investment_amount} * {leverage} / {entry} = {qty}")
                         else:
                             # Для спот торговли - обычный расчет
                             investment_amount = user_balance * 0.05  # 5% от баланса
                             qty = investment_amount / entry
+                            print(f"Расчет объема spot: {investment_amount} / {entry} = {qty}")
                         
+                        # Проверка негативных значений
+                        if qty <= 0:
+                            print(f"ОШИБКА: Отрицательный объем {qty}, отмена ордера")
+                            await bot.send_message(uid, f"Ошибка при расчете объема позиции: {qty}")
+                            continue
+                            
                         # Форматируем количество с учетом минимального шага для торговли
                         qty = round(qty, 6)  # Округляем до 6 знаков после запятой
                         
@@ -479,6 +502,11 @@ async def process_tf(tf: str):
                         
                         # Создаем ордер с учетом типа рынка и кредитного плеча
                         try:
+                            # Проверяем загруженную переменную leverage (дополнительная проверка)
+                            if trading_type == "futures" and "user" in trading_settings:
+                                user_leverage = trading_settings.get("user", {}).get("leverage", leverage)
+                                print(f"Проверка плеча: в настройках={user_leverage}, используем={leverage}")
+                            
                             order_id = await create_order(uid, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                             
                             # Получаем обновленный баланс после списания средств
