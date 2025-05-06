@@ -1,6 +1,7 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 from keyboard.inline import *
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -2982,14 +2983,24 @@ async def show_exchanges_settings(callback: CallbackQuery):
 async def toggle_exchange_status(callback: CallbackQuery):
     exchange = callback.data.split('_')[2]
     
+    # Сохраняем текущее состояние до изменений
+    old_user_exchanges = await get_user_exchanges(callback.from_user.id)
+    
+    # Переключаем статус биржи
     await toggle_exchange(callback.from_user.id, exchange)
     
+    # Получаем обновленное состояние
     user_exchanges = await get_user_exchanges(callback.from_user.id)
     
     if not user_exchanges:
         await update_user_exchanges(callback.from_user.id, ['Binance'])
         await callback.answer("Должна быть выбрана хотя бы одна биржа. Binance установлена по умолчанию.")
         user_exchanges = ['Binance']
+    
+    # Проверяем, изменилось ли состояние
+    if set(old_user_exchanges) == set(user_exchanges):
+        await callback.answer(f"Статус биржи {exchange} не изменился")
+        return
     
     all_exchanges = ['Binance', 'Bybit', 'MEXC']
     
@@ -3006,9 +3017,18 @@ async def toggle_exchange_status(callback: CallbackQuery):
     # Add back button
     buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
     
-    # Update message
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
+    # Update message with try-except block для обработки ошибки "message is not modified"
+    try:
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            # Игнорируем ошибку о неизмененном сообщении
+            await callback.answer(f"Статус биржи {exchange} обновлен")
+        else:
+            # Для других ошибок выводим в лог
+            print(f"Ошибка при обновлении сообщения: {e}")
+            await callback.answer("Произошла ошибка при обновлении интерфейса")
     

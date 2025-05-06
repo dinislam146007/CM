@@ -612,32 +612,52 @@ async def get_user_exchanges(user_id: int) -> list:
         for exchange in all_exchanges:
             if user.get(exchange.lower(), False):
                 selected_exchanges.append(exchange)
-                
-        return selected_exchanges
         
-    # Otherwise, get from old format or return default
-    return user.get('exchanges', ['Binance'])
+        if selected_exchanges:
+            return selected_exchanges
+        else:
+            # Если в новом формате нет активных бирж, возвращаем Binance по умолчанию
+            return ['Binance']
+    
+    # Try to get from old format 'exchanges' key
+    old_format_exchanges = user.get('exchanges')
+    if old_format_exchanges:
+        return old_format_exchanges
+    
+    # Default to Binance if no exchange settings found
+    return ['Binance']
 
 async def update_user_exchanges(user_id: int, exchanges: list) -> bool:
     """
     Обновить список выбранных бирж пользователя
     """
     try:
-        user = await get_user(user_id)
+        # Загружаем текущие настройки пользователя
+        settings_file = f"data/users/{user_id}/settings.json"
+        user_data = {}
         
+        try:
+            if os.path.exists(settings_file):
+                with open(settings_file, "r") as f:
+                    user_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Если файл не найден или некорректный JSON, начинаем с пустого словаря
+            pass
+            
         # Remove old 'exchanges' key if it exists
-        if 'exchanges' in user:
-            del user['exchanges']
+        if 'exchanges' in user_data:
+            del user_data['exchanges']
         
         # Set each exchange as a separate key
         all_exchanges = ['Binance', 'Bybit', 'MEXC']
         for exchange in all_exchanges:
-            user[exchange.lower()] = exchange in exchanges
+            user_data[exchange.lower()] = exchange in exchanges
+        
+        # Сохраняем обратно в файл
+        os.makedirs(f"data/users/{user_id}", exist_ok=True)
+        with open(settings_file, "w") as f:
+            json.dump(user_data, f, indent=4)
             
-        # Update user but without the 'user' key
-        await set_user(user_id, user.get('percent', 5.0), user.get('balance', 50000.0), 
-                     trading_type=user.get('trading_type', 'spot'), 
-                     leverage=user.get('leverage', 1))
         return True
     except Exception as e:
         print(f"Ошибка при обновлении списка бирж: {e}")
