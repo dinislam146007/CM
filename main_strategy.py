@@ -596,53 +596,80 @@ def get_binance_ohlcv(symbol: str, interval: str, futures: bool=False, limit: in
 
 def get_mexc_ohlcv(symbol: str, interval: str, futures: bool=False, limit: int=1000):
     """Получение OHLCV с MEXC (spot или futures)"""
-    if futures:
-        base_url = "https://contract.mexc.com"
-        # Убедимся, что символ с "_" (например BTCUSDT -> BTC_USDT)
-        if "_" not in symbol:
-            if symbol.endswith("USDT"):
-                symbol_name = symbol[:-4] + "_" + symbol[-4:]
+    try:
+        if futures:
+            base_url = "https://contract.mexc.com"
+            # Убедимся, что символ с "_" (например BTCUSDT -> BTC_USDT)
+            if "_" not in symbol:
+                if symbol.endswith("USDT"):
+                    symbol_name = symbol[:-4] + "_" + symbol[-4:]
+                else:
+                    symbol_name = symbol  # для других пар, если появятся
             else:
-                symbol_name = symbol  # для других пар, если появятся
+                symbol_name = symbol
+            endpoint = f"/api/v1/contract/kline/{symbol_name}"
+            # Конвертируем интервал
+            interval_param = MEXC_INTERVAL_MAP.get(interval, interval)
+            params = {"interval": interval_param}
+            try:
+                # Можно добавить start/end при необходимости
+                resp = requests.get(base_url + endpoint, params=params, timeout=10)
+                resp.raise_for_status()
+                data = resp.json().get("data", {})
+                # data содержит списки: 'time', 'open', 'high', 'low', 'close', 'vol'
+                times = data.get("time", [])
+                opens = data.get("open", [])
+                highs = data.get("high", [])
+                lows  = data.get("low", [])
+                closes= data.get("close", [])
+                vols  = data.get("vol", [])
+                ohlcv = []
+                for i in range(len(times)):
+                    ts_ms = int(times[i]) * 1000  # sec -> ms
+                    o = float(opens[i]); h = float(highs[i]); 
+                    l = float(lows[i]);  c = float(closes[i]); 
+                    v = float(vols[i])
+                    ohlcv.append([ts_ms, o, h, l, c, v])
+                return ohlcv
+            except Exception as e:
+                print(f"Ошибка при получении MEXC Futures данных: {e}, используем Binance как fallback")
+                # Используем Binance в качестве fallback
+                return get_binance_ohlcv(symbol, interval, True, limit)
         else:
-            symbol_name = symbol
-        endpoint = f"/api/v1/contract/kline/{symbol_name}"
-        # Конвертируем интервал
-        interval_param = MEXC_INTERVAL_MAP.get(interval, interval)
-        params = {"interval": interval_param}
-        # Можно добавить start/end при необходимости
-        resp = requests.get(base_url + endpoint, params=params)
-        resp.raise_for_status()
-        data = resp.json().get("data", {})
-        # data содержит списки: 'time', 'open', 'high', 'low', 'close', 'vol'
-        times = data.get("time", [])
-        opens = data.get("open", [])
-        highs = data.get("high", [])
-        lows  = data.get("low", [])
-        closes= data.get("close", [])
-        vols  = data.get("vol", [])
-        ohlcv = []
-        for i in range(len(times)):
-            ts_ms = int(times[i]) * 1000  # sec -> ms
-            o = float(opens[i]); h = float(highs[i]); 
-            l = float(lows[i]);  c = float(closes[i]); 
-            v = float(vols[i])
-            ohlcv.append([ts_ms, o, h, l, c, v])
-        return ohlcv
-    else:
-        # MEXC spot API (совпадает с Binance spot)
-        base_url = "https://api.mexc.com"
-        endpoint = "/api/v3/klines"
-        params = {"symbol": symbol, "interval": interval, "limit": limit}
-        resp = requests.get(base_url + endpoint, params=params)
-        resp.raise_for_status()
-        klines = resp.json()
-        ohlcv = []
-        for k in klines:
-            ts = int(k[0])
-            o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
-            ohlcv.append([ts, o, h, l, c, v])
-        return ohlcv
+            # Многие 3m, 5m и другие интервалы могут не поддерживаться на MEXC Spot
+            # Маппинг интервалов для MEXC Spot
+            mexc_spot_intervals = {
+                "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+                "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M"
+            }
+            
+            # Если интервал не поддерживается MEXC, используем Binance API
+            if interval not in mexc_spot_intervals:
+                print(f"Интервал {interval} не поддерживается MEXC Spot API, используем Binance")
+                return get_binance_ohlcv(symbol, interval, False, limit)
+                
+            try:
+                # MEXC spot API
+                base_url = "https://api.mexc.com"
+                endpoint = "/api/v3/klines"
+                params = {"symbol": symbol, "interval": mexc_spot_intervals.get(interval, interval), "limit": limit}
+                resp = requests.get(base_url + endpoint, params=params, timeout=10)
+                resp.raise_for_status()
+                klines = resp.json()
+                ohlcv = []
+                for k in klines:
+                    ts = int(k[0])
+                    o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
+                    ohlcv.append([ts, o, h, l, c, v])
+                return ohlcv
+            except Exception as e:
+                print(f"Ошибка при получении MEXC Spot данных: {e}, используем Binance как fallback")
+                # Используем Binance в качестве fallback
+                return get_binance_ohlcv(symbol, interval, False, limit)
+    except Exception as e:
+        print(f"Критическая ошибка в get_mexc_ohlcv: {e}")
+        # Возвращаем пустые данные вместо падения
+        return []
 
 # ============================ BYBIT OHLCV ===================================
 BYBIT_INTERVAL_MAP = {
@@ -679,58 +706,100 @@ async def _fetch_ohlcv_to_thread(fetch_fn, *args, **kwargs):
 
 async def get_binance_spot_signals(user_id: int, settings: dict):
     """Пример обработчика: получает OHLCV Binance Spot и делает анализ (заглушка)."""
-    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
-    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
-    for symbol in symbols:
-        for tf in TIMEFRAMES:
-            data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, False, 500)
-            # TODO: добавить анализ сигналов
-            await asyncio.sleep(0)  # даём контролю вернуться в event-loop
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, False, 500)
+                    # TODO: добавить анализ сигналов
+                    await asyncio.sleep(0)  # даём контролю вернуться в event-loop
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Binance Spot: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Binance Spot: {e}")
 
 async def get_binance_futures_signals(user_id: int, settings: dict):
-    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
-    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
-    for symbol in symbols:
-        for tf in TIMEFRAMES:
-            data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, True, 500)
-            # TODO: анализ
-            await asyncio.sleep(0)
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, True, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Binance Futures: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Binance Futures: {e}")
 
 async def get_bybit_spot_signals(user_id: int, settings: dict):
-    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
-    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
-    for symbol in symbols:
-        for tf in TIMEFRAMES:
-            data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, False, 500)
-            # TODO: анализ
-            await asyncio.sleep(0)
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, False, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Bybit Spot: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Bybit Spot: {e}")
 
 async def get_bybit_futures_signals(user_id: int, settings: dict):
-    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
-    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
-    for symbol in symbols:
-        for tf in TIMEFRAMES:
-            data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, True, 500)
-            # TODO: анализ
-            await asyncio.sleep(0)
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, True, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Bybit Futures: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Bybit Futures: {e}")
 
 async def get_mexc_spot_signals(user_id: int, settings: dict):
-    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
-    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
-    for symbol in symbols:
-        for tf in TIMEFRAMES:
-            data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, False, 500)
-            # TODO: анализ
-            await asyncio.sleep(0)
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, False, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} MEXC Spot: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике MEXC Spot: {e}")
 
 async def get_mexc_futures_signals(user_id: int, settings: dict):
-    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
-    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
-    for symbol in symbols:
-        for tf in TIMEFRAMES:
-            data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, True, 500)
-            # TODO: анализ
-            await asyncio.sleep(0)
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, True, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} MEXC Futures: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике MEXC Futures: {e}")
 
 # Map (exchange, trading_type) to handler function
 _FETCHER_MAP = {
@@ -755,45 +824,53 @@ def _get_trading_type(settings: dict) -> str:
 
 async def _dispatch_for_user(user_id: int, settings: dict):
     """Start tasks for all enabled exchanges for user."""
-    trading_type = _get_trading_type(settings)
-    exchanges_enabled = {
-        "binance": settings.get("binance", False),
-        "bybit":   settings.get("bybit", False),
-        "mexc":    settings.get("mexc", False),
-    }
+    try:
+        trading_type = _get_trading_type(settings)
+        exchanges_enabled = {
+            "binance": settings.get("binance", False),
+            "bybit":   settings.get("bybit", False),
+            "mexc":    settings.get("mexc", False),
+        }
 
-    tasks = []
-    for exch, enabled in exchanges_enabled.items():
-        if not enabled:
-            continue
-        handler = _FETCHER_MAP.get((exch, trading_type))
-        if handler is None:
-            continue  # No implementation yet
-        tasks.append(asyncio.create_task(handler(user_id, settings)))
+        tasks = []
+        for exch, enabled in exchanges_enabled.items():
+            if not enabled:
+                continue
+            handler = _FETCHER_MAP.get((exch, trading_type))
+            if handler is None:
+                continue  # No implementation yet
+            tasks.append(asyncio.create_task(handler(user_id, settings)))
 
-    if tasks:
-        await asyncio.gather(*tasks)
+        if tasks:
+            # Использую gather с return_exceptions=True чтобы предотвратить общий сбой
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        print(f"Ошибка в диспетчере для пользователя {user_id}: {e}")
 
 async def run_all_users_settings():
     """Read all user_settings/*.json files and dispatch tasks."""
-    settings_path = Path("user_settings")
-    if not settings_path.exists():
-        print("[run_all_users_settings] settings directory not found – skipping")
-        return
+    try:
+        settings_path = Path("user_settings")
+        if not settings_path.exists():
+            print("[run_all_users_settings] settings directory not found – skipping")
+            return
 
-    tasks = []
-    for json_file in settings_path.glob("*.json"):
-        try:
-            with json_file.open("r", encoding="utf-8") as fh:
-                settings = json.load(fh)
-            user_id = int(json_file.stem)
-        except Exception as exc:
-            print(f"[run_all_users_settings] Failed to load {json_file.name}: {exc}")
-            continue
-        tasks.append(asyncio.create_task(_dispatch_for_user(user_id, settings)))
+        tasks = []
+        for json_file in settings_path.glob("*.json"):
+            try:
+                with json_file.open("r", encoding="utf-8") as fh:
+                    settings = json.load(fh)
+                user_id = int(json_file.stem)
+                tasks.append(asyncio.create_task(_dispatch_for_user(user_id, settings)))
+            except Exception as exc:
+                print(f"[run_all_users_settings] Failed to load {json_file.name}: {exc}")
+                continue
 
-    if tasks:
-        await asyncio.gather(*tasks)
+        if tasks:
+            # Использую gather с return_exceptions=True чтобы предотвратить общий сбой
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        print(f"Критическая ошибка в run_all_users_settings: {e}")
 
 async def main():
     try:
