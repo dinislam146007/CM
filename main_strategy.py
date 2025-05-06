@@ -36,6 +36,11 @@ from strategy_logic.pump_dump_settings import load_pump_dump_settings  # Имп�
 from strategy_logic.pump_dump_trading import process_pump_dump_signal  # Импортируем функцию обработки сигналов Pump/Dump
 from strategy_logic.trading_type_settings import load_trading_type_settings  # Импортируем функцию загрузки настроек типа торговли
 from strategy_logic.trading_settings import load_trading_settings  # Импортируем функцию загрузки настроек торговли
+from pathlib import Path
+import json
+from typing import Callable, Awaitable, Dict, Tuple, Any
+import requests
+import time
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
@@ -558,6 +563,236 @@ async def process_tf(tf: str):
         await wait_for_next_candle(tf)
 
 
+# =============================================================================
+#  Exchange-specific signal handlers (stubs – replace with real logic)
+# =============================================================================
+
+# Преобразование интервалов для MEXC Futures
+MEXC_INTERVAL_MAP = {
+    "1m": "Min1", "3m": "Min3", "5m": "Min5", "15m": "Min15", "30m": "Min30",
+    "1h": "Min60", "4h": "Hour4", "8h": "Hour8", "1d": "Day1", "1w": "Week1", "1M": "Month1"
+}
+
+def get_binance_ohlcv(symbol: str, interval: str, futures: bool=False, limit: int=1000):
+    """Получение OHLCV с Binance (spot или futures)"""
+    if futures:
+        base_url = "https://fapi.binance.com"  # USD-M Futures
+        endpoint = "/fapi/v1/klines"
+    else:
+        base_url = "https://api.binance.com"
+        endpoint = "/api/v3/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    resp = requests.get(base_url + endpoint, params=params)
+    resp.raise_for_status()
+    klines = resp.json()  # список списков
+    ohlcv = []
+    for k in klines:
+        ts = int(k[0])
+        o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
+        ohlcv.append([ts, o, h, l, c, v])
+    return ohlcv
+
+def get_mexc_ohlcv(symbol: str, interval: str, futures: bool=False, limit: int=1000):
+    """Получение OHLCV с MEXC (spot или futures)"""
+    if futures:
+        base_url = "https://contract.mexc.com"
+        # Убедимся, что символ с "_" (например BTCUSDT -> BTC_USDT)
+        if "_" not in symbol:
+            if symbol.endswith("USDT"):
+                symbol_name = symbol[:-4] + "_" + symbol[-4:]
+            else:
+                symbol_name = symbol  # для других пар, если появятся
+        else:
+            symbol_name = symbol
+        endpoint = f"/api/v1/contract/kline/{symbol_name}"
+        # Конвертируем интервал
+        interval_param = MEXC_INTERVAL_MAP.get(interval, interval)
+        params = {"interval": interval_param}
+        # Можно добавить start/end при необходимости
+        resp = requests.get(base_url + endpoint, params=params)
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        # data содержит списки: 'time', 'open', 'high', 'low', 'close', 'vol'
+        times = data.get("time", [])
+        opens = data.get("open", [])
+        highs = data.get("high", [])
+        lows  = data.get("low", [])
+        closes= data.get("close", [])
+        vols  = data.get("vol", [])
+        ohlcv = []
+        for i in range(len(times)):
+            ts_ms = int(times[i]) * 1000  # sec -> ms
+            o = float(opens[i]); h = float(highs[i]); 
+            l = float(lows[i]);  c = float(closes[i]); 
+            v = float(vols[i])
+            ohlcv.append([ts_ms, o, h, l, c, v])
+        return ohlcv
+    else:
+        # MEXC spot API (совпадает с Binance spot)
+        base_url = "https://api.mexc.com"
+        endpoint = "/api/v3/klines"
+        params = {"symbol": symbol, "interval": interval, "limit": limit}
+        resp = requests.get(base_url + endpoint, params=params)
+        resp.raise_for_status()
+        klines = resp.json()
+        ohlcv = []
+        for k in klines:
+            ts = int(k[0])
+            o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
+            ohlcv.append([ts, o, h, l, c, v])
+        return ohlcv
+
+# ============================ BYBIT OHLCV ===================================
+BYBIT_INTERVAL_MAP = {
+    "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+    "1h": "60", "4h": "240", "1d": "D", "1w": "W", "1M": "M"
+}
+
+def get_bybit_ohlcv(symbol: str, interval: str, futures: bool = False, limit: int = 1000):
+    """Получает OHLCV данные с Bybit Spot или Futures REST v5."""
+    base_url = "https://api.bybit.com"
+    endpoint = "/v5/market/kline"
+    params = {
+        "category": "linear" if futures else "spot",
+        "symbol": symbol,
+        "interval": BYBIT_INTERVAL_MAP.get(interval, interval),
+        "limit": limit,
+    }
+    resp = requests.get(base_url + endpoint, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    klines = data.get("result", {}).get("list", [])  # список списков
+    ohlcv = []
+    for k in klines:
+        ts = int(k[0])
+        o, h, l, c, v = map(float, k[1:6])
+        ohlcv.append([ts, o, h, l, c, v])
+    return ohlcv
+
+# ======================== Signal-handler wrappers ============================
+async def _fetch_ohlcv_to_thread(fetch_fn, *args, **kwargs):
+    """Запускает blocking-функцию в default executor и возвращает результат."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: fetch_fn(*args, **kwargs))
+
+async def get_binance_spot_signals(user_id: int, settings: dict):
+    """Пример обработчика: получает OHLCV Binance Spot и делает анализ (заглушка)."""
+    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+    for symbol in symbols:
+        for tf in TIMEFRAMES:
+            data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, False, 500)
+            # TODO: добавить анализ сигналов
+            await asyncio.sleep(0)  # даём контролю вернуться в event-loop
+
+async def get_binance_futures_signals(user_id: int, settings: dict):
+    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+    for symbol in symbols:
+        for tf in TIMEFRAMES:
+            data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, True, 500)
+            # TODO: анализ
+            await asyncio.sleep(0)
+
+async def get_bybit_spot_signals(user_id: int, settings: dict):
+    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+    for symbol in symbols:
+        for tf in TIMEFRAMES:
+            data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, False, 500)
+            # TODO: анализ
+            await asyncio.sleep(0)
+
+async def get_bybit_futures_signals(user_id: int, settings: dict):
+    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+    for symbol in symbols:
+        for tf in TIMEFRAMES:
+            data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, True, 500)
+            # TODO: анализ
+            await asyncio.sleep(0)
+
+async def get_mexc_spot_signals(user_id: int, settings: dict):
+    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+    for symbol in symbols:
+        for tf in TIMEFRAMES:
+            data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, False, 500)
+            # TODO: анализ
+            await asyncio.sleep(0)
+
+async def get_mexc_futures_signals(user_id: int, settings: dict):
+    symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+    symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+    for symbol in symbols:
+        for tf in TIMEFRAMES:
+            data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, True, 500)
+            # TODO: анализ
+            await asyncio.sleep(0)
+
+# Map (exchange, trading_type) to handler function
+_FETCHER_MAP = {
+    ("binance", "spot"):    get_binance_spot_signals,
+    ("binance", "futures"): get_binance_futures_signals,
+    ("bybit",   "spot"):    get_bybit_spot_signals,
+    ("bybit",   "futures"): get_bybit_futures_signals,
+    ("mexc",    "spot"):    get_mexc_spot_signals,
+    ("mexc",    "futures"): get_mexc_futures_signals,
+}
+
+# -----------------------------------------------------------------------------
+# Helper functions to read user settings and start proper handlers
+# -----------------------------------------------------------------------------
+
+def _get_trading_type(settings: dict) -> str:
+    """Return lower-case trading_type from settings (defaults to 'spot')."""
+    return str(
+        settings.get("trading", {}).get("trading_type")
+        or settings.get("trading_type", "spot")
+    ).lower()
+
+async def _dispatch_for_user(user_id: int, settings: dict):
+    """Start tasks for all enabled exchanges for user."""
+    trading_type = _get_trading_type(settings)
+    exchanges_enabled = {
+        "binance": settings.get("binance", False),
+        "bybit":   settings.get("bybit", False),
+        "mexc":    settings.get("mexc", False),
+    }
+
+    tasks = []
+    for exch, enabled in exchanges_enabled.items():
+        if not enabled:
+            continue
+        handler = _FETCHER_MAP.get((exch, trading_type))
+        if handler is None:
+            continue  # No implementation yet
+        tasks.append(asyncio.create_task(handler(user_id, settings)))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
+async def run_all_users_settings():
+    """Read all user_settings/*.json files and dispatch tasks."""
+    settings_path = Path("user_settings")
+    if not settings_path.exists():
+        print("[run_all_users_settings] settings directory not found – skipping")
+        return
+
+    tasks = []
+    for json_file in settings_path.glob("*.json"):
+        try:
+            with json_file.open("r", encoding="utf-8") as fh:
+                settings = json.load(fh)
+            user_id = int(json_file.stem)
+        except Exception as exc:
+            print(f"[run_all_users_settings] Failed to load {json_file.name}: {exc}")
+            continue
+        tasks.append(asyncio.create_task(_dispatch_for_user(user_id, settings)))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
 async def main():
     try:
         # Инициализируем базу данных (добавляем новые колонки, если их нет)
@@ -565,6 +800,9 @@ async def main():
         
         # Запускаем детектор Pump/Dump
         asyncio.create_task(pump_dump_main())
+        
+        # Запускаем задачи с учётом выбранных пользователями бирж/режимов
+        asyncio.create_task(run_all_users_settings())
         
         # Запускаем основные стратегии
         await asyncio.gather(*[process_tf(tf) for tf in TIMEFRAMES])
