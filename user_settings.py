@@ -592,86 +592,60 @@ def migrate_user_settings():
 
 async def get_user_exchanges(user_id: int) -> list:
     """
-    Получить список выбранных бирж пользователя
+    Получить список выбранных бирж пользователя из центрального файла настроек.
+    Биржи хранятся на верхнем уровне JSON-файла (не в категории user) в виде
+    {"binance": true, "bybit": false, ...}
     """
-    user = await get_user(user_id)
-    
-    # Check if exchanges are stored in new format (as separate keys)
-    all_exchanges = ['Binance', 'Bybit', 'MEXC']
-    selected_exchanges = []
-    
-    # Check if any exchange is stored in the new format
-    has_new_format = False
-    for exchange in all_exchanges:
-        if exchange.lower() in user:
-            has_new_format = True
-            break
-    
-    # If new format is used, get exchanges from it
-    if has_new_format:
-        for exchange in all_exchanges:
-            if user.get(exchange.lower(), False):
-                selected_exchanges.append(exchange)
-        
-        if selected_exchanges:
-            return selected_exchanges
-        else:
-            # Если в новом формате нет активных бирж, возвращаем Binance по умолчанию
-            return ['Binance']
-    
-    # Try to get from old format 'exchanges' key
-    old_format_exchanges = user.get('exchanges')
-    if old_format_exchanges:
-        return old_format_exchanges
-    
-    # Default to Binance if no exchange settings found
-    return ['Binance']
+    settings = load_user_settings(user_id)  # Получаем весь словарь настроек
+
+    all_exchanges = ["binance", "bybit", "mexc"]
+    selected = [ex.capitalize() for ex in all_exchanges if settings.get(ex, False)]
+
+    # Fallback для старого формата или если нет активных бирж
+    if not selected:
+        # Попытка получить из старого ключа 'exchanges'
+        old_ex = settings.get("exchanges") or settings.get("user", {}).get("exchanges")  # второй вариант
+        if old_ex:
+            return old_ex
+        # По умолчанию Binance
+        return ["Binance"]
+
+    return selected
 
 async def update_user_exchanges(user_id: int, exchanges: list) -> bool:
     """
-    Обновить список выбранных бирж пользователя
+    Обновить список выбранных бирж пользователя, сохранив результат в user_settings/{user_id}.json
     """
     try:
-        # Загружаем текущие настройки пользователя
-        settings_file = f"data/users/{user_id}/settings.json"
-        user_data = {}
-        
-        try:
-            if os.path.exists(settings_file):
-                with open(settings_file, "r") as f:
-                    user_data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            # Если файл не найден или некорректный JSON, начинаем с пустого словаря
-            pass
-            
-        # Remove old 'exchanges' key if it exists
-        if 'exchanges' in user_data:
-            del user_data['exchanges']
-        
-        # Set each exchange as a separate key
-        all_exchanges = ['Binance', 'Bybit', 'MEXC']
-        for exchange in all_exchanges:
-            user_data[exchange.lower()] = exchange in exchanges
-        
-        # Сохраняем обратно в файл
-        os.makedirs(f"data/users/{user_id}", exist_ok=True)
-        with open(settings_file, "w") as f:
-            json.dump(user_data, f, indent=4)
-            
-        return True
+        settings = load_user_settings(user_id)
+
+        # Удаляем устаревшие поля, если они есть
+        settings.pop("exchanges", None)
+        if "user" in settings:
+            settings["user"].pop("exchanges", None)
+
+        all_exchanges = ["binance", "bybit", "mexc"]
+        # Проставляем булевые значения
+        for ex in all_exchanges:
+            settings[ex] = ex.capitalize() in exchanges
+
+        # Сохраняем файл
+        if save_user_settings(user_id, settings):
+            return True
+        return False
     except Exception as e:
         print(f"Ошибка при обновлении списка бирж: {e}")
         return False
 
 async def toggle_exchange(user_id: int, exchange: str) -> bool:
-    """
-    Переключить статус биржи (добавить если нет, удалить если есть)
-    """
-    exchanges = await get_user_exchanges(user_id)
-    
-    if exchange in exchanges:
-        exchanges.remove(exchange)
+    """Переключить выбранную биржу"""
+    exchange = exchange.capitalize()
+    current = await get_user_exchanges(user_id)
+    if exchange in current:
+        current.remove(exchange)
     else:
-        exchanges.append(exchange)
-    
-    return await update_user_exchanges(user_id, exchanges) 
+        current.append(exchange)
+    # Если список пуст, оставляем Binance
+    if not current:
+        current = ["Binance"]
+    return await update_user_exchanges(user_id, current) 
