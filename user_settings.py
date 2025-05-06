@@ -76,6 +76,14 @@ DEFAULT_SETTINGS = {
     "pump_dump_subscriber": False
 }
 
+# --- Константы бирж ---
+EXCHANGE_KEYS = ["binance", "bybit", "mexc"]  # Ключи в JSON (нижний регистр)
+DISPLAY_NAMES = {
+    "binance": "Binance",
+    "bybit": "Bybit",
+    "mexc": "MEXC"
+}
+
 def get_settings_path(user_id: int) -> str:
     """Get the path to a user's settings file"""
     return os.path.join(SETTINGS_DIR, f"{user_id}.json")
@@ -592,60 +600,52 @@ def migrate_user_settings():
 
 async def get_user_exchanges(user_id: int) -> list:
     """
-    Получить список выбранных бирж пользователя из центрального файла настроек.
-    Биржи хранятся на верхнем уровне JSON-файла (не в категории user) в виде
-    {"binance": true, "bybit": false, ...}
+    Возвращает список выбранных бирж в виде имён для отображения (Binance, Bybit, MEXC)
     """
-    settings = load_user_settings(user_id)  # Получаем весь словарь настроек
+    settings = load_user_settings(user_id)
 
-    all_exchanges = ["binance", "bybit", "mexc"]
-    selected = [ex.capitalize() for ex in all_exchanges if settings.get(ex, False)]
+    selected = [DISPLAY_NAMES[k] for k in EXCHANGE_KEYS if settings.get(k, False)]
 
-    # Fallback для старого формата или если нет активных бирж
+    # Fallback (старый формат или пусто)
     if not selected:
-        # Попытка получить из старого ключа 'exchanges'
-        old_ex = settings.get("exchanges") or settings.get("user", {}).get("exchanges")  # второй вариант
+        # Старый ключ
+        old_ex = settings.get("exchanges") or settings.get("user", {}).get("exchanges")
         if old_ex:
             return old_ex
-        # По умолчанию Binance
-        return ["Binance"]
-
+        return ["Binance"]  # дефолт
     return selected
 
 async def update_user_exchanges(user_id: int, exchanges: list) -> bool:
-    """
-    Обновить список выбранных бирж пользователя, сохранив результат в user_settings/{user_id}.json
-    """
     try:
         settings = load_user_settings(user_id)
 
-        # Удаляем устаревшие поля, если они есть
+        # Удаляем старый список
         settings.pop("exchanges", None)
         if "user" in settings:
             settings["user"].pop("exchanges", None)
 
-        all_exchanges = ["binance", "bybit", "mexc"]
-        # Проставляем булевые значения
-        for ex in all_exchanges:
-            settings[ex] = ex.capitalize() in exchanges
+        # Проставляем флаги для всех бирж
+        for key in EXCHANGE_KEYS:
+            settings[key] = DISPLAY_NAMES[key] in [e.capitalize() if e != "MEXC" else "MEXC" for e in exchanges]
 
-        # Сохраняем файл
-        if save_user_settings(user_id, settings):
-            return True
-        return False
+        return save_user_settings(user_id, settings)
     except Exception as e:
-        print(f"Ошибка при обновлении списка бирж: {e}")
+        print(f"Ошибка при обновлении бирж: {e}")
         return False
 
 async def toggle_exchange(user_id: int, exchange: str) -> bool:
-    """Переключить выбранную биржу"""
-    exchange = exchange.capitalize()
-    current = await get_user_exchanges(user_id)
-    if exchange in current:
-        current.remove(exchange)
-    else:
-        current.append(exchange)
-    # Если список пуст, оставляем Binance
-    if not current:
-        current = ["Binance"]
-    return await update_user_exchanges(user_id, current) 
+    """Переключение биржи по её Display-имени (Binance, Bybit, MEXC)"""
+    # Приведём к ключу
+    key = exchange.lower()
+    if key not in EXCHANGE_KEYS:
+        return False
+
+    settings = load_user_settings(user_id)
+    current_flag = settings.get(key, False)
+    settings[key] = not current_flag
+
+    # Гарантируем, что хотя бы Binance включён
+    if not any(settings.get(k, False) for k in EXCHANGE_KEYS):
+        settings["binance"] = True
+
+    return save_user_settings(user_id, settings) 
