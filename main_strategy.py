@@ -864,11 +864,34 @@ EXCHANGE_FACTORY: Dict[Tuple[str, str], Callable[[], ccxt.Exchange]] = {
 }
 
 # --------------------------- Универсальный fetch ----------------------------
+# Mapping of unsupported timeframes for MEXC
+MEXC_SUPPORTED_TIMEFRAMES = {
+    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M"
+}
+
 async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str = "1h", limit: int = 500,
                            retries: int = 3, delay: int = 5):
     """Получить OHLCV через переданный CCXT-объект с повторными попытками."""
     for attempt in range(retries):
         try:
+            # Special handling for MEXC exchange - check if timeframe is supported
+            if exchange.id == 'mexc' and timeframe not in MEXC_SUPPORTED_TIMEFRAMES:
+                print(f"Timeframe {timeframe} not supported by MEXC, using Binance as fallback")
+                # Use Binance as fallback
+                fallback_exchange = EXCHANGE_FACTORY[("binance", "spot")]()
+                try:
+                    ohlcv = await fallback_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                    df["hl2"] = (df["high"] + df["low"]) / 2
+                    await fallback_exchange.close()
+                    return df
+                except Exception as fb_err:
+                    print(f"Fallback to Binance failed for {symbol} {timeframe}: {fb_err}")
+                    await fallback_exchange.close()
+                    # Continue with next attempt or return None
+                    continue
+                
             ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
             df["hl2"] = (df["high"] + df["low"]) / 2
@@ -876,6 +899,24 @@ async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str 
         except (ccxt.RequestTimeout, ccxt.DDoSProtection) as e:
             print(f"Timeout/DDoS on {exchange.id} {symbol} {timeframe} – retry {attempt+1}/{retries}: {e}")
             await asyncio.sleep(delay)
+        except ccxt.BadRequest as e:
+            print(f"Bad request on {exchange.id} {symbol} {timeframe}: {e}")
+            # For MEXC and other exchanges with potential unsupported timeframes
+            if "Invalid interval" in str(e) or "invalid interval" in str(e).lower():
+                if exchange.id == 'mexc':
+                    print(f"Timeframe {timeframe} not supported by MEXC, trying fallback...")
+                    fallback_exchange = EXCHANGE_FACTORY[("binance", "spot")]()
+                    try:
+                        ohlcv = await fallback_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                        df["hl2"] = (df["high"] + df["low"]) / 2
+                        await fallback_exchange.close()
+                        return df
+                    except Exception as fb_err:
+                        print(f"Fallback to Binance failed for {symbol} {timeframe}: {fb_err}")
+                        await fallback_exchange.close()
+                        return None
+            break  # Other bad request errors - break the retry loop
         except Exception as e:
             print(f"Error fetch_ohlcv_ccxt {exchange.id} {symbol} {timeframe}: {e}")
             break
@@ -995,9 +1036,12 @@ async def main():
     finally:
         await exchange.close()  # Ensures resources are released
 
-# --------------------- Временная заглушка internal_trade_logic --------------
+# =============================================================================
+#  Temporary stub for internal_trade_logic to prevent NameError.
+#  TODO: Move the full trading logic from process_tf into this function.
+# =============================================================================
 async def internal_trade_logic(*args, **kwargs):
-    """TODO: реализовать полную логику. Пока заглушка, чтобы не падало."""
+    """Stub: replace with real trading logic copied from process_tf()"""
     return
 
 asyncio.run(main())
