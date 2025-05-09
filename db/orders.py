@@ -30,7 +30,7 @@ async def update_user_balance(user_id, amount):
     return await get_user_balance(user_id)
 
 async def create_order(user_id, symbol, interval, side, qty,
-                       buy_price, tp, sl, trading_type=None, leverage=None):
+                       buy_price, tp, sl, trading_type=None, leverage=None, exchange=None):
     """Создание ордера и списание средств с баланса пользователя"""
     # Если trading_type и leverage не указаны, загружаем из настроек пользователя
     if trading_type is None or leverage is None:

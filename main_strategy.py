@@ -1034,10 +1034,11 @@ async def main():
         await exchange.close()  # Ensures resources are released
 
 # =============================================================================
-#  Implement internal_trade_logic with actual trading logic copied from process_tf
+#  Temporary stub for internal_trade_logic to prevent NameError.
+#  TODO: Move the full trading logic from process_tf into this function.
 # =============================================================================
 async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFrame, dft: pd.DataFrame, 
-                               ctx: Context, tf: str, symbol: str, settings: dict, trading_type: str):
+                              ctx: Context, tf: str, symbol: str, settings: dict, trading_type: str):
     """Trading logic implementation for all exchanges."""
     try:
         # Get user's open order for this symbol and timeframe
@@ -1048,8 +1049,6 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
         cm_settings = load_cm_settings(user_id)
         divergence_settings = load_divergence_settings(user_id)
         rsi_settings = load_rsi_settings(user_id)
-        pump_dump_settings = load_pump_dump_settings(user_id)
-        trading_type_settings = load_trading_type_settings(user_id)
         trading_settings = load_trading_settings(user_id)
         leverage = trading_settings.get("leverage", 1)
         
@@ -1086,8 +1085,6 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
             
             # Determine position side (LONG/SHORT)
             position_side = "LONG"
-            
-            # For futures, allow SHORT positions
             if trading_type == "futures":
                 if cm_signal == "short" or rsi_signal == "Short":
                     position_side = "SHORT"
@@ -1160,32 +1157,23 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                 user_balance = await get_user_balance(user_id)
                 
                 # Validate leverage for futures
-                print(f"Settings for {user_id}: type={trading_type}, leverage={leverage}, exchange={exchange_name}")
-                
                 if trading_type == "futures" and leverage < 1:
-                    print(f"Warning: leverage {leverage} for {user_id} corrected to 1x")
                     leverage = 1
                 
                 # Calculate position size
                 if trading_type == "futures":
                     # For futures, consider leverage
                     investment_amount = user_balance * 0.05  # 5% of balance
-                    
                     if leverage <= 0:
-                        print(f"ERROR: Invalid leverage {leverage} for {user_id}, using 1x")
                         leverage = 1
-                        
                     qty = (investment_amount * leverage) / entry
-                    print(f"Futures position calculation: {investment_amount} * {leverage} / {entry} = {qty}")
                 else:
                     # For spot trading
                     investment_amount = user_balance * 0.05  # 5% of balance
                     qty = investment_amount / entry
-                    print(f"Spot position calculation: {investment_amount} / {entry} = {qty}")
                 
                 # Check for negative values
                 if qty <= 0:
-                    print(f"ERROR: Negative quantity {qty}, cancelling order")
                     await bot.send_message(user_id, f"Error calculating position size: {qty}")
                     return
                     
@@ -1199,11 +1187,6 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                 
                 # Create order
                 try:
-                    # Final leverage check
-                    if trading_type == "futures" and "user" in trading_settings:
-                        user_leverage = trading_settings.get("user", {}).get("leverage", leverage)
-                        print(f"Leverage check: settings={user_leverage}, using={leverage}")
-                    
                     order_id = await create_order(user_id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, exchange=exchange_name)
                     
                     # Get updated balance
@@ -1236,7 +1219,6 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                     await bot.send_message(user_id, message)
                     
                 except Exception as e:
-                    print(f"Error creating order: {e}")
                     await bot.send_message(user_id, f"Error creating order: {e}")
         
         # ---------- Exit Logic ----------
@@ -1245,7 +1227,6 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
             
             # Skip if order is already closed
             if open_order.get('status', 'OPEN') != 'OPEN':
-                print(f"Skipping processing - order {open_order['id']} is already closed")
                 return
             
             # Determine position direction
@@ -1274,22 +1255,16 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                     # Double-check order status before closing
                     current_order = await get_order_by_id(open_order["id"])
                     if current_order and current_order.get('status') == 'CLOSED':
-                        print(f"Skipping close - order {open_order['id']} is already closed")
                         return
                     
-                    print(f"Closing order {open_order['id']} due to {'TP' if hit_tp else 'SL'}")
                     # Close order and get P&L info
-                    close_result = await close_order_with_notification(
+                    await close_order_with_notification(
                         user_id, open_order["id"], last_price, "TP" if hit_tp else "SL"
                     )
                     
-                    if not close_result:
-                        print(f"Order {open_order['id']} was not closed (may already be closed)")
                 except Exception as e:
-                    print(f"Error closing order: {e}")
                     await bot.send_message(user_id, f"Error closing order: {e}")
     except Exception as e:
         print(f"Error in internal_trade_logic for {exchange_name}/{symbol}/{tf}: {e}")
-        # Don't send error to user to avoid spamming them
 
 asyncio.run(main())
