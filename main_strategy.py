@@ -864,20 +864,16 @@ EXCHANGE_FACTORY: Dict[Tuple[str, str], Callable[[], ccxt.Exchange]] = {
 }
 
 # --------------------------- Универсальный fetch ----------------------------
-# Mapping of unsupported timeframes for MEXC
-MEXC_SUPPORTED_TIMEFRAMES = {
-    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
-    "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M"
-}
-
 async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str = "1h", limit: int = 500,
                            retries: int = 3, delay: int = 5):
     """Получить OHLCV через переданный CCXT-объект с повторными попытками."""
-    for attempt in range(retries):
-        try:
-            # Special handling for MEXC exchange - check if timeframe is supported
-            if exchange.id == 'mexc' and timeframe not in MEXC_SUPPORTED_TIMEFRAMES:
-                print(f"Timeframe {timeframe} not supported by MEXC, using Binance as fallback")
+    # MEXC supported timeframes checking
+    if exchange.id == 'mexc':
+        # Define MEXC supported timeframes
+        mexc_supported_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"}
+        if timeframe not in mexc_supported_timeframes:
+            print(f"Warning: {timeframe} not supported by MEXC, using Binance as fallback for {symbol}")
+            try:
                 # Use Binance as fallback
                 fallback_exchange = EXCHANGE_FACTORY[("binance", "spot")]()
                 try:
@@ -886,12 +882,17 @@ async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str 
                     df["hl2"] = (df["high"] + df["low"]) / 2
                     await fallback_exchange.close()
                     return df
-                except Exception as fb_err:
-                    print(f"Fallback to Binance failed for {symbol} {timeframe}: {fb_err}")
+                except Exception as e:
+                    print(f"Fallback to Binance failed: {e}")
                     await fallback_exchange.close()
-                    # Continue with next attempt or return None
-                    continue
-                
+                    return None
+            except Exception as e:
+                print(f"Error setting up fallback exchange: {e}")
+                return None
+    
+    # Standard fetch logic for supported timeframes
+    for attempt in range(retries):
+        try:
             ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
             df["hl2"] = (df["high"] + df["low"]) / 2
@@ -899,26 +900,22 @@ async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str 
         except (ccxt.RequestTimeout, ccxt.DDoSProtection) as e:
             print(f"Timeout/DDoS on {exchange.id} {symbol} {timeframe} – retry {attempt+1}/{retries}: {e}")
             await asyncio.sleep(delay)
-        except ccxt.BadRequest as e:
-            print(f"Bad request on {exchange.id} {symbol} {timeframe}: {e}")
-            # For MEXC and other exchanges with potential unsupported timeframes
-            if "Invalid interval" in str(e) or "invalid interval" in str(e).lower():
-                if exchange.id == 'mexc':
-                    print(f"Timeframe {timeframe} not supported by MEXC, trying fallback...")
-                    fallback_exchange = EXCHANGE_FACTORY[("binance", "spot")]()
-                    try:
-                        ohlcv = await fallback_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-                        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-                        df["hl2"] = (df["high"] + df["low"]) / 2
-                        await fallback_exchange.close()
-                        return df
-                    except Exception as fb_err:
-                        print(f"Fallback to Binance failed for {symbol} {timeframe}: {fb_err}")
-                        await fallback_exchange.close()
-                        return None
-            break  # Other bad request errors - break the retry loop
         except Exception as e:
             print(f"Error fetch_ohlcv_ccxt {exchange.id} {symbol} {timeframe}: {e}")
+            
+            # For MEXC, try fallback to Binance on invalid interval error
+            if exchange.id == 'mexc' and "invalid interval" in str(e).lower():
+                print(f"MEXC invalid interval error detected, trying Binance fallback for {symbol} {timeframe}")
+                try:
+                    fallback_exchange = EXCHANGE_FACTORY[("binance", "spot")]()
+                    ohlcv = await fallback_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                    df["hl2"] = (df["high"] + df["low"]) / 2
+                    await fallback_exchange.close()
+                    return df
+                except Exception as fb_err:
+                    print(f"Binance fallback failed: {fb_err}")
+                    await fallback_exchange.close()
             break
     return None
 
@@ -1037,11 +1034,262 @@ async def main():
         await exchange.close()  # Ensures resources are released
 
 # =============================================================================
-#  Temporary stub for internal_trade_logic to prevent NameError.
-#  TODO: Move the full trading logic from process_tf into this function.
+#  Implement internal_trade_logic with actual trading logic copied from process_tf
 # =============================================================================
-async def internal_trade_logic(*args, **kwargs):
-    """Stub: replace with real trading logic copied from process_tf()"""
-    return
+async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFrame, dft: pd.DataFrame, 
+                               ctx: Context, tf: str, symbol: str, settings: dict, trading_type: str):
+    """Trading logic implementation for all exchanges."""
+    try:
+        # Get user's open order for this symbol and timeframe
+        open_order = await get_open_order(user_id, symbol, tf)
+
+        # Load user-specific settings
+        user_moon = StrategyMoonBot(load_strategy_params(user_id))
+        cm_settings = load_cm_settings(user_id)
+        divergence_settings = load_divergence_settings(user_id)
+        rsi_settings = load_rsi_settings(user_id)
+        pump_dump_settings = load_pump_dump_settings(user_id)
+        trading_type_settings = load_trading_type_settings(user_id)
+        trading_settings = load_trading_settings(user_id)
+        leverage = trading_settings.get("leverage", 1)
+        
+        # ---------- Entry Logic ----------
+        if open_order is None:
+            # Check price action patterns
+            pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
+            
+            # Calculate indicators
+            dft = calculate_ppo(dft, cm_settings)
+            dft = calculate_ema(dft)
+            cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+            
+            # RSI calculations
+            dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+            dft = calculate_ema(dft, fast_period=rsi_settings['EMA_FAST'], slow_period=rsi_settings['EMA_SLOW'])
+            
+            # Generate signals
+            rsi = generate_signals_rsi(dft, overbought=rsi_settings['RSI_OVERBOUGHT'], oversold=rsi_settings['RSI_OVERSOLD'])
+            rsi_signal = rsi['signal_rsi'].iloc[-1]
+
+            # Divergence signals
+            diver_signals = generate_trading_signals(
+                dft, 
+                rsi_length=divergence_settings['RSI_LENGTH'], 
+                lbR=divergence_settings['LB_RIGHT'], 
+                lbL=divergence_settings['LB_LEFT'], 
+                take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
+                stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
+                stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
+                atr_length=divergence_settings['ATR_LENGTH'],
+                atr_multiplier=divergence_settings['ATR_MULTIPLIER']
+            )
+            
+            # Determine position side (LONG/SHORT)
+            position_side = "LONG"
+            
+            # For futures, allow SHORT positions
+            if trading_type == "futures":
+                if cm_signal == "short" or rsi_signal == "Short":
+                    position_side = "SHORT"
+            
+            # Determine active signals based on position side
+            if position_side == "LONG":
+                price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
+                cm_active = cm_signal == "long"
+                moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
+                rsi_active = rsi_signal == "Long"
+                
+                # Check bullish divergence
+                regular_bullish = diver_signals['divergence']['regular_bullish']
+                hidden_bullish = diver_signals['divergence']['hidden_bullish']
+                divergence_active = False
+                divergence_type = ""
+                
+                if isinstance(regular_bullish, bool) and regular_bullish:
+                    divergence_active = True
+                    divergence_type += "Regular Bullish "
+                if isinstance(hidden_bullish, bool) and hidden_bullish:
+                    divergence_active = True
+                    divergence_type += "Hidden Bullish "
+            else:  # SHORT position
+                price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
+                cm_active = cm_signal == "short"
+                moonbot_active = False  # MoonBot only for LONG
+                rsi_active = rsi_signal == "Short"
+                
+                # Check bearish divergence
+                regular_bearish = diver_signals['divergence']['regular_bearish']
+                hidden_bearish = diver_signals['divergence']['hidden_bearish']
+                divergence_active = False
+                divergence_type = ""
+                
+                if isinstance(regular_bearish, bool) and regular_bearish:
+                    divergence_active = True
+                    divergence_type += "Regular Bearish "
+                if isinstance(hidden_bearish, bool) and hidden_bearish:
+                    divergence_active = True
+                    divergence_type += "Hidden Bearish "
+            
+            # Check if any signal is active
+            any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
+            
+            # Get current price
+            current_price = dft["close"].iloc[-1]
+            
+            # Open position if any signal is active
+            if any_signal:
+                # Use MoonBot strategy or create basic order
+                if moonbot_active:
+                    order_dict = user_moon.build_order(dft)
+                    entry = order_dict["price"]
+                    tp = order_dict["take_profit"]
+                    sl = order_dict["stop_loss"]
+                else:
+                    # Basic order based on current price
+                    entry = current_price
+                    
+                    # Calculate TP and SL based on position side
+                    if position_side == "LONG":
+                        tp = entry * 1.03  # +3%
+                        sl = entry * 0.98  # -2%
+                    else:  # SHORT
+                        tp = entry * 0.97  # -3%
+                        sl = entry * 1.02  # +2%
+                
+                # Get user balance
+                user_balance = await get_user_balance(user_id)
+                
+                # Validate leverage for futures
+                print(f"Settings for {user_id}: type={trading_type}, leverage={leverage}, exchange={exchange_name}")
+                
+                if trading_type == "futures" and leverage < 1:
+                    print(f"Warning: leverage {leverage} for {user_id} corrected to 1x")
+                    leverage = 1
+                
+                # Calculate position size
+                if trading_type == "futures":
+                    # For futures, consider leverage
+                    investment_amount = user_balance * 0.05  # 5% of balance
+                    
+                    if leverage <= 0:
+                        print(f"ERROR: Invalid leverage {leverage} for {user_id}, using 1x")
+                        leverage = 1
+                        
+                    qty = (investment_amount * leverage) / entry
+                    print(f"Futures position calculation: {investment_amount} * {leverage} / {entry} = {qty}")
+                else:
+                    # For spot trading
+                    investment_amount = user_balance * 0.05  # 5% of balance
+                    qty = investment_amount / entry
+                    print(f"Spot position calculation: {investment_amount} / {entry} = {qty}")
+                
+                # Check for negative values
+                if qty <= 0:
+                    print(f"ERROR: Negative quantity {qty}, cancelling order")
+                    await bot.send_message(user_id, f"Error calculating position size: {qty}")
+                    return
+                    
+                # Format quantity
+                qty = round(qty, 6)  # Round to 6 decimal places
+                
+                # Set minimum order size
+                if qty * entry < 10:  # Minimum order size 10 USDT
+                    qty = 10 / entry
+                    qty = round(qty, 6)
+                
+                # Create order
+                try:
+                    # Final leverage check
+                    if trading_type == "futures" and "user" in trading_settings:
+                        user_leverage = trading_settings.get("user", {}).get("leverage", leverage)
+                        print(f"Leverage check: settings={user_leverage}, using={leverage}")
+                    
+                    order_id = await create_order(user_id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, exchange=exchange_name)
+                    
+                    # Get updated balance
+                    new_balance = await get_user_balance(user_id)
+                    
+                    # Define emojis
+                    position_emoji = "🔰" if position_side == "LONG" else "🔻"
+                    transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                    
+                    # Create message
+                    message = (
+                        f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                        f"Биржа: {exchange_name.capitalize()}\n"
+                        f"Тип торговли: {trading_type.upper()}"
+                        f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
+                        f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
+                        f"♻️Точка входа: {entry:.2f}$\n"
+                        f"Направление: {position_side} {position_emoji}\n\n"
+                        f"🎯TP: {tp:.4f}$\n"
+                        f"📛SL: {sl:.4f}$\n\n"
+                        f"⚠️Сделка открыта по сигналам с:\n"
+                        f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
+                        f"{cm_active and '✅' or '❌'} CM\n"
+                        f"{moonbot_active and '✅' or '❌'} MoonBot\n"
+                        f"{rsi_active and '✅' or '❌'} RSI\n"
+                        f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
+                        f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
+                    )
+                    
+                    await bot.send_message(user_id, message)
+                    
+                except Exception as e:
+                    print(f"Error creating order: {e}")
+                    await bot.send_message(user_id, f"Error creating order: {e}")
+        
+        # ---------- Exit Logic ----------
+        else:
+            last_price = dft["close"].iloc[-1]
+            
+            # Skip if order is already closed
+            if open_order.get('status', 'OPEN') != 'OPEN':
+                print(f"Skipping processing - order {open_order['id']} is already closed")
+                return
+            
+            # Determine position direction
+            position_direction = "LONG"  # Default LONG
+            if "position_side" in open_order:
+                position_direction = open_order["position_side"]
+            elif "side" in open_order and open_order["side"].upper() == "SELL":
+                position_direction = "SHORT"
+            elif "position_type" in open_order:
+                position_direction = open_order["position_type"]
+            
+            # Check if position is long
+            is_long = position_direction.upper() == "LONG"
+            
+            # Check take profit and stop loss
+            if is_long:
+                hit_tp = last_price >= open_order["tp_price"]
+                hit_sl = last_price <= open_order["sl_price"]
+            else:  # SHORT
+                hit_tp = last_price <= open_order["tp_price"]  # For SHORT, TP is below entry
+                hit_sl = last_price >= open_order["sl_price"]  # For SHORT, SL is above entry
+
+            # Close position if TP or SL hit
+            if hit_tp or hit_sl:
+                try:
+                    # Double-check order status before closing
+                    current_order = await get_order_by_id(open_order["id"])
+                    if current_order and current_order.get('status') == 'CLOSED':
+                        print(f"Skipping close - order {open_order['id']} is already closed")
+                        return
+                    
+                    print(f"Closing order {open_order['id']} due to {'TP' if hit_tp else 'SL'}")
+                    # Close order and get P&L info
+                    close_result = await close_order_with_notification(
+                        user_id, open_order["id"], last_price, "TP" if hit_tp else "SL"
+                    )
+                    
+                    if not close_result:
+                        print(f"Order {open_order['id']} was not closed (may already be closed)")
+                except Exception as e:
+                    print(f"Error closing order: {e}")
+                    await bot.send_message(user_id, f"Error closing order: {e}")
+    except Exception as e:
+        print(f"Error in internal_trade_logic for {exchange_name}/{symbol}/{tf}: {e}")
+        # Don't send error to user to avoid spamming them
 
 asyncio.run(main())
