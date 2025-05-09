@@ -995,4 +995,9 @@ async def main():
     finally:
         await exchange.close()  # Ensures resources are released
 
+# --------------------- Временная заглушка internal_trade_logic --------------
+async def internal_trade_logic(*args, **kwargs):
+    """TODO: реализовать полную логику. Пока заглушка, чтобы не падало."""
+    return
+
 asyncio.run(main())
