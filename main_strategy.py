@@ -1037,40 +1037,56 @@ async def main():
 #  Temporary stub for internal_trade_logic to prevent NameError.
 #  TODO: Move the full trading logic from process_tf into this function.
 # =============================================================================
-async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFrame, dft: pd.DataFrame, 
-                              ctx: Context, tf: str, symbol: str, settings: dict, trading_type: str):
-    """Trading logic implementation for all exchanges."""
+async def internal_trade_logic(exchange_name=None, user_id=None, df5=None, dft=None, ctx=None, tf=None, symbol=None, settings=None, trading_type=None):
+    """Real trading logic for all exchanges."""
+    if not all([user_id, df5 is not None, dft is not None, tf, symbol, settings]):
+        print("Missing required parameters in internal_trade_logic")
+        return
+        
     try:
-        # Get user's open order for this symbol and timeframe
+        # Get open order for this symbol/timeframe
         open_order = await get_open_order(user_id, symbol, tf)
-
-        # Load user-specific settings
+        
+        # Load user settings
         user_moon = StrategyMoonBot(load_strategy_params(user_id))
         cm_settings = load_cm_settings(user_id)
         divergence_settings = load_divergence_settings(user_id)
         rsi_settings = load_rsi_settings(user_id)
         trading_settings = load_trading_settings(user_id)
+        
+        # Get trading parameters
+        if trading_type is None:
+            trading_type = trading_settings["trading_type"]
         leverage = trading_settings.get("leverage", 1)
         
-        # ---------- Entry Logic ----------
+        print(f"Processing {exchange_name} {symbol} {tf} for user {user_id}")
+        
+        # ENTRY LOGIC
         if open_order is None:
-            # Check price action patterns
-            pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
+            # Get price action patterns
+            pattern = await get_pattern_price_action(
+                dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
+                trading_type
+            )
             
             # Calculate indicators
             dft = calculate_ppo(dft, cm_settings)
             dft = calculate_ema(dft)
             cm_signal, last_candle = find_cm_signal(dft, cm_settings)
             
-            # RSI calculations
+            # Calculate RSI
             dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
-            dft = calculate_ema(dft, fast_period=rsi_settings['EMA_FAST'], slow_period=rsi_settings['EMA_SLOW'])
+            dft = calculate_ema(dft, 
+                              fast_period=rsi_settings['EMA_FAST'], 
+                              slow_period=rsi_settings['EMA_SLOW'])
             
             # Generate signals
-            rsi = generate_signals_rsi(dft, overbought=rsi_settings['RSI_OVERBOUGHT'], oversold=rsi_settings['RSI_OVERSOLD'])
+            rsi = generate_signals_rsi(dft, 
+                                      overbought=rsi_settings['RSI_OVERBOUGHT'],
+                                      oversold=rsi_settings['RSI_OVERSOLD'])
             rsi_signal = rsi['signal_rsi'].iloc[-1]
-
-            # Divergence signals
+            
+            # Get divergence signals
             diver_signals = generate_trading_signals(
                 dft, 
                 rsi_length=divergence_settings['RSI_LENGTH'], 
@@ -1084,19 +1100,21 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
             )
             
             # Determine position side (LONG/SHORT)
-            position_side = "LONG"
+            position_side = "LONG"  # Default to LONG
+            
+            # For futures, consider short positions
             if trading_type == "futures":
                 if cm_signal == "short" or rsi_signal == "Short":
                     position_side = "SHORT"
             
-            # Determine active signals based on position side
+            # Check which signals are active
             if position_side == "LONG":
                 price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
                 cm_active = cm_signal == "long"
                 moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
                 rsi_active = rsi_signal == "Long"
                 
-                # Check bullish divergence
+                # Check for bullish divergence
                 regular_bullish = diver_signals['divergence']['regular_bullish']
                 hidden_bullish = diver_signals['divergence']['hidden_bullish']
                 divergence_active = False
@@ -1108,13 +1126,13 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                 if isinstance(hidden_bullish, bool) and hidden_bullish:
                     divergence_active = True
                     divergence_type += "Hidden Bullish "
-            else:  # SHORT position
+            else:  # SHORT
                 price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
                 cm_active = cm_signal == "short"
                 moonbot_active = False  # MoonBot only for LONG
                 rsi_active = rsi_signal == "Short"
                 
-                # Check bearish divergence
+                # Check for bearish divergence
                 regular_bearish = diver_signals['divergence']['regular_bearish']
                 hidden_bearish = diver_signals['divergence']['hidden_bearish']
                 divergence_active = False
@@ -1130,22 +1148,22 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
             # Check if any signal is active
             any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
             
-            # Get current price
+            # Current price
             current_price = dft["close"].iloc[-1]
             
             # Open position if any signal is active
             if any_signal:
-                # Use MoonBot strategy or create basic order
+                # Use MoonBot order or create basic order
                 if moonbot_active:
                     order_dict = user_moon.build_order(dft)
                     entry = order_dict["price"]
                     tp = order_dict["take_profit"]
                     sl = order_dict["stop_loss"]
                 else:
-                    # Basic order based on current price
+                    # Basic order
                     entry = current_price
                     
-                    # Calculate TP and SL based on position side
+                    # Calculate TP/SL based on position type
                     if position_side == "LONG":
                         tp = entry * 1.03  # +3%
                         sl = entry * 0.98  # -2%
@@ -1156,47 +1174,52 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                 # Get user balance
                 user_balance = await get_user_balance(user_id)
                 
-                # Validate leverage for futures
+                # Check leverage
                 if trading_type == "futures" and leverage < 1:
+                    print(f"Warning: leverage {leverage} for user {user_id} adjusted to 1x")
                     leverage = 1
                 
                 # Calculate position size
                 if trading_type == "futures":
-                    # For futures, consider leverage
                     investment_amount = user_balance * 0.05  # 5% of balance
+                    
                     if leverage <= 0:
+                        print(f"Error: Invalid leverage {leverage}, using 1x")
                         leverage = 1
+                    
                     qty = (investment_amount * leverage) / entry
                 else:
-                    # For spot trading
                     investment_amount = user_balance * 0.05  # 5% of balance
                     qty = investment_amount / entry
                 
-                # Check for negative values
+                # Validate quantity
                 if qty <= 0:
-                    await bot.send_message(user_id, f"Error calculating position size: {qty}")
+                    print(f"Error: Invalid quantity {qty} for {symbol}")
                     return
-                    
-                # Format quantity
-                qty = round(qty, 6)  # Round to 6 decimal places
                 
-                # Set minimum order size
-                if qty * entry < 10:  # Minimum order size 10 USDT
+                # Format quantity
+                qty = round(qty, 6)
+                
+                # Minimum order size
+                if qty * entry < 10:  # min 10 USDT
                     qty = 10 / entry
                     qty = round(qty, 6)
                 
-                # Create order
                 try:
-                    order_id = await create_order(user_id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, exchange=exchange_name)
+                    # Create order
+                    order_id = await create_order(
+                        user_id, symbol, tf, position_side, qty, entry, tp, sl, 
+                        trading_type, leverage, exchange=exchange_name
+                    )
                     
                     # Get updated balance
                     new_balance = await get_user_balance(user_id)
                     
-                    # Define emojis
+                    # Position emoji
                     position_emoji = "🔰" if position_side == "LONG" else "🔻"
                     transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
                     
-                    # Create message
+                    # Create notification message
                     message = (
                         f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
                         f"Биржа: {exchange_name.capitalize()}\n"
@@ -1219,13 +1242,14 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
                     await bot.send_message(user_id, message)
                     
                 except Exception as e:
-                    await bot.send_message(user_id, f"Error creating order: {e}")
+                    print(f"Error creating order: {e}")
+                    await bot.send_message(user_id, f"Ошибка при создании ордера: {e}")
         
-        # ---------- Exit Logic ----------
+        # EXIT LOGIC
         else:
             last_price = dft["close"].iloc[-1]
             
-            # Skip if order is already closed
+            # Skip if already closed
             if open_order.get('status', 'OPEN') != 'OPEN':
                 return
             
@@ -1238,32 +1262,33 @@ async def internal_trade_logic(exchange_name: str, user_id: int, df5: pd.DataFra
             elif "position_type" in open_order:
                 position_direction = open_order["position_type"]
             
-            # Check if position is long
+            # Check if long position
             is_long = position_direction.upper() == "LONG"
             
-            # Check take profit and stop loss
+            # Check TP/SL
             if is_long:
                 hit_tp = last_price >= open_order["tp_price"]
                 hit_sl = last_price <= open_order["sl_price"]
             else:  # SHORT
-                hit_tp = last_price <= open_order["tp_price"]  # For SHORT, TP is below entry
-                hit_sl = last_price >= open_order["sl_price"]  # For SHORT, SL is above entry
-
-            # Close position if TP or SL hit
+                hit_tp = last_price <= open_order["tp_price"]
+                hit_sl = last_price >= open_order["sl_price"]
+            
+            # Close if TP/SL hit
             if hit_tp or hit_sl:
                 try:
-                    # Double-check order status before closing
+                    # Verify order is still open
                     current_order = await get_order_by_id(open_order["id"])
                     if current_order and current_order.get('status') == 'CLOSED':
                         return
                     
-                    # Close order and get P&L info
-                    await close_order_with_notification(
+                    # Close order with notification
+                    close_result = await close_order_with_notification(
                         user_id, open_order["id"], last_price, "TP" if hit_tp else "SL"
                     )
                     
                 except Exception as e:
-                    await bot.send_message(user_id, f"Error closing order: {e}")
+                    print(f"Error closing order: {e}")
+                    await bot.send_message(user_id, f"Ошибка при закрытии ордера: {e}")
     except Exception as e:
         print(f"Error in internal_trade_logic for {exchange_name}/{symbol}/{tf}: {e}")
 
