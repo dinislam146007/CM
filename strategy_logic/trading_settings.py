@@ -69,8 +69,8 @@ def load_trading_settings(user_id=None):
                 print(f"DEBUG: Загружены legacy настройки для {user_id}: {settings}")
                 return validate_trading_settings(settings)
         else:
-            # If user directory doesn't exist, create it 
-            os.makedirs(os.path.dirname(settings_file), exist_ok=True)
+            # If user directory doesn't exist, create it
+                os.makedirs(os.path.dirname(settings_file), exist_ok=True)
             
             # Save and return default settings
             save_trading_settings(default_settings, user_id)

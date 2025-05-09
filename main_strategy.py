@@ -850,27 +850,106 @@ def _get_trading_type(settings: dict) -> str:
         or settings.get("trading_type", "spot")
     ).lower()
 
+# ============================= Exchange factory =============================
+# Создаём CCXT-экземпляр под каждую (биржа, тип торговли)
+EXCHANGE_FACTORY: Dict[Tuple[str, str], Callable[[], ccxt.Exchange]] = {
+    ("bybit",   "spot"):    lambda: ccxt.bybit({"enableRateLimit": True, "defaultType": "spot"}),
+    ("bybit",   "futures"): lambda: ccxt.bybit({"enableRateLimit": True, "defaultType": "future"}),
+    ("binance", "spot"):    lambda: ccxt.binance({"enableRateLimit": True}),
+    # Binance USD-M futures
+    ("binance", "futures"): lambda: ccxt.binanceusdm({"enableRateLimit": True}),
+    ("mexc",    "spot"):    lambda: ccxt.mexc({"enableRateLimit": True}),
+    # MEXC futures – usd-m swap (если нет в вашей версии ccxt, обновите)
+    ("mexc",    "futures"): lambda: ccxt.mexc3({"enableRateLimit": True}),
+}
+
+# --------------------------- Универсальный fetch ----------------------------
+async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str = "1h", limit: int = 500,
+                           retries: int = 3, delay: int = 5):
+    """Получить OHLCV через переданный CCXT-объект с повторными попытками."""
+    for attempt in range(retries):
+        try:
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+            df["hl2"] = (df["high"] + df["low"]) / 2
+            return df
+        except (ccxt.RequestTimeout, ccxt.DDoSProtection) as e:
+            print(f"Timeout/DDoS on {exchange.id} {symbol} {timeframe} – retry {attempt+1}/{retries}: {e}")
+            await asyncio.sleep(delay)
+        except Exception as e:
+            print(f"Error fetch_ohlcv_ccxt {exchange.id} {symbol} {timeframe}: {e}")
+            break
+    return None
+
+# ------------------------------ Общий worker -------------------------------
+async def process_user_exchange(user_id: int, settings: dict, exch_name: str, trading_type: str, symbols: list[str]):
+    """Полный цикл сканирования / трейдинга для пользователя на конкретной бирже."""
+    try:
+        # Инициализируем CCXT-объект
+        exchange: ccxt.Exchange = EXCHANGE_FACTORY[(exch_name, trading_type)]()
+        print(f"[START] user={user_id} exch={exch_name} type={trading_type}")
+        while True:
+            try:
+                btc_df = await fetch_ohlcv_ccxt(exchange, "BTCUSDT", "5m", 300)
+                if btc_df is None:
+                    await asyncio.sleep(10)
+                    continue
+                for tf in TIMEFRAMES:
+                    for symbol in symbols:
+                        df5 = await fetch_ohlcv_ccxt(exchange, symbol, "5m", 300)
+                        dft = await fetch_ohlcv_ccxt(exchange, symbol, tf, 200)
+                        if df5 is None or dft is None:
+                            continue
+                        ticker = await exchange.fetch_ticker(symbol)
+                        ctx = Context(
+                            ticker_24h=ticker,
+                            hourly_volume=df5["volume"].iloc[-12:].sum(),
+                            btc_df=btc_df,
+                        )
+
+                        # *** переиспользуем внутр. функцию, чтобы не дублировать код ***
+                        await internal_trade_logic(
+                            exchange_name=exch_name,
+                            user_id=user_id,
+                            df5=df5,
+                            dft=dft,
+                            ctx=ctx,
+                            tf=tf,
+                            symbol=symbol,
+                            settings=settings,
+                            trading_type=trading_type,
+                        )
+
+                    await asyncio.sleep(0.05)  # не душим API
+                await wait_for_next_candle("1m")
+            except Exception as loop_exc:
+                print(f"[ERROR] user={user_id} exch={exch_name}: {loop_exc}")
+                await asyncio.sleep(5)
+    finally:
+        await exchange.close()
+
+# ----------------------- Диспетчер для одного пользователя -------------------
 async def _dispatch_for_user(user_id: int, settings: dict):
     """Start tasks for all enabled exchanges for user."""
     try:
         trading_type = _get_trading_type(settings)
-        exchanges_enabled = {
-            "binance": settings.get("binance", False),
-            "bybit":   settings.get("bybit", False),
-            "mexc":    settings.get("mexc", False),
-        }
+        # список символов, если не задан – BTCUSDT
+        symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
+        symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
 
         tasks = []
-        for exch, enabled in exchanges_enabled.items():
-            if not enabled:
+        for exch_name in ("binance", "bybit", "mexc"):
+            if not settings.get(exch_name, False):
                 continue
-            handler = _FETCHER_MAP.get((exch, trading_type))
-            if handler is None:
-                continue  # No implementation yet
-            tasks.append(asyncio.create_task(handler(user_id, settings)))
-
+            # Bybit остаётся в первоначальном process_tf (функция ниже) если нужно
+            if exch_name == "bybit":
+                continue  # Bybit обслуживается старым process_tf
+            tasks.append(
+                asyncio.create_task(
+                    process_user_exchange(user_id, settings, exch_name, trading_type, symbols)
+                )
+            )
         if tasks:
-            # Использую gather с return_exceptions=True чтобы предотвратить общий сбой
             await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         print(f"Ошибка в диспетчере для пользователя {user_id}: {e}")
