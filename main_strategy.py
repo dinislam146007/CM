@@ -321,7 +321,7 @@ async def process_tf(tf: str):
             )
 
             for uid in users:
-                open_order = await get_open_order(uid, symbol, tf)
+                open_order = await get_open_order(uid, "bybit", symbol, tf)
 
                 # Get user-specific strategy parameters
                 user_moon = StrategyMoonBot(load_strategy_params(uid))
@@ -512,7 +512,7 @@ async def process_tf(tf: str):
                                 user_leverage = trading_settings.get("user", {}).get("leverage", leverage)
                                 print(f"Проверка плеча: в настройках={user_leverage}, используем={leverage}")
                             
-                            order_id = await create_order(uid, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                            order_id = await create_order(uid, "bybit", symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                             
                             # Получаем обновленный баланс после списания средств
                             new_balance = await get_user_balance(uid)
