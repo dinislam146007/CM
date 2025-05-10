@@ -616,7 +616,7 @@ async def process_tf(tf: str):
                             print(f"Ошибка при закрытии ордера: {e}")
                             await bot.send_message(uid, f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
-        await wait_for_next_candle(tf)
+        # await wait_for_next_candle(tf)
 
 
 # =============================================================================
@@ -996,7 +996,7 @@ async def process_user_exchange(user_id: int, settings: dict, exch_name: str, tr
                         )
 
                     await asyncio.sleep(0.05)  # не душим API
-                await wait_for_next_candle("1m")
+                # await wait_for_next_candle("1m")
             except Exception as loop_exc:
                 print(f"[ERROR] user={user_id} exch={exch_name}: {loop_exc}")
                 await asyncio.sleep(5)
