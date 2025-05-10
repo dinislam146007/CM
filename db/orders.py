@@ -262,33 +262,45 @@ async def get_daily_profit(user_id, date):
     """
     conn = await connect()
     try:
-        # Проверяем тип даты и преобразуем в строку нужного формата
-        if isinstance(date, str):
-            # Если передана строка, используем её как есть, но проверяем формат
-            try:
-                # Попытаемся конвертировать дату для проверки правильности
-                dt.datetime.strptime(date, '%Y-%m-%d')
-                date_str = date
-            except ValueError:
-                # Если формат неверный, попробуем преобразовать из других форматов
-                try:
-                    parsed_date = dt.datetime.strptime(date, '%d.%m.%Y').date()
-                    date_str = parsed_date.strftime('%Y-%m-%d')
-                except ValueError:
-                    # Если и это не работает, используем текущую дату
-                    print(f"Невалидный формат даты: {date}, используем текущую дату")
-                    date_str = dt.date.today().strftime('%Y-%m-%d')
-        else:
-            # Если передан datetime.date или datetime.datetime, конвертируем в строку
-            date_str = date.strftime('%Y-%m-%d')
+        # Конвертируем дату в строку для логирования
+        date_for_log = str(date)
         
-        # Запрос на получение суммы прибыли за день
+        # Преобразуем все входные данные в datetime.date объект
+        if isinstance(date, str):
+            try:
+                # Проверяем формат YYYY-MM-DD
+                date_obj = dt.datetime.strptime(date, '%Y-%m-%d').date()
+            except ValueError:
+                try:
+                    # Проверяем формат DD.MM.YYYY
+                    date_obj = dt.datetime.strptime(date, '%d.%m.%Y').date()
+                except ValueError:
+                    # Если не удалось распознать формат, используем текущую дату
+                    print(f"Невалидный формат даты: {date}, используем текущую дату")
+                    date_obj = dt.date.today()
+        elif isinstance(date, dt.datetime):
+            # Если передан datetime, преобразуем в date
+            date_obj = date.date()
+        elif isinstance(date, dt.date):
+            # Если уже date, используем как есть
+            date_obj = date
+        else:
+            # Если неизвестный тип, используем текущую дату
+            print(f"Неизвестный тип даты: {type(date)}, используем текущую дату")
+            date_obj = dt.date.today()
+        
+        # Преобразуем date_obj в строку YYYY-MM-DD для SQL запроса
+        date_str = date_obj.strftime('%Y-%m-%d')
+        
+        print(f"Получение профита для пользователя {user_id} на дату: {date_for_log} (преобразовано в {date_str})")
+        
+        # Запрос на получение суммы прибыли за день с использованием текстового сравнения дат
         row = await conn.fetchrow("""
             SELECT SUM(pnl_usdt) as daily_profit
             FROM orders 
             WHERE user_id = $1 
             AND status = 'CLOSED'
-            AND DATE(sale_time) = $2
+            AND TO_CHAR(sale_time, 'YYYY-MM-DD') = $2
         """, user_id, date_str)
         
         # Если нет закрытых ордеров или сумма NULL, возвращаем 0
