@@ -429,7 +429,9 @@ async def process_tf(tf: str):
                     # Debug output of signal flags
                     print(f"[DEBUG] {exchange.id.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
                     
-                    # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
+                    # Add debug info about signals
+                    print(f"[SIGNALS] {exchange.id.upper()}/{symbol}/{tf} => PA={price_action_active} CM={cm_active} RSI={rsi_active} Moon={moonbot_active} Div={divergence_active}")
+                    
                     any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
                     
                     # Определяем текущую цену
@@ -1066,7 +1068,7 @@ async def internal_trade_logic(*args, **kwargs):
         print(f"Processing {exchange_name} {symbol}/{tf} for user {user_id}")
             
         # Check for existing open order
-        open_order = await get_open_order(user_id, symbol, tf)
+        open_order = await get_open_order(user_id, exchange_name, symbol, tf)
         
         # Get user-specific settings
         user_moon = StrategyMoonBot(load_strategy_params(user_id))
@@ -1225,7 +1227,7 @@ async def internal_trade_logic(*args, **kwargs):
                 
                 try:
                     # Create order with exchange info
-                    order_id = await create_order(user_id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                    order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                     
                     # Get updated balance after order creation
                     new_balance = await get_user_balance(user_id)

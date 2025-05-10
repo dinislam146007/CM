@@ -29,8 +29,8 @@ async def update_user_balance(user_id, amount):
     # Возвращаем новый баланс
     return await get_user_balance(user_id)
 
-async def create_order(user_id, symbol, interval, side, qty,
-                       buy_price, tp, sl, trading_type=None, leverage=None, exchange=None):
+async def create_order(user_id, exchange, symbol, interval, side, qty,
+                       buy_price, tp, sl, trading_type=None, leverage=None):
     """Создание ордера и списание средств с баланса пользователя"""
     # Если trading_type и leverage не указаны, загружаем из настроек пользователя
     if trading_type is None or leverage is None:
@@ -38,7 +38,7 @@ async def create_order(user_id, symbol, interval, side, qty,
         trading_type = trading_settings["trading_type"] if trading_type is None else trading_type
         leverage = trading_settings["leverage"] if leverage is None else leverage
     
-    print(f"DEBUG [create_order]: user_id={user_id}, symbol={symbol}, trading_type={trading_type}, leverage={leverage}")
+    print(f"DEBUG [create_order]: user_id={user_id}, exchange={exchange}, symbol={symbol}, trading_type={trading_type}, leverage={leverage}")
     
     # Валидация параметров
     if trading_type == "spot" and side.upper() == "SHORT":
@@ -76,27 +76,27 @@ async def create_order(user_id, symbol, interval, side, qty,
     conn = await connect()
     try:
         order_id = await conn.fetchval("""
-            INSERT INTO orders (user_id, symbol, interval, side, qty,
+            INSERT INTO orders (user_id, exchange, symbol, interval, side, qty,
                                coin_buy_price, tp_price, sl_price, buy_time,
                                investment_amount_usdt, trading_type, leverage)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id
-        """, user_id, symbol, interval, side.upper(), qty,
+        """, user_id, exchange, symbol, interval, side.upper(), qty,
             buy_price, tp, sl, dt.datetime.utcnow(), investment_amount,
             trading_type, leverage)
         
-        print(f"УСПЕХ: Создан ордер id={order_id} для user_id={user_id}, symbol={symbol}, side={side}, leverage={leverage}")
+        print(f"УСПЕХ: Создан ордер id={order_id} для user_id={user_id}, exchange={exchange}, symbol={symbol}, side={side}, leverage={leverage}")
         return order_id
     finally:
         await conn.close()
 
-async def get_open_order(user_id, symbol, interval):
+async def get_open_order(user_id, exchange, symbol, interval):
     conn = await connect()
     row = await conn.fetchrow("""
         SELECT * FROM orders
-        WHERE user_id=$1 AND symbol=$2 AND interval=$3 AND status='OPEN'
+        WHERE user_id=$1 AND exchange=$2 AND symbol=$3 AND interval=$4 AND status='OPEN'
         ORDER BY buy_time DESC LIMIT 1
-    """, user_id, symbol, interval)
+    """, user_id, exchange, symbol, interval)
     await conn.close()
     return row
 
@@ -297,24 +297,52 @@ async def get_open_orders(user_id):
     """Алиас для get_user_open_orders для совместимости"""
     return await get_user_open_orders(user_id)
     
-async def save_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price, trading_type=None, leverage=None):
+async def save_order(user_id, exchange, symbol, interval, side, qty, entry_price, tp_price, sl_price, trading_type=None, leverage=None):
     """Сохранение нового ордера (алиас для create_order для совместимости)"""
-    return await create_order(user_id, symbol, interval, side, qty, entry_price, tp_price, sl_price, trading_type, leverage)
+    return await create_order(user_id, exchange, symbol, interval, side, qty, entry_price, tp_price, sl_price, trading_type, leverage)
 
-async def get_active_positions(user_id):
+async def get_active_positions(user_id, exchange=None):
     """Получение всех активных позиций пользователя"""
-    return await get_user_open_orders(user_id)
+    conn = await connect()
+    try:
+        if exchange:
+            rows = await conn.fetch("""
+                SELECT * FROM orders
+                WHERE user_id=$1 AND exchange=$2 AND status='OPEN'
+                ORDER BY buy_time DESC
+            """, user_id, exchange)
+        else:
+            rows = await conn.fetch("""
+                SELECT * FROM orders
+                WHERE user_id=$1 AND status='OPEN'
+                ORDER BY buy_time DESC
+            """, user_id)
+        
+        return [dict(row) for row in rows]
+    finally:
+        await conn.close()
     
-async def get_active_btc_position_size(user_id):
+async def get_active_btc_position_size(user_id, exchange=None):
     """Получение активной BTC позиции пользователя"""
     conn = await connect()
-    row = await conn.fetchrow("""
-        SELECT SUM(qty * coin_buy_price) as position_size
-        FROM orders
-        WHERE user_id=$1 AND symbol='BTCUSDT' AND status='OPEN'
-    """, user_id)
-    await conn.close()
-    return row['position_size'] if row and row['position_size'] is not None else 0.0
+    try:
+        if exchange:
+            row = await conn.fetchrow("""
+                SELECT SUM(qty * coin_buy_price) as position_size
+                FROM orders
+                WHERE user_id=$1 AND exchange=$2 AND symbol='BTCUSDT' AND status='OPEN'
+            """, user_id, exchange)
+        else:
+            row = await conn.fetchrow("""
+                SELECT SUM(qty * coin_buy_price) as position_size
+                FROM orders
+                WHERE user_id=$1 AND symbol='BTCUSDT' AND status='OPEN'
+            """, user_id)
+        
+        await conn.close()
+        return row['position_size'] if row and row['position_size'] is not None else 0.0
+    finally:
+        await conn.close()
 
 async def init_db():
     """Инициализирует базу данных, проверяет и добавляет необходимые колонки."""
@@ -339,6 +367,7 @@ async def init_db():
                 CREATE TABLE IF NOT EXISTS orders (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT,
+                    exchange TEXT,
                     symbol TEXT,
                     interval TEXT,
                     side TEXT,
