@@ -11,16 +11,37 @@ def load_trading_type_settings(user_id=None):
     """
     Load trading type settings for a specific user or default if not found
     """
-    settings_file = f"data/users/{user_id}/trading_type_settings.json" if user_id else "data/default/trading_type_settings.json"
+    # Default settings
+    default_settings = DEFAULT_TRADING_TYPE_SETTINGS.copy()
     
+    if user_id is None:
+        return default_settings
+        
     try:
-        if os.path.exists(settings_file):
-            with open(settings_file, 'r') as f:
-                return json.load(f)
+        user_settings_file = f"user_settings/{user_id}.json"
+        if os.path.exists(user_settings_file):
+            with open(user_settings_file, 'r') as f:
+                user_data = json.load(f)
+                
+                # Приоритет user.trading_type над trading.trading_type
+                
+                # Сначала загружаем из trading
+                if "trading" in user_data and "trading_type" in user_data["trading"]:
+                    trading_type = user_data["trading"]["trading_type"]
+                    print(f"Найдены настройки типа торговли из trading: {trading_type}")
+                    default_settings["trading_type"] = trading_type
+                
+                # Затем перезаписываем из user, если есть (имеет приоритет)
+                if "user" in user_data and "trading_type" in user_data["user"]:
+                    trading_type = user_data["user"]["trading_type"]
+                    print(f"Найдены настройки типа торговли из user: {trading_type} (ПРИОРИТЕТ)")
+                    default_settings["trading_type"] = trading_type
+                
+                return default_settings
         else:
             # If user directory doesn't exist, create it
             if user_id:
-                os.makedirs(os.path.dirname(settings_file), exist_ok=True)
+                os.makedirs(os.path.dirname(user_settings_file), exist_ok=True)
             
             # Save and return default settings
             save_trading_type_settings(DEFAULT_TRADING_TYPE_SETTINGS, user_id)

@@ -30,27 +30,27 @@ def load_trading_settings(user_id=None):
                 
                 print(f"DEBUG: Загружены настройки для {user_id} из {user_settings_file}")
                 
-                # Extract trading settings from user settings
+                # Сначала проверим секцию trading (с низшим приоритетом)
+                if "trading" in user_data and isinstance(user_data["trading"], dict):
+                    if "trading_type" in user_data["trading"]:
+                        default_settings["trading_type"] = user_data["trading"]["trading_type"]
+                        print(f"DEBUG: Найден trading_type в trading: {user_data['trading']['trading_type']}")
+                    
+                    if "leverage" in user_data["trading"]:
+                        default_settings["leverage"] = int(user_data["trading"]["leverage"])
+                        print(f"DEBUG: Найден leverage в trading: {user_data['trading']['leverage']}")
+                
+                # Затем проверим секцию user (с высшим приоритетом) - перезапишет настройки из trading
                 if "user" in user_data and isinstance(user_data["user"], dict):
                     # Load trading_type
                     if "trading_type" in user_data["user"]:
                         default_settings["trading_type"] = user_data["user"]["trading_type"]
-                        print(f"DEBUG: Найден trading_type в user: {user_data['user']['trading_type']}")
+                        print(f"DEBUG: Найден trading_type в user: {user_data['user']['trading_type']} - ПРИОРИТЕТ!")
                     
                     # Load leverage
                     if "leverage" in user_data["user"]:
                         default_settings["leverage"] = int(user_data["user"]["leverage"])
-                        print(f"DEBUG: Найден leverage в user: {user_data['user']['leverage']}")
-                
-                # Also check trading section if exists
-                if "trading" in user_data and isinstance(user_data["trading"], dict):
-                    if "trading_type" in user_data["trading"] and not "trading_type" in user_data.get("user", {}):
-                        default_settings["trading_type"] = user_data["trading"]["trading_type"]
-                        print(f"DEBUG: Найден trading_type в trading: {user_data['trading']['trading_type']}")
-                    
-                    if "leverage" in user_data["trading"] and not "leverage" in user_data.get("user", {}):
-                        default_settings["leverage"] = int(user_data["trading"]["leverage"])
-                        print(f"DEBUG: Найден leverage в trading: {user_data['trading']['leverage']}")
+                        print(f"DEBUG: Найден leverage в user: {user_data['user']['leverage']} - ПРИОРИТЕТ!")
                 
                 # Validate settings
                 result = validate_trading_settings(default_settings)

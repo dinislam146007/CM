@@ -850,10 +850,15 @@ _FETCHER_MAP = {
 
 def _get_trading_type(settings: dict) -> str:
     """Return lower-case trading_type from settings (defaults to 'spot')."""
-    return str(
-        settings.get("trading", {}).get("trading_type")
-        or settings.get("trading_type", "spot")
+    # Look in multiple places for trading_type
+    trading_type = (
+        settings.get("trading", {}).get("trading_type") or 
+        settings.get("user", {}).get("trading_type") or
+        settings.get("trading_type", "spot")
     ).lower()
+    
+    print(f"[CONFIG] Got trading_type from settings: {trading_type}")
+    return trading_type
 
 # ============================= Exchange factory =============================
 # Создаём CCXT-экземпляр под каждую (биржа, тип торговли)
@@ -923,8 +928,18 @@ async def process_user_exchange(user_id: int, settings: dict, exch_name: str, tr
     """Полный цикл сканирования / трейдинга для пользователя на конкретной бирже."""
     try:
         # Инициализируем CCXT-объект
+        print(f"[CONFIG] Creating exchange {exch_name} with type {trading_type} for user {user_id}")
+        
+        # Fix for Binance - force futures if in user settings
+        if exch_name == "binance" and trading_type != "futures":
+            # Check user settings explicitly for binance trading type
+            user_trading_settings = load_trading_settings(user_id)
+            if user_trading_settings.get("trading_type", "").lower() == "futures":
+                print(f"[CONFIG] FIXING: User {user_id} has futures in settings but got {trading_type}, changing to futures")
+                trading_type = "futures"
+        
         exchange: ccxt.Exchange = EXCHANGE_FACTORY[(exch_name, trading_type)]()
-        print(f"[START] user={user_id} exch={exch_name} type={trading_type}")
+        print(f"[START] user={user_id} exch={exch_name} type={trading_type} (settings_type={settings.get('trading', {}).get('trading_type')})")
         while True:
             try:
                 btc_df = await fetch_ohlcv_ccxt(exchange, "BTCUSDT", "5m", 300)
@@ -970,10 +985,18 @@ async def _dispatch_for_user(user_id: int, settings: dict):
     """Start tasks for all enabled exchanges for user."""
     try:
         trading_type = _get_trading_type(settings)
+        # Force futures type if user has it configured in user.trading_type
+        user_trading_type = settings.get("user", {}).get("trading_type", "").lower()
+        if user_trading_type == "futures":
+            print(f"[CONFIG] User {user_id} explicitly has futures in settings, forcing futures type")
+            trading_type = "futures"
+            
         # список символов, если не задан – BTCUSDT
         symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
         symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
 
+        print(f"[CONFIG] User {user_id} final trading_type: {trading_type}")
+        
         tasks = []
         for exch_name in ("binance", "bybit", "mexc"):
             if not settings.get(exch_name, False):
@@ -981,9 +1004,14 @@ async def _dispatch_for_user(user_id: int, settings: dict):
             # Bybit остаётся в первоначальном process_tf (функция ниже) если нужно
             if exch_name == "bybit":
                 continue  # Bybit обслуживается старым process_tf
+                
+            # Make sure we use the right trading_type for this exchange
+            exch_trading_type = trading_type
+            print(f"[CONFIG] Starting {exch_name} with trading_type: {exch_trading_type} for user {user_id}")
+            
             tasks.append(
                 asyncio.create_task(
-                    process_user_exchange(user_id, settings, exch_name, trading_type, symbols)
+                    process_user_exchange(user_id, settings, exch_name, exch_trading_type, symbols)
                 )
             )
         if tasks:
