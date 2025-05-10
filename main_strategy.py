@@ -307,6 +307,26 @@ users      = [6634277726, 747471391]
 
 async def process_tf(tf: str):
     while True:
+        # Прочитаем пользователей, у которых включен bybit в настройках
+        active_users = []
+        settings_path = Path("user_settings")
+        if settings_path.exists():
+            for json_file in settings_path.glob("*.json"):
+                try:
+                    with json_file.open("r", encoding="utf-8") as fh:
+                        settings = json.load(fh)
+                    user_id = int(json_file.stem)
+                    if settings.get("bybit", False):
+                        active_users.append(user_id)
+                except Exception as e:
+                    print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
+        
+        # Если нет пользователей, используем пустой список
+        if not active_users:
+            print("[INFO] Нет пользователей с включенным Bybit в настройках")
+            await asyncio.sleep(60)  # Подождем минуту перед повторной проверкой
+            continue
+        
         btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
         for symbol in symbols:
             df5 = await fetch_ohlcv(symbol, "5m", 300)
@@ -320,7 +340,7 @@ async def process_tf(tf: str):
                 btc_df=btc_df,
             )
 
-            for uid in users:
+            for uid in active_users:
                 open_order = await get_open_order(uid, "bybit", symbol, tf)
 
                 # Get user-specific strategy parameters
@@ -524,7 +544,7 @@ async def process_tf(tf: str):
                             # Формируем сообщение по новому шаблону
                             message = (
                                 f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
-                                f"Биржа: Bybit\n"
+                                f"Биржа: {exchange.id.capitalize()}\n"
                                 f"Тип торговли: {trading_type.upper()}"
                                 f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                                 f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
@@ -985,17 +1005,18 @@ async def _dispatch_for_user(user_id: int, settings: dict):
     """Start tasks for all enabled exchanges for user."""
     try:
         trading_type = _get_trading_type(settings)
-        # Force futures type if user has it configured in user.trading_type
-        user_trading_type = settings.get("user", {}).get("trading_type", "").lower()
-        if user_trading_type == "futures":
-            print(f"[CONFIG] User {user_id} explicitly has futures in settings, forcing futures type")
-            trading_type = "futures"
-            
+        print(f"[CONFIG] Начальный trading_type для пользователя {user_id}: {trading_type}")
+        
+        # Приоритет секции user над секцией trading
+        if "user" in settings and "trading_type" in settings["user"]:
+            trading_type = settings["user"]["trading_type"].lower()
+            print(f"[CONFIG] Обнаружен trading_type в секции user: {trading_type}")
+        
         # список символов, если не задан – BTCUSDT
         symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
         symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
 
-        print(f"[CONFIG] User {user_id} final trading_type: {trading_type}")
+        print(f"[CONFIG] Итоговый тип торговли для пользователя {user_id}: {trading_type}")
         
         tasks = []
         for exch_name in ("binance", "bybit", "mexc"):
@@ -1005,13 +1026,11 @@ async def _dispatch_for_user(user_id: int, settings: dict):
             if exch_name == "bybit":
                 continue  # Bybit обслуживается старым process_tf
                 
-            # Make sure we use the right trading_type for this exchange
-            exch_trading_type = trading_type
-            print(f"[CONFIG] Starting {exch_name} with trading_type: {exch_trading_type} for user {user_id}")
+            print(f"[CONFIG] Запуск {exch_name} с типом торговли {trading_type} для пользователя {user_id}")
             
             tasks.append(
                 asyncio.create_task(
-                    process_user_exchange(user_id, settings, exch_name, exch_trading_type, symbols)
+                    process_user_exchange(user_id, settings, exch_name, trading_type, symbols)
                 )
             )
         if tasks:
