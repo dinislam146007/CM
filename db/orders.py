@@ -257,13 +257,30 @@ async def get_daily_profit(user_id, date):
     """
     Получить суммарный профит пользователя за указанный день
     :param user_id: ID пользователя
-    :param date: Дата (объект datetime.date)
+    :param date: Дата (объект datetime.date или строка в формате YYYY-MM-DD)
     :return: Суммарный профит в USDT
     """
     conn = await connect()
     try:
-        # Конвертируем дату в строку формата YYYY-MM-DD для сравнения
-        date_str = date.strftime('%Y-%m-%d')
+        # Проверяем тип даты и преобразуем в строку нужного формата
+        if isinstance(date, str):
+            # Если передана строка, используем её как есть, но проверяем формат
+            try:
+                # Попытаемся конвертировать дату для проверки правильности
+                dt.datetime.strptime(date, '%Y-%m-%d')
+                date_str = date
+            except ValueError:
+                # Если формат неверный, попробуем преобразовать из других форматов
+                try:
+                    parsed_date = dt.datetime.strptime(date, '%d.%m.%Y').date()
+                    date_str = parsed_date.strftime('%Y-%m-%d')
+                except ValueError:
+                    # Если и это не работает, используем текущую дату
+                    print(f"Невалидный формат даты: {date}, используем текущую дату")
+                    date_str = dt.date.today().strftime('%Y-%m-%d')
+        else:
+            # Если передан datetime.date или datetime.datetime, конвертируем в строку
+            date_str = date.strftime('%Y-%m-%d')
         
         # Запрос на получение суммы прибыли за день
         row = await conn.fetchrow("""
