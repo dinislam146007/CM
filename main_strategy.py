@@ -891,7 +891,7 @@ EXCHANGE_FACTORY: Dict[Tuple[str, str], Callable[[], ccxt.Exchange]] = {
     ("binance", "futures"): lambda: ccxt.binanceusdm({"enableRateLimit": True}),
     ("mexc",    "spot"):    lambda: ccxt.mexc({"enableRateLimit": True}),
     # MEXC futures – usd-m swap (если нет в вашей версии ccxt, обновите)
-    ("mexc",    "futures"): lambda: ccxt.mexc3({"enableRateLimit": True}),
+    ("mexc", "futures"): lambda: ccxt.mexc({"enableRateLimit": True, "defaultType": "swap"}),
 }
 
 # --------------------------- Универсальный fetch ----------------------------
@@ -911,14 +911,16 @@ async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str 
     last_exception = None
 
     # ---------------------- MEXC кастомный хак ----------------------
-    if exchange.id == 'mexc' and timeframe not in {"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"}:
-        print(f"Warning: {timeframe} not supported by MEXC, using Binance as fallback for {symbol}")
-        bnc = EXCHANGE_FACTORY[("binance", "spot")]()
-        try:
-            return await fetch_ohlcv_ccxt(bnc, symbol, timeframe, limit)
-        finally:
-            await bnc.close()
-
+# ---------------------- MEXC кастомный хак ----------------------
+    if exchange.id == 'mexc':
+        # Проверяем, работаем ли мы с фьючерсами
+        is_futures = exchange.options.get('defaultType') == 'swap'
+        
+        # Проверяем поддерживаемые таймфреймы
+        supported_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"}
+        if timeframe not in supported_timeframes:
+            print(f"Warning: {timeframe} not supported by MEXC, using 1h as fallback for {symbol}")
+            timeframe = "1h"
     # ------------------------- Основные попытки ---------------------
     for sym in symbol_variants:
         for attempt in range(retries):
