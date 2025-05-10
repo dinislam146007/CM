@@ -303,11 +303,10 @@ async def wait_for_next_candle(timeframe):
 
 TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h"]
 symbols    = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "LTCUSDT", "XRPUSDT", "SOLUSDT", "TRXUSDT"]
-users      = [6634277726, 747471391]
 
 async def process_tf(tf: str):
     while True:
-        # Прочитаем пользователей, у которых включен bybit в настройках
+        # Динамически загружаем список пользователей с включенным bybit
         active_users = []
         settings_path = Path("user_settings")
         if settings_path.exists():
@@ -318,14 +317,16 @@ async def process_tf(tf: str):
                     user_id = int(json_file.stem)
                     if settings.get("bybit", False):
                         active_users.append(user_id)
+                        print(f"[INFO] Пользователь {user_id} использует Bybit")
                 except Exception as e:
                     print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
         
-        # Если нет пользователей, используем пустой список
         if not active_users:
             print("[INFO] Нет пользователей с включенным Bybit в настройках")
-            await asyncio.sleep(60)  # Подождем минуту перед повторной проверкой
+            await asyncio.sleep(60)  # Ждем минуту перед следующей проверкой
             continue
+            
+        print(f"[INFO] Активные пользователи Bybit: {active_users}")
         
         btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
         for symbol in symbols:
