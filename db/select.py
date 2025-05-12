@@ -219,6 +219,92 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
     finally:
         await conn.close()
 
+async def get_daily_statistics(user_id: int):
+    """Get trading statistics for the current day"""
+    conn = await connect()
+    try:
+        # Get current date in ISO format
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # Count total trades closed today
+        total_trades = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM orders
+            WHERE coin_sale_price IS NOT NULL 
+            AND DATE(sale_time) = $1
+            AND user_id = $2
+            """, 
+            today, user_id
+        )
+        
+        # Count profitable trades closed today
+        profitable_trades = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM orders
+            WHERE coin_sale_price > coin_buy_price 
+            AND DATE(sale_time) = $1
+            AND user_id = $2
+            """, 
+            today, user_id
+        )
+        
+        # Count loss trades closed today
+        loss_trades = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM orders
+            WHERE coin_sale_price < coin_buy_price 
+            AND DATE(sale_time) = $1
+            AND user_id = $2
+            """, 
+            today, user_id
+        )
+        
+        # Calculate total profit for today
+        # First, get all relevant orders
+        rows = await conn.fetch(
+            """
+            SELECT id, investment_amount_usdt, pnl_percent, pnl_usdt, coin_buy_price, coin_sale_price
+            FROM orders
+            WHERE coin_sale_price IS NOT NULL
+            AND DATE(sale_time) = $1
+            AND user_id = $2
+            """,
+            today, user_id
+        )
+        
+        # Calculate profit using the same logic as get_statistics_for_period
+        total_profit = 0
+        for row in rows:
+            # If we have direct PnL in USDT, use it
+            if row.get('pnl_usdt') is not None:
+                total_profit += float(row['pnl_usdt'])
+            # Otherwise calculate from investment amount and percent
+            elif row.get('investment_amount_usdt') is not None and row.get('pnl_percent') is not None:
+                # Convert decimal.Decimal to float before calculations
+                investment = row['investment_amount_usdt']
+                if hasattr(investment, 'normalize'):  # It's a Decimal
+                    investment = float(investment)
+                
+                pnl_percent = row['pnl_percent']
+                if hasattr(pnl_percent, 'normalize'):  # It's a Decimal
+                    pnl_percent = float(pnl_percent)
+                
+                profit = investment * (pnl_percent / 100)
+                total_profit += profit
+            # If neither is available, try simple calculation
+            elif row.get('coin_buy_price') is not None and row.get('coin_sale_price') is not None:
+                buy_price = float(row['coin_buy_price'])
+                sale_price = float(row['coin_sale_price'])
+                profit = sale_price - buy_price
+                total_profit += profit
+        
+        return total_trades, profitable_trades, loss_trades, total_profit
+    finally:
+        await conn.close()
+
 async def all_signals_no_signal():
     conn = await connect()
     try:
