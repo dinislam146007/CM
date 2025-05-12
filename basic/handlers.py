@@ -2983,13 +2983,10 @@ async def show_exchanges_settings(callback: CallbackQuery):
 async def toggle_exchange_status(callback: CallbackQuery):
     exchange = callback.data.split('_')[2]
     
-    # Сохраняем текущее состояние до изменений
     old_user_exchanges = await get_user_exchanges(callback.from_user.id)
     
-    # Переключаем статус биржи
     await toggle_exchange(callback.from_user.id, exchange)
     
-    # Получаем обновленное состояние
     user_exchanges = await get_user_exchanges(callback.from_user.id)
     
     if not user_exchanges:

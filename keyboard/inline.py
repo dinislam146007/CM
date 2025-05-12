@@ -27,8 +27,8 @@ def subscription_management_inline(group):
 def stat_inline(profit=0, lesion=0):
     kb = [
         [
-            InlineKeyboardButton(text=f'Прибыльные ({profit})', callback_data='stat profit_details 0'),
-            InlineKeyboardButton(text=f'Убыточные ({lesion})', callback_data='stat loss_details 0')
+            InlineKeyboardButton(text=f'Прибыльные ({profit})', callback_data='stat profit_list 0'),
+            InlineKeyboardButton(text=f'Убыточные ({lesion})', callback_data='stat loss_list 0')
         ],
         [
             InlineKeyboardButton(text='Все сделки', callback_data='stat all 0')
