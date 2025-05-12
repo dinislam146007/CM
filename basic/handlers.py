@@ -580,7 +580,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
     page = int(data[2]) if len(data) > 2 and data[2].isdigit() else 0
     
     if action == 'start':
-        # Get daily statistics
+        # Get daily statistics with corrected profit calculation
         total_trades, profitable_trades, loss_trades, total_profit = await get_daily_statistics(callback.from_user.id)
         
         # Format profit/loss text
@@ -591,8 +591,8 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         
         message = f"📊 Сделки, совершенные ботом за текущий день:\n\n" \
                  f"♻️ Общее количество сделок: {total_trades}\n\n" \
-                 f"📗 В прибыль: {profitable_trades} {plural_form(profitable_trades, ['сделка', 'сделки', 'сделок'])} (<a href=\"tg://callback?data=stat profit_details 0\">Подробнее</a>)\n" \
-                 f"📕 В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])} (<a href=\"tg://callback?data=stat loss_details 0\">Подробнее</a>)\n\n" \
+                 f"📗 В прибыль: {profitable_trades} {plural_form(profitable_trades, ['сделка', 'сделки', 'сделок'])}\n" \
+                 f"📕 В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])}\n\n" \
                  f"{profit_text}"
         
         await callback.message.edit_text(text=message, reply_markup=stat_inline(profitable_trades, loss_trades), parse_mode='HTML')
@@ -704,8 +704,8 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         
         message = f"📊 Сделки, совершенные ботом {period_text}:\n\n" \
                  f"♻️ Общее количество сделок: {total_trades}\n\n" \
-                 f"📗 В прибыль: {profitable_trades} {plural_form(profitable_trades, ['сделка', 'сделки', 'сделок'])} (<a href=\"tg://callback?data=stat profit_details_{period_type} 0\">Подробнее</a>)\n" \
-                 f"📕 В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])} (<a href=\"tg://callback?data=stat loss_details_{period_type} 0\">Подробнее</a>)\n\n" \
+                 f"📗 В прибыль: {profitable_trades} {plural_form(profitable_trades, ['сделка', 'сделки', 'сделок'])}\n" \
+                 f"📕 В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])}\n\n" \
                  f"{profit_text}"
         
         # Create keyboard with options to view trades for this period
@@ -778,38 +778,22 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         
         await callback.message.edit_text(text=message, reply_markup=markup, parse_mode='HTML')
     
-    elif action == 'profit_details' or action == 'loss_details':
-        # Получаем дневную статистику
-        today = dt.now()
-        today_date = today.strftime('%Y-%m-%d')
-        
-        # Получаем все закрытые ордера за день
+    elif action == 'profit_list' or action == 'loss_list':
+        # Получаем все закрытые ордера
         closed_orders = await get_all_orders(callback.from_user.id, 'close')
         
-        # Фильтруем только сегодняшние ордера
-        today_orders = []
-        for order in closed_orders:
-            if isinstance(order.get('sale_time'), str):
-                sale_date = order['sale_time'].split(' ')[0]  # Предполагаем формат "YYYY-MM-DD HH:MM:SS"
-            else:
-                # Если sale_time не строка, а datetime
-                sale_date = dt.fromtimestamp(order['create_at']).strftime('%Y-%m-%d')
-            
-            if sale_date == today_date:
-                today_orders.append(order)
-        
         # Фильтруем по прибыльным или убыточным
-        if action == 'profit_details':
+        if action == 'profit_list':
             filtered_orders = []
-            for order in today_orders:
+            for order in closed_orders:
                 buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
                 sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
                 if sale_price > buy_price:
                     filtered_orders.append(order)
             title = "прибыльных"
-        else:  # loss_details
+        else:  # loss_list
             filtered_orders = []
-            for order in today_orders:
+            for order in closed_orders:
                 buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
                 sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
                 if sale_price < buy_price:
@@ -818,8 +802,8 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         
         if not filtered_orders:
             await callback.message.edit_text(
-                text=f"У вас нет {title} сделок за сегодня.",
-                reply_markup=stat_inline(profitable_trades, loss_trades)
+                text=f"У вас нет {title} сделок.",
+                reply_markup=stat_inline()
             )
             return
         
@@ -829,7 +813,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         start_idx = page * TRADES_PER_PAGE
         end_idx = min(start_idx + TRADES_PER_PAGE, len(filtered_orders))
         
-        message = f"📊 <b>{title.capitalize()} сделки за сегодня (страница {page+1}/{total_pages}):</b>\n\n"
+        message = f"📊 <b>{title.capitalize()} сделки (страница {page+1}/{total_pages}):</b>\n\n"
         
         for order in filtered_orders[start_idx:end_idx]:
             buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
@@ -866,101 +850,6 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
             keyboard.append(row)
         
         keyboard.append([InlineKeyboardButton(text='Назад к статистике', callback_data='stat start')])
-        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-        
-        await callback.message.edit_text(text=message, reply_markup=markup, parse_mode='HTML')
-    
-    elif action.startswith('profit_details_') or action.startswith('loss_details_'):
-        # Извлекаем тип периода из action
-        period_type = action.split('_')[2]
-        action_type = action.split('_')[0] + '_' + action.split('_')[1]  # profit_details или loss_details
-        
-        # Вычисляем начальную дату на основе типа периода
-        today = dt.now()
-        if period_type == 'week':
-            start_date = (today - datetime.timedelta(days=7)).timestamp()
-            period_text = "за неделю"
-        elif period_type == 'month':
-            start_date = (today - datetime.timedelta(days=30)).timestamp()
-            period_text = "за месяц"
-        elif period_type == 'year':
-            start_date = (today - datetime.timedelta(days=365)).timestamp()
-            period_text = "за год"
-        else:  # all time
-            start_date = 0
-            period_text = "за все время"
-        
-        # Получаем закрытые ордера за период
-        closed_orders = await get_all_orders(callback.from_user.id, 'close', from_date=start_date)
-        
-        # Фильтруем по прибыльным или убыточным
-        if action_type == 'profit_details':
-            filtered_orders = []
-            for order in closed_orders:
-                buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
-                sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
-                if sale_price > buy_price:
-                    filtered_orders.append(order)
-            title = "прибыльных"
-        else:  # loss_details
-            filtered_orders = []
-            for order in closed_orders:
-                buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
-                sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
-                if sale_price < buy_price:
-                    filtered_orders.append(order)
-            title = "убыточных"
-        
-        if not filtered_orders:
-            await callback.message.edit_text(
-                text=f"У вас нет {title} сделок {period_text}.",
-                reply_markup=stat_period_inline()
-            )
-            return
-        
-        # Отображаем сделки
-        TRADES_PER_PAGE = 3
-        total_pages = (len(filtered_orders) + TRADES_PER_PAGE - 1) // TRADES_PER_PAGE
-        start_idx = page * TRADES_PER_PAGE
-        end_idx = min(start_idx + TRADES_PER_PAGE, len(filtered_orders))
-        
-        message = f"📊 <b>{title.capitalize()} сделки {period_text} (страница {page+1}/{total_pages}):</b>\n\n"
-        
-        for order in filtered_orders[start_idx:end_idx]:
-            buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
-            sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
-            
-            if buy_price and sale_price:
-                profit_percent = ((sale_price - buy_price) / buy_price) * 100
-                symbol = "✅" if profit_percent > 0 else "❌"
-                
-                time_str = ""
-                if isinstance(order.get('sale_time'), str):
-                    time_str = order['sale_time']
-                else:
-                    time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
-                
-                invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
-                
-                message += f"{symbol} <b>{order['symbol']}:</b>\n" \
-                          f"📅 {time_str}\n" \
-                          f"💰 Инвестировано: ${round(invest_amount, 2)}\n" \
-                          f"📈 Цена входа: ${round(buy_price, 8)}\n" \
-                          f"📉 Цена выхода: ${round(sale_price, 8)}\n" \
-                          f"🔄 P&L: {round(profit_percent, 2)}%\n\n"
-        
-        # Create navigation buttons
-        keyboard = []
-        if total_pages > 1:
-            row = []
-            if page > 0:
-                row.append(InlineKeyboardButton(text='◀️', callback_data=f'stat {action} {page-1}'))
-            row.append(InlineKeyboardButton(text=f'{page+1}/{total_pages}', callback_data='none'))
-            if page < total_pages - 1:
-                row.append(InlineKeyboardButton(text='▶️', callback_data=f'stat {action} {page+1}'))
-            keyboard.append(row)
-        
-        keyboard.append([InlineKeyboardButton(text='Назад к статистике', callback_data=f'stat period_{period_type}')])
         markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
         
         await callback.message.edit_text(text=message, reply_markup=markup, parse_mode='HTML')

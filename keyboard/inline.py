@@ -33,7 +33,7 @@ def stat_inline(profit=0, lesion=0):
         [
             InlineKeyboardButton(text='Все сделки', callback_data='stat all 0')
         ],
-        [InlineKeyboardButton(text='Скачать таблицу со статистикой', callback_data='table stat')],
+        [InlineKeyboardButton(text='Скачать таблицу со сделками', callback_data='table stat')],
         [InlineKeyboardButton(text='Статистика за определенный период', callback_data='stat period')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
