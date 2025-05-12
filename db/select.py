@@ -224,7 +224,7 @@ async def get_daily_statistics(user_id: int):
     conn = await connect()
     try:
         # Get current date in ISO format
-        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        today = datetime.datetime.now().date()
         
         # Count total trades closed today
         total_trades = await conn.fetchval(
@@ -232,10 +232,10 @@ async def get_daily_statistics(user_id: int):
             SELECT COUNT(*)
             FROM orders
             WHERE coin_sale_price IS NOT NULL 
-            AND DATE(sale_time) = $1
-            AND user_id = $2
+            AND user_id = $1
+            AND sale_time::timestamp::date = $2
             """, 
-            today, user_id
+            user_id, today
         )
         
         # Count profitable trades closed today
@@ -244,10 +244,10 @@ async def get_daily_statistics(user_id: int):
             SELECT COUNT(*)
             FROM orders
             WHERE coin_sale_price > coin_buy_price 
-            AND DATE(sale_time) = $1
-            AND user_id = $2
+            AND user_id = $1
+            AND sale_time::timestamp::date = $2
             """, 
-            today, user_id
+            user_id, today
         )
         
         # Count loss trades closed today
@@ -256,10 +256,10 @@ async def get_daily_statistics(user_id: int):
             SELECT COUNT(*)
             FROM orders
             WHERE coin_sale_price < coin_buy_price 
-            AND DATE(sale_time) = $1
-            AND user_id = $2
+            AND user_id = $1
+            AND sale_time::timestamp::date = $2
             """, 
-            today, user_id
+            user_id, today
         )
         
         # Calculate total profit for today
@@ -269,10 +269,10 @@ async def get_daily_statistics(user_id: int):
             SELECT id, investment_amount_usdt, pnl_percent, pnl_usdt, coin_buy_price, coin_sale_price
             FROM orders
             WHERE coin_sale_price IS NOT NULL
-            AND DATE(sale_time) = $1
-            AND user_id = $2
+            AND user_id = $1
+            AND sale_time::timestamp::date = $2
             """,
-            today, user_id
+            user_id, today
         )
         
         # Calculate profit using the same logic as get_statistics_for_period
