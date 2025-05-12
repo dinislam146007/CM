@@ -935,9 +935,9 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         message += f"<b>Цена закрытия:</b> {round(sale_price, 8)}$ 📈\n"
         
         if is_profit:
-            message += f"<b>Прибыль:</b> {abs(round(pnl, 2))}$💸🔋\n\n"
-        else:
             message += f"<b>Убыток:</b> {abs(round(pnl, 2))}$🤕🪫\n\n"
+        else:
+            message += f"<b>Прибыль:</b> {abs(round(pnl, 2))}$💸🔋\n\n"
             
         message += f"<b>Объем сделки:</b> {round(invest_amount, 2)}$ 💵\n\n"
         message += f"<b>Биржа:</b> {exchange}\n"

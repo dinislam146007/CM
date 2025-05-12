@@ -1,4 +1,5 @@
 import openpyxl
+import datetime
 
 
 def create_xls(columns, data, file_name="signals.xlsx", translate_columns=False):
@@ -39,9 +40,12 @@ def create_xls(columns, data, file_name="signals.xlsx", translate_columns=False)
     for col_num, column_name in enumerate(header_row, start=1):
         sheet.cell(row=1, column=col_num, value=column_name)
 
-    # Запись данных
+    # Запись данных с обработкой timezone
     for row_num, row_data in enumerate(data, start=2):
         for col_num, cell_value in enumerate(row_data, start=1):
+            # Удаляем информацию о часовом поясе из datetime объектов
+            if isinstance(cell_value, datetime.datetime) and cell_value.tzinfo is not None:
+                cell_value = cell_value.replace(tzinfo=None)
             sheet.cell(row=row_num, column=col_num, value=cell_value)
 
     workbook.save(file_name)
