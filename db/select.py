@@ -27,6 +27,22 @@ async def get_signal(symbol: str, interval: str) -> Optional[dict]:
     await conn.close()
     return dict(row) if row else None
 
+async def count_signals(signal: str) -> int:
+    """Count the number of distinct symbols with the given signal status"""
+    conn = await connect()
+    try:
+        count = await conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT symbol)
+            FROM signals
+            WHERE status = $1
+            """,
+            signal
+        )
+        return count if count is not None else 0
+    finally:
+        await conn.close()
+
 # Функции для таблицы orders
 
 
