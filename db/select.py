@@ -162,9 +162,10 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
             user_id, start_date, end_date
         )
 
-        total_profit = await conn.fetchval(
+        # Получаем данные для расчета прибыли
+        rows = await conn.fetch(
             """
-            SELECT COALESCE(SUM(coin_sale_price - coin_buy_price), 0)
+            SELECT id, investment_amount_usdt, pnl_percent, pnl_usdt, coin_buy_price, coin_sale_price
             FROM orders
             WHERE coin_sale_price IS NOT NULL
               AND user_id = $1
@@ -173,126 +174,30 @@ async def get_statistics_for_period(user_id: int, start_date: str, end_date: str
             user_id, start_date, end_date
         )
 
-        return total_trades, profitable_trades, loss_trades, total_profit
-    finally:
-        await conn.close()
-
-async def get_stat_db(user_id: int, action: str):
-    conn = await connect()
-    try:
-        query = """
-        SELECT * FROM orders
-        WHERE user_id = $1
-        """
-        if action == 'profit':
-            query += " AND coin_sale_price > coin_buy_price"
-        else:
-            query += " AND coin_sale_price < coin_buy_price"
-
-        rows = await conn.fetch(query, user_id)
-        return [dict(row) for row in rows] if rows else []
-    finally:
-        await conn.close()
-
-async def all_signals(status: str, interval: str):
-    conn = await connect()
-    try:
-        query = """
-        SELECT * FROM signals
-        WHERE status = $1 AND interval = $2
-        """
-        rows = await conn.fetch(query, status, interval)
-        return [dict(row) for row in rows] if rows else []
-    finally:
-        await conn.close()
-
-async def count_signals(signal: str):
-    conn = await connect()
-    try:
-        query = """
-        SELECT COUNT(DISTINCT symbol)
-        FROM signals
-        WHERE status = $1
-        """
-        count = await conn.fetchval(query, signal)
-        return count if count is not None else 0
-    finally:
-        await conn.close()
-
-
-
-async def get_daily_statistics(user_id: int):
-    conn = await connect()
-    try:
-        today = datetime.date.today()  # Преобразуем в date
-
-        total_trades = await conn.fetchval(
-            """
-            SELECT COUNT(*)
-            FROM orders
-            WHERE coin_sale_price IS NOT NULL
-              AND sale_time::DATE = $1
-              AND user_id = $2
-            """,
-            today, user_id  # Передаём объект date вместо строки
-        )
-
-        profitable_trades = await conn.fetchval(
-            """
-            SELECT COUNT(*)
-            FROM orders
-            WHERE coin_sale_price > coin_buy_price
-              AND sale_time::DATE = $1
-              AND user_id = $2
-            """,
-            today, user_id
-        )
-
-        loss_trades = await conn.fetchval(
-            """
-            SELECT COUNT(*)
-            FROM orders
-            WHERE coin_sale_price < coin_buy_price
-              AND sale_time::DATE = $1
-              AND user_id = $2
-            """,
-            today, user_id
-        )
-
-        # Расчет прибыли на основе инвестиций и процента прибыли
-        rows = await conn.fetch(
-            """
-            SELECT id, investment_amount_usdt, pnl_percent, pnl_usdt
-            FROM orders
-            WHERE coin_sale_price IS NOT NULL
-              AND sale_time::DATE = $1
-              AND user_id = $2
-            """,
-            today, user_id
-        )
-        
         total_profit = 0
         for row in rows:
             # Если есть прямой PnL в USDT, используем его
-            if row['pnl_usdt'] is not None:
-                total_profit += row['pnl_usdt']
+            if row.get('pnl_usdt') is not None:
+                total_profit += float(row['pnl_usdt'])
             # Иначе вычисляем из суммы инвестиций и процента
-            elif row['investment_amount_usdt'] is not None and row['pnl_percent'] is not None:
-                profit = row['investment_amount_usdt'] * (row['pnl_percent'] / 100)
+            elif row.get('investment_amount_usdt') is not None and row.get('pnl_percent') is not None:
+                # Convert decimal.Decimal to float before calculations
+                investment = row['investment_amount_usdt']
+                if hasattr(investment, 'normalize'):  # It's a Decimal
+                    investment = float(investment)
+                
+                pnl_percent = row['pnl_percent']
+                if hasattr(pnl_percent, 'normalize'):  # It's a Decimal
+                    pnl_percent = float(pnl_percent)
+                
+                profit = investment * (pnl_percent / 100)
                 total_profit += profit
             # Если нет ни того ни другого, пробуем простой расчет
-            else:
-                # Этот запрос будет выполнен только если предыдущие методы не сработали
-                order_profit = await conn.fetchval(
-                    """
-                    SELECT (coin_sale_price - coin_buy_price)
-                    FROM orders
-                    WHERE id = $1
-                    """,
-                    row['id'] if 'id' in row else -1
-                )
-                if order_profit:
-                    total_profit += order_profit
+            elif row.get('coin_buy_price') is not None and row.get('coin_sale_price') is not None:
+                buy_price = float(row['coin_buy_price'])
+                sale_price = float(row['coin_sale_price'])
+                profit = sale_price - buy_price
+                total_profit += profit
 
         return total_trades, profitable_trades, loss_trades, total_profit
     finally:

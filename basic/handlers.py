@@ -731,6 +731,12 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
             
             if buy_price and sale_price:
                 profit_percent = ((sale_price - buy_price) / buy_price) * 100
+                # Convert decimal.Decimal to float before performing calculations
+                if hasattr(invest_amount, 'to_float'):
+                    invest_amount = invest_amount.to_float()
+                elif hasattr(invest_amount, 'normalize'):  # It's a Decimal
+                    invest_amount = float(invest_amount)
+                
                 profit_amount = invest_amount * (profit_percent / 100)
                 total_profit += profit_amount
                 
