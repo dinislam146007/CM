@@ -25,7 +25,7 @@ from db import set_user as set_user_db
 from db.orders import ( 
                     get_all_orders)
 from db.select import (get_signal, 
-                     get_statistics_for_period, all_signals, count_signals, 
+                     get_statistics_for_period, get_signals, count_signals, 
                      get_daily_statistics, all_signals_no_signal, 
                      get_all_intervals_for_pairs_with_status, fetch_signals, fetch_stat,
                      get_signals)

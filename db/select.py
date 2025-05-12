@@ -230,6 +230,19 @@ async def get_all_intervals_for_pairs_with_status(status: str):
     finally:
         await conn.close()
 
+async def all_signals(status: str, interval: str):
+    """Get all signals with specified status and interval"""
+    conn = await connect()
+    try:
+        query = """
+        SELECT * FROM signals
+        WHERE status = $1 AND interval = $2
+        """
+        rows = await conn.fetch(query, status, interval)
+        return [dict(row) for row in rows] if rows else []
+    finally:
+        await conn.close()
+
 async def fetch_signals():
     conn = await connect()
     try:
