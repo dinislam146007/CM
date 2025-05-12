@@ -20,6 +20,8 @@ from basic.state import *
 from config import config
 from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates, PumpDumpParamStates
 import re
+from db import get_user as get_user_db
+from db import set_user as set_user_db
 from db.orders import ( 
                     get_all_orders)
 from db.select import (get_signal, 
@@ -974,11 +976,10 @@ async def start_message(message: Message, bot: Bot):
     # Run migration at first start - don't await since it's not async
     migrate_user_settings()
     
-    if not await get_user(message.from_user.id):
-        await set_user(message.from_user.id, 5.0, 50000.0)
-        # Initialize default strategy parameters for the new user
+    if not await get_user_db(message.from_user.id):
+        await set_user_db(message.from_user.id, 5.0, 50000.0)
         await reset_user_params(message.from_user.id)
-    user = await get_user(message.from_user.id)
+    user = await get_user_db(message.from_user.id)
     await message.answer(
         f"Бот по обработке фильтра CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms\nВаш баланс: {round(user['balance'])}$  💸",
         reply_markup=start_inline()
