@@ -607,39 +607,82 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
             )
             return
         
-        # Display multiple trades per page
-        TRADES_PER_PAGE = 3
-        total_pages = (len(closed_orders) + TRADES_PER_PAGE - 1) // TRADES_PER_PAGE
-        start_idx = page * TRADES_PER_PAGE
-        end_idx = min(start_idx + TRADES_PER_PAGE, len(closed_orders))
-        
-        message = f"📊 <b>Закрытые сделки (страница {page+1}/{total_pages}):</b>\n\n"
-        
-        for order in closed_orders[start_idx:end_idx]:
-            # Access price data using correct keys
-            buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
-            sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
+        # Пагинация для отображения по одной сделке
+        if page < 0:
+            page = 0
+        if page >= len(closed_orders):
+            page = len(closed_orders) - 1
             
-            # Calculate profit or loss
-            if buy_price and sale_price:
-                profit_percent = ((sale_price - buy_price) / buy_price) * 100
-                profit_symbol = "✅" if profit_percent > 0 else "❌"
-                
-                time_str = order.get('sale_time', 'Время не указано') if isinstance(order.get('sale_time'), str) else (order['sale_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('sale_time') is not None else (order['buy_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('buy_time') is not None else 'Время не указано'))
-                invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
-                
-                message += f"{profit_symbol} <b>{order['symbol']}:</b>\n" \
-                          f"📅 {time_str}\n" \
-                          f"💰 Инвестировано: ${round(invest_amount, 2)}\n" \
-                          f"📈 Цена входа: ${round(buy_price, 8)}\n" \
-                          f"📉 Цена выхода: ${round(sale_price, 8)}\n" \
-                          f"🔄 P&L: {round(profit_percent, 2)}%\n\n"
+        order = closed_orders[page]
         
-        await callback.message.edit_text(
-            text=message,
-            reply_markup=stat_inline_n(page, total_pages, 'all'),
-            parse_mode='HTML'
-        )
+        # Получаем данные о сделке
+        buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
+        sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
+        
+        # Форматируем время
+        time_str = ""
+        if isinstance(order.get('sale_time'), str):
+            time_str = order['sale_time']
+        elif order.get('sale_time') is not None:
+            time_str = order['sale_time'].strftime('%d-%m-%Y %H:%M')
+        else:
+            time_str = "Время не указано"
+            
+        buy_time_str = ""
+        if isinstance(order.get('buy_time'), str):
+            buy_time_str = order['buy_time']
+        elif order.get('buy_time') is not None:
+            buy_time_str = order['buy_time'].strftime('%d-%m-%Y %H:%M')
+        else:
+            buy_time_str = "Время не указано"
+            
+        # Расчет прибыли/убытка
+        invest_amount = order.get('investment_amount_usdt', 0)
+        pnl = order.get('pnl_usdt', sale_price - buy_price)
+        is_profit = pnl > 0
+        
+        # Информация о торговле
+        trading_type = order.get('trading_type', 'spot').upper()
+        leverage = order.get('leverage', 1)
+        exchange = order.get('exchange', 'Неизвестно')
+        
+        # Формируем сообщение по запрошенному шаблону
+        message = f"<b>Инструмент:</b> {order['symbol']} | {interval_conv(order['interval'])}\n\n"
+        message += f"<b>Цена открытия:</b> {round(buy_price, 8)}$ 📈\n"
+        message += f"<b>Цена закрытия:</b> {round(sale_price, 8)}$ 📈\n"
+        
+        if is_profit:
+            message += f"<b>Прибыль:</b> {abs(round(pnl, 2))}$💸🔋\n\n"
+        else:
+            message += f"<b>Убыток:</b> {abs(round(pnl, 2))}$🤕🪫\n\n"
+            
+        message += f"<b>Объем сделки:</b> {round(invest_amount, 2)}$ 💵\n\n"
+        message += f"<b>Биржа:</b> {exchange}\n"
+        message += f"<b>Тип торговли:</b> {trading_type}"
+        
+        if trading_type == 'FUTURES':
+            message += f" (плечо: x{leverage})\n\n"
+        else:
+            message += "\n\n"
+        
+        message += f"<b>Дата и время закрытия:</b>\n⏱️{time_str}\n\n"
+        message += f"<b>Сделка была открыта:</b>\n⏱️{buy_time_str}\n"
+        
+        # Create navigation buttons
+        keyboard = []
+        if len(closed_orders) > 1:
+            row = []
+            if page > 0:
+                row.append(InlineKeyboardButton(text='◀️', callback_data=f'stat all {page-1}'))
+            row.append(InlineKeyboardButton(text=f'{page+1}/{len(closed_orders)}', callback_data='none'))
+            if page < len(closed_orders) - 1:
+                row.append(InlineKeyboardButton(text='▶️', callback_data=f'stat all {page+1}'))
+            keyboard.append(row)
+        
+        keyboard.append([InlineKeyboardButton(text='Назад к статистике', callback_data='stat start')])
+        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        
+        await callback.message.edit_text(text=message, reply_markup=markup, parse_mode='HTML')
     
     elif action == 'period':
         await callback.message.edit_text(
@@ -734,42 +777,82 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         # Get closed orders for the period
         closed_orders = await get_all_orders(callback.from_user.id, 'close', from_date=start_date)
         
-        # Display multiple trades per page
-        TRADES_PER_PAGE = 3
-        total_pages = (len(closed_orders) + TRADES_PER_PAGE - 1) // TRADES_PER_PAGE
-        start_idx = page * TRADES_PER_PAGE
-        end_idx = min(start_idx + TRADES_PER_PAGE, len(closed_orders))
-        
-        message = f"📊 <b>Закрытые сделки (страница {page+1}/{total_pages}):</b>\n\n"
-        
-        for order in closed_orders[start_idx:end_idx]:
-            # Access price data using correct keys
-            buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
-            sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
+        if not closed_orders:
+            await callback.message.edit_text(
+                text=f"У вас нет закрытых сделок за выбранный период.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='Назад', callback_data=f'stat period_{period_type}')]])
+            )
+            return
+
+        # Пагинация для отображения по одной сделке
+        if page < 0:
+            page = 0
+        if page >= len(closed_orders):
+            page = len(closed_orders) - 1
             
-            # Calculate profit or loss
-            if buy_price and sale_price:
-                profit_percent = ((sale_price - buy_price) / buy_price) * 100
-                profit_symbol = "✅" if profit_percent > 0 else "❌"
-                
-                time_str = order.get('sale_time', 'Время не указано') if isinstance(order.get('sale_time'), str) else (order['sale_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('sale_time') is not None else (order['buy_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('buy_time') is not None else 'Время не указано'))
-                invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
-                
-                message += f"{profit_symbol} <b>{order['symbol']}:</b>\n" \
-                          f"📅 {time_str}\n" \
-                          f"💰 Инвестировано: ${round(invest_amount, 2)}\n" \
-                          f"📈 Цена входа: ${round(buy_price, 8)}\n" \
-                          f"📉 Цена выхода: ${round(sale_price, 8)}\n" \
-                          f"🔄 P&L: {round(profit_percent, 2)}%\n\n"
+        order = closed_orders[page]
+        
+        # Получаем данные о сделке
+        buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
+        sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
+        
+        # Форматируем время
+        time_str = ""
+        if isinstance(order.get('sale_time'), str):
+            time_str = order['sale_time']
+        elif order.get('sale_time') is not None:
+            time_str = order['sale_time'].strftime('%d-%m-%Y %H:%M')
+        else:
+            time_str = "Время не указано"
+            
+        buy_time_str = ""
+        if isinstance(order.get('buy_time'), str):
+            buy_time_str = order['buy_time']
+        elif order.get('buy_time') is not None:
+            buy_time_str = order['buy_time'].strftime('%d-%m-%Y %H:%M')
+        else:
+            buy_time_str = "Время не указано"
+            
+        # Расчет прибыли/убытка
+        invest_amount = order.get('investment_amount_usdt', 0)
+        pnl = order.get('pnl_usdt', sale_price - buy_price)
+        is_profit = pnl > 0
+        
+        # Информация о торговле
+        trading_type = order.get('trading_type', 'spot').upper()
+        leverage = order.get('leverage', 1)
+        exchange = order.get('exchange', 'Неизвестно')
+        
+        # Формируем сообщение по запрошенному шаблону
+        message = f"<b>Инструмент:</b> {order['symbol']} | {interval_conv(order['interval'])}\n\n"
+        message += f"<b>Цена открытия:</b> {round(buy_price, 8)}$ 📈\n"
+        message += f"<b>Цена закрытия:</b> {round(sale_price, 8)}$ 📈\n"
+        
+        if is_profit:
+            message += f"<b>Прибыль:</b> {abs(round(pnl, 2))}$💸🔋\n\n"
+        else:
+            message += f"<b>Убыток:</b> {abs(round(pnl, 2))}$🤕🪫\n\n"
+            
+        message += f"<b>Объем сделки:</b> {round(invest_amount, 2)}$ 💵\n\n"
+        message += f"<b>Биржа:</b> {exchange}\n"
+        message += f"<b>Тип торговли:</b> {trading_type}"
+        
+        if trading_type == 'FUTURES':
+            message += f" (плечо: x{leverage})\n\n"
+        else:
+            message += "\n\n"
+        
+        message += f"<b>Дата и время закрытия:</b>\n⏱️{time_str}\n\n"
+        message += f"<b>Сделка была открыта:</b>\n⏱️{buy_time_str}\n"
         
         # Create navigation keyboard with back button to period stats
         keyboard = []
-        if total_pages > 1:
+        if len(closed_orders) > 1:
             row = []
             if page > 0:
                 row.append(InlineKeyboardButton(text='◀️', callback_data=f'stat period_view_{period_type} {page-1}'))
-            row.append(InlineKeyboardButton(text=f'{page+1}/{total_pages}', callback_data='none'))
-            if page < total_pages - 1:
+            row.append(InlineKeyboardButton(text=f'{page+1}/{len(closed_orders)}', callback_data='none'))
+            if page < len(closed_orders) - 1:
                 row.append(InlineKeyboardButton(text='▶️', callback_data=f'stat period_view_{period_type} {page+1}'))
             keyboard.append(row)
         
@@ -807,45 +890,75 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
             )
             return
         
-        # Отображаем сделки
-        TRADES_PER_PAGE = 3
-        total_pages = (len(filtered_orders) + TRADES_PER_PAGE - 1) // TRADES_PER_PAGE
-        start_idx = page * TRADES_PER_PAGE
-        end_idx = min(start_idx + TRADES_PER_PAGE, len(filtered_orders))
-        
-        message = f"📊 <b>{title.capitalize()} сделки (страница {page+1}/{total_pages}):</b>\n\n"
-        
-        for order in filtered_orders[start_idx:end_idx]:
-            buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
-            sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
+        # Пагинация для отображения по одной сделке
+        if page < 0:
+            page = 0
+        if page >= len(filtered_orders):
+            page = len(filtered_orders) - 1
             
-            if buy_price and sale_price:
-                profit_percent = ((sale_price - buy_price) / buy_price) * 100
-                symbol = "✅" if profit_percent > 0 else "❌"
-                
-                time_str = ""
-                if isinstance(order.get('sale_time'), str):
-                    time_str = order['sale_time']
-                else:
-                    time_str = order.get('sale_time', 'Время не указано') if isinstance(order.get('sale_time'), str) else (order['sale_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('sale_time') is not None else (order['buy_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('buy_time') is not None else 'Время не указано'))
-                
-                invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
-                
-                message += f"{symbol} <b>{order['symbol']}:</b>\n" \
-                          f"📅 {time_str}\n" \
-                          f"💰 Инвестировано: ${round(invest_amount, 2)}\n" \
-                          f"📈 Цена входа: ${round(buy_price, 8)}\n" \
-                          f"📉 Цена выхода: ${round(sale_price, 8)}\n" \
-                          f"🔄 P&L: {round(profit_percent, 2)}%\n\n"
+        order = filtered_orders[page]
+        
+        # Получаем данные о сделке
+        buy_price = order.get('coin_buy_price', order.get('buy_price', 0))
+        sale_price = order.get('coin_sale_price', order.get('sale_price', 0))
+        
+        # Форматируем время
+        time_str = ""
+        if isinstance(order.get('sale_time'), str):
+            time_str = order['sale_time']
+        elif order.get('sale_time') is not None:
+            time_str = order['sale_time'].strftime('%d-%m-%Y %H:%M')
+        else:
+            time_str = "Время не указано"
+            
+        buy_time_str = ""
+        if isinstance(order.get('buy_time'), str):
+            buy_time_str = order['buy_time']
+        elif order.get('buy_time') is not None:
+            buy_time_str = order['buy_time'].strftime('%d-%m-%Y %H:%M')
+        else:
+            buy_time_str = "Время не указано"
+            
+        # Расчет прибыли/убытка
+        invest_amount = order.get('investment_amount_usdt', 0)
+        pnl = order.get('pnl_usdt', sale_price - buy_price)
+        is_profit = pnl > 0
+        
+        # Информация о торговле
+        trading_type = order.get('trading_type', 'spot').upper()
+        leverage = order.get('leverage', 1)
+        exchange = order.get('exchange', 'Неизвестно')
+        
+        # Формируем сообщение по запрошенному шаблону
+        message = f"<b>Инструмент:</b> {order['symbol']} | {interval_conv(order['interval'])}\n\n"
+        message += f"<b>Цена открытия:</b> {round(buy_price, 8)}$ 📈\n"
+        message += f"<b>Цена закрытия:</b> {round(sale_price, 8)}$ 📈\n"
+        
+        if is_profit:
+            message += f"<b>Прибыль:</b> {abs(round(pnl, 2))}$💸🔋\n\n"
+        else:
+            message += f"<b>Убыток:</b> {abs(round(pnl, 2))}$🤕🪫\n\n"
+            
+        message += f"<b>Объем сделки:</b> {round(invest_amount, 2)}$ 💵\n\n"
+        message += f"<b>Биржа:</b> {exchange}\n"
+        message += f"<b>Тип торговли:</b> {trading_type}"
+        
+        if trading_type == 'FUTURES':
+            message += f" (плечо: x{leverage})\n\n"
+        else:
+            message += "\n\n"
+        
+        message += f"<b>Дата и время закрытия:</b>\n⏱️{time_str}\n\n"
+        message += f"<b>Сделка была открыта:</b>\n⏱️{buy_time_str}\n"
         
         # Create navigation buttons
         keyboard = []
-        if total_pages > 1:
+        if len(filtered_orders) > 1:
             row = []
             if page > 0:
                 row.append(InlineKeyboardButton(text='◀️', callback_data=f'stat {action} {page-1}'))
-            row.append(InlineKeyboardButton(text=f'{page+1}/{total_pages}', callback_data='none'))
-            if page < total_pages - 1:
+            row.append(InlineKeyboardButton(text=f'{page+1}/{len(filtered_orders)}', callback_data='none'))
+            if page < len(filtered_orders) - 1:
                 row.append(InlineKeyboardButton(text='▶️', callback_data=f'stat {action} {page+1}'))
             keyboard.append(row)
         
@@ -1204,14 +1317,14 @@ async def table(callback: CallbackQuery, bot: Bot):
     if action == 'signals':
         columns, data = await fetch_signals()
 
-        # Создаем Excel файл с обычными названиями колонок
-        file_name = create_xls(columns, data)
+        # Создаем Excel файл с русскими названиями колонок
+        file_name = create_xls(columns, data, file_name="signals.xlsx", translate_columns=True)
 
         # Отправка файла в Telegram
         xls_file = FSInputFile(file_name)  # Создаем FSInputFile с путем к файлу
 
         with open(file_name, 'rb') as file:
-            await bot.send_document(chat_id=callback.from_user.id, document=xls_file, caption="Вот ваш файл 📄")
+            await bot.send_document(chat_id=callback.from_user.id, document=xls_file, caption="Вот ваш файл с сигналами 📄")
 
     elif action == 'stat':
         columns, data = await fetch_stat(callback.from_user.id)
