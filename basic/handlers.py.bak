@@ -625,7 +625,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 profit_percent = ((sale_price - buy_price) / buy_price) * 100
                 profit_symbol = "✅" if profit_percent > 0 else "❌"
                 
-                time_str = order.get('sale_time', 'Время не указано') if isinstance(order.get('sale_time'), str) else (order['sale_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('sale_time') is not None else (order['buy_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('buy_time') is not None else 'Время не указано'))
+                time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
                 message += f"{profit_symbol} <b>{order['symbol']}:</b>\n" \
@@ -752,7 +752,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 profit_percent = ((sale_price - buy_price) / buy_price) * 100
                 profit_symbol = "✅" if profit_percent > 0 else "❌"
                 
-                time_str = order.get('sale_time', 'Время не указано') if isinstance(order.get('sale_time'), str) else (order['sale_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('sale_time') is not None else (order['buy_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('buy_time') is not None else 'Время не указано'))
+                time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
                 message += f"{profit_symbol} <b>{order['symbol']}:</b>\n" \
@@ -827,7 +827,7 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                 if isinstance(order.get('sale_time'), str):
                     time_str = order['sale_time']
                 else:
-                    time_str = order.get('sale_time', 'Время не указано') if isinstance(order.get('sale_time'), str) else (order['sale_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('sale_time') is not None else (order['buy_time'].strftime('%d.%m.%Y %H:%M:%S') if order.get('buy_time') is not None else 'Время не указано'))
+                    time_str = dt.fromtimestamp(order['create_at']).strftime('%d.%m.%Y %H:%M:%S')
                 
                 invest_amount = order.get('invest_amount', order.get('investment_amount_usdt', 0))
                 
@@ -1204,7 +1204,6 @@ async def table(callback: CallbackQuery, bot: Bot):
     if action == 'signals':
         columns, data = await fetch_signals()
 
-        # Создаем Excel файл с обычными названиями колонок
         file_name = create_xls(columns, data)
 
         # Отправка файла в Telegram
@@ -1220,14 +1219,14 @@ async def table(callback: CallbackQuery, bot: Bot):
             await callback.answer("Нет данных для отображения.")
             return
 
-        # Создаем Excel файл с русскими названиями колонок
-        file_name = create_xls(columns, data, file_name="orders_stat.xlsx", translate_columns=True)
+        # Создаем Excel файл
+        file_name = create_xls(columns, data, file_name="orders_stat.xlsx")
 
         # Отправка файла в Telegram
         xls_file = FSInputFile(file_name)
 
         with open(file_name, 'rb') as file:
-            await bot.send_document(chat_id=callback.from_user.id, document=xls_file, caption="Вот ваш файл со сделками 📄")
+            await bot.send_document(chat_id=callback.from_user.id, document=xls_file, caption="Вот ваш файл с заказами 📄")
 
 
 @router.callback_query(F.data.startswith('monitor'))

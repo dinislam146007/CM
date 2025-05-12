@@ -259,9 +259,10 @@ async def get_daily_statistics(user_id: int):
             today, user_id
         )
 
-        total_profit = await conn.fetchval(
+        # Расчет прибыли на основе инвестиций и процента прибыли
+        rows = await conn.fetch(
             """
-            SELECT COALESCE(SUM(coin_sale_price - coin_buy_price), 0)
+            SELECT id, investment_amount_usdt, pnl_percent, pnl_usdt
             FROM orders
             WHERE coin_sale_price IS NOT NULL
               AND sale_time::DATE = $1
@@ -269,6 +270,29 @@ async def get_daily_statistics(user_id: int):
             """,
             today, user_id
         )
+        
+        total_profit = 0
+        for row in rows:
+            # Если есть прямой PnL в USDT, используем его
+            if row['pnl_usdt'] is not None:
+                total_profit += row['pnl_usdt']
+            # Иначе вычисляем из суммы инвестиций и процента
+            elif row['investment_amount_usdt'] is not None and row['pnl_percent'] is not None:
+                profit = row['investment_amount_usdt'] * (row['pnl_percent'] / 100)
+                total_profit += profit
+            # Если нет ни того ни другого, пробуем простой расчет
+            else:
+                # Этот запрос будет выполнен только если предыдущие методы не сработали
+                order_profit = await conn.fetchval(
+                    """
+                    SELECT (coin_sale_price - coin_buy_price)
+                    FROM orders
+                    WHERE id = $1
+                    """,
+                    row['id'] if 'id' in row else -1
+                )
+                if order_profit:
+                    total_profit += order_profit
 
         return total_trades, profitable_trades, loss_trades, total_profit
     finally:
