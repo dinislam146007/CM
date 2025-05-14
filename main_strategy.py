@@ -898,7 +898,8 @@ _FETCHER_MAP = {
     ("binance", "spot"):    get_binance_spot_signals,
     ("binance", "futures"): get_binance_futures_signals,
     ("bybit",   "spot"):    get_bybit_spot_signals,
-    ("bybit",   "futures"): get_bybit_futures_signals,
+    ("bybit", "futures"): lambda: ccxt.bybit({"enableRateLimit": True,
+                                         "defaultType": "future"}),
     ("mexc",    "spot"):    get_mexc_spot_signals,
     ("mexc",    "futures"): get_mexc_futures_signals,
 }

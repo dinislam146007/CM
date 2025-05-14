@@ -583,7 +583,6 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         # Get daily statistics with corrected profit calculation
         total_trades, profitable_trades, loss_trades, total_profit = await get_daily_statistics(callback.from_user.id)
         
-        # Format profit/loss text
         if total_profit > 0:
             profit_text = f"Чистый профит: {round(total_profit, 2)}$ 💰🔋"
         else:
@@ -751,7 +750,6 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
                  f"📕 В убыток: {loss_trades} {plural_form(loss_trades, ['сделка', 'сделки', 'сделок'])}\n\n" \
                  f"{profit_text}"
         
-        # Create keyboard with options to view trades for this period
         keyboard = [
             [InlineKeyboardButton(text='Просмотреть сделки за этот период', callback_data=f'stat period_view_{period_type} 0')],
             [InlineKeyboardButton(text='Назад', callback_data='stat period')]
@@ -1123,17 +1121,25 @@ async def orders(callback: CallbackQuery, bot: Bot):
         
         for i, form in enumerate(forms, 1):
             if action == 'open':
-                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {round(form['buy_price'], 2)}$ | {form['buy_time']}\n"
+                # Используем coin_buy_price вместо buy_price для отображения цены
+                buy_price = form.get('coin_buy_price', 0)
+                buy_time = form.get('buy_time', 'Неизвестно')
+                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {round(buy_price, 2)}$ | {buy_time}\n"
             else:
                 profit_loss = ""
-                if form['buy_price'] < form['sale_price']:
-                    profit = form['sale_price'] - form['buy_price']
+                # Используем coin_buy_price и coin_sale_price
+                entry_price = form.get('coin_buy_price', 0)
+                sale_price = form.get('coin_sale_price', 0)
+                
+                if entry_price < sale_price:
+                    profit = sale_price - entry_price
                     profit_loss = f"(+{round(profit, 2)}$💸)"
                 else:
-                    loss = form['buy_price'] - form['sale_price']
+                    loss = entry_price - sale_price
                     profit_loss = f"(-{round(loss, 2)}$🤕)"
                 
-                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_loss} | {form['sale_time']}\n"
+                sale_time = form.get('sale_time', 'Неизвестно')
+                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_loss} | {sale_time}\n"
         
         # Split message if too long
         chunks = split_text_to_chunks(msg)
@@ -1172,24 +1178,28 @@ async def orders(callback: CallbackQuery, bot: Bot):
 
         form = forms[n]
         msg = f"Инструмент: {form['symbol']} | {interval_conv(form['interval'])}\n\n"
-        msg += f"Цена открытия: {round(form['coin_buy_price'], 2)}$ 📈\n"
+        msg += f"Цена открытия: {round(form.get('coin_buy_price', 0), 2)}$ 📈\n"
 
         if action == 'open':
-            msg += f"Объем сделки: {round(form['buy_price'], 2)}$ 💵\n\n"
-            msg += f"Дата и время открытия:\n⏱️{form['buy_time']}\n"
+            # Используем investment_amount_usdt вместо buy_price
+            investment = form.get('investment_amount_usdt', 0)
+            msg += f"Объем сделки: {round(investment, 2)}$ 💵\n\n"
+            msg += f"Дата и время открытия:\n⏱️{form.get('buy_time', 'Неизвестно')}\n"
         else:
-            msg += f"Цена закрытия: {round(form['coin_sale_price'], 2)}$ 📈\n"
+            msg += f"Цена закрытия: {round(form.get('coin_sale_price', 0), 2)}$ 📈\n"
 
-            if form['buy_price'] < form['sale_price']:
-                profit = form['sale_price'] - form['buy_price']
-                msg += f"Прибыль: {round(profit, 2)}$💸🔋\n\n"
+            # Используем поле pnl_usdt для отображения прибыли/убытка
+            pnl = form.get('pnl_usdt', 0)
+            if pnl > 0:
+                msg += f"Прибыль: {round(pnl, 2)}$💸🔋\n\n"
             else:
-                profit = form['buy_price'] - form['sale_price']
-                msg += f"Убыток: {round(profit, 2)}$🤕🪫\n\n"
+                msg += f"Убыток: {round(abs(pnl), 2)}$🤕🪫\n\n"
 
-            msg += f"Объем сделки: {round(form['buy_price'], 2)}$ 💵\n\n"
-            msg += f"Дата и время закрытия:\n⏱️{form['sale_time']}\n\n"
-            msg += f"Сделка была открыта:\n⏱️{form['buy_time']}\n"
+            # Используем investment_amount_usdt вместо buy_price
+            investment = form.get('investment_amount_usdt', 0)
+            msg += f"Объем сделки: {round(investment, 2)}$ 💵\n\n"
+            msg += f"Дата и время закрытия:\n⏱️{form.get('sale_time', 'Неизвестно')}\n\n"
+            msg += f"Сделка была открыта:\n⏱️{form.get('buy_time', 'Неизвестно')}\n"
         await callback.message.edit_text(
             text=msg,
             reply_markup=orders_inline_n(n, action, len(forms), "orders")
@@ -1203,7 +1213,7 @@ async def split_message_and_edit(bot_message, text, reply_markup=None):
         text = text[len(chunk):]
     await bot_message.edit_text(text=text, reply_markup=reply_markup)
 
-    
+
 @router.callback_query(F.data.startswith('signals'))
 async def signals(callback: CallbackQuery, bot: Bot):
     action = callback.data.split()[1]
