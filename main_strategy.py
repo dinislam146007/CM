@@ -11,7 +11,7 @@ from aiogram import Bot
 from strategy_logic.get_all_coins import get_usdt_pairs
 from config import config
 # from db import *
-import datetime as dt
+import datetime
 from strategy_logic.rsi import *
 from strategy_logic.vsa import *
 from strategy_logic.price_action import get_pattern_price_action
@@ -100,6 +100,30 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             # Получаем текущий баланс пользователя для логирования
             current_balance = await get_user_balance(user_id)
             print(f"Текущий баланс пользователя {user_id} перед закрытием ордера: {current_balance}")
+            
+            # Извлекаем все необходимые данные из ордера
+            symbol = order.get('symbol', 'UNKNOWN')
+            timeframe = order.get('timeframe', order.get('interval', '1h'))
+            trading_type = order.get('trading_type', 'spot')
+            leverage = order.get('leverage', 1)
+            qty = order.get('qty', order.get('amount', 0))
+            buy_date = order.get('buy_time', order.get('open_time', ''))[:10]  # Берем только дату
+            buy_time = order.get('buy_time', order.get('open_time', ''))
+            
+            # Если buy_time - это полная временная метка, извлечем только время
+            if buy_time and len(buy_time) > 10:
+                try:
+                    dt_obj = datetime.datetime.fromisoformat(buy_time.replace('Z', '+00:00'))
+                    buy_time = dt_obj.strftime('%H:%M')
+                except:
+                    buy_time = buy_time[11:16]  # Формат ЧЧ:ММ
+            
+            # Определяем базовую валюту (BTC в BTCUSDT)
+            symbol_base = symbol.replace('USDT', '') if 'USDT' in symbol else symbol.split('/')[0] if '/' in symbol else symbol
+            
+            # Определяем направление (LONG/SHORT)
+            position_side = order.get('position_side', order.get('side', 'LONG'))  # По умолчанию LONG, если не указано
+            direction = f"{position_side} {'🔰' if position_side == 'LONG' else '🔻'}"
                 
             # Закрываем ордер и обновляем данные
             result = await close_order(order_id, current_price)
@@ -108,6 +132,10 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             if not result:
                 print(f"Не удалось закрыть ордер {order_id}, возможно он уже закрыт")
                 return False
+            
+            # Получаем обновленный баланс и суточную прибыль
+            new_balance = await get_user_balance(user_id)
+            daily_profit = await get_daily_profit(user_id)
             
             # Проверяем наличие поля entry_price или альтернативных полей
             entry_price = None
@@ -125,9 +153,6 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 print(f"Ошибка: не найдено поле с ценой входа. Структура ордера: {order}")
                 await bot.send_message(user_id, f"Ошибка при закрытии ордера: не найдена цена входа")
                 return False
-            
-            # Определяем направление позиции
-            position_side = order.get('position_side', order.get('side', 'LONG'))  # По умолчанию LONG, если не указано
             
             # Рассчитываем прибыль/убыток
             if position_side == 'SHORT':
@@ -152,8 +177,8 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 message = (
                     f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
-                    f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
-                    f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
+                    f"Тип торговли: {trading_type.upper()}"
+                    f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                     f"🎯✅ Достигнут Тейк-Профит\n"
                     f"💸🔋Прибыль по сделке: +{abs(pnl_percent):.2f}% (+{abs(pnl):.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
@@ -170,8 +195,8 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 message = (
                     f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
-                    f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
-                    f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
+                    f"Тип торговли: {trading_type.upper()}"
+                    f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                     f"📛{'Закрыто по Стоп-лоссу' if close_reason == 'SL' else 'Убыточное закрытие'}\n"
                     f"🤕🪫Убыток по сделке: -{abs(pnl_percent):.2f}% (-{abs(pnl):.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
@@ -188,8 +213,8 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 message = (
                     f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
-                    f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
-                    f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
+                    f"Тип торговли: {trading_type.upper()}"
+                    f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                     f"🔄 Сделка закрыта\n"
                     f"{'💸🔋Прибыль' if pnl_percent > 0 else '🤕🪫Убыток'} по сделке: {'+' if pnl_percent > 0 else '-'}{abs(pnl_percent):.2f}% ({'+' if pnl > 0 else '-'}{abs(pnl):.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
@@ -310,7 +335,7 @@ async def wait_for_next_candle(timeframe):
     start_time = tf_to_seconds.get(timeframe, 60 * 60)  # По умолчанию 1 час
     
     # Текущее время в секундах с начала эпохи
-    now = dt.datetime.now()
+    now = datetime.datetime.now()
     current_time = int(now.timestamp())
     
     # Время начала текущей свечи
