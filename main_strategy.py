@@ -130,77 +130,35 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             position_side = order.get('position_side', order.get('side', 'LONG'))  # По умолчанию LONG, если не указано
             
             # Рассчитываем прибыль/убыток
-            pnl_percent = ((current_price - entry_price) / entry_price) * 100
             if position_side == 'SHORT':
-                pnl_percent = -pnl_percent
-            
-            # Получаем количество монет
-            qty = order.get('qty', order.get('amount', 0))
-            
-            # Получаем тип торговли и плечо
-            trading_type = order.get('trading_type', 'spot')
-            leverage = order.get('leverage', 1)
-            
-            # Применяем плечо для futures
-            if trading_type == 'futures':
-                pnl_percent = pnl_percent * leverage
-            
-            pnl = (current_price - entry_price) * qty
-            if position_side == 'SHORT':
-                pnl = -pnl
-            
+                # Для SHORT позиции: прибыль когда текущая цена НИЖЕ цены входа
+                pnl_percent = ((entry_price - current_price) / entry_price) * 100
+                pnl = (entry_price - current_price) * qty
+            else:
+                # Для LONG позиции: прибыль когда текущая цена ВЫШЕ цены входа
+                pnl_percent = ((current_price - entry_price) / entry_price) * 100
+                pnl = (current_price - entry_price) * qty
+
             # Если используется плечо, умножаем PnL на плечо
             if trading_type == 'futures':
+                pnl_percent = pnl_percent * leverage
                 pnl = pnl * leverage
-                
-            # Получаем текущую дату и время в МСК
-            moscow_tz = pytz.timezone('Europe/Moscow')
-            now = dt.datetime.now(moscow_tz)
-            current_date = now.strftime('%d.%m.%Y')
-            current_time = now.strftime('%H:%M')
-            
-            # Конвертируем время открытия ордера из UTC в МСК
-            open_time = None
-            if 'open_time' in order:
-                open_time = order['open_time']
-            elif 'buy_time' in order:
-                open_time = int(dt.datetime.timestamp(order['buy_time']))
-            else:
-                open_time = int(dt.datetime.now().timestamp())
-                
-            buy_time_utc = dt.datetime.fromtimestamp(open_time)
-            buy_time_moscow = pytz.utc.localize(buy_time_utc).astimezone(moscow_tz)
-            buy_date = buy_time_moscow.strftime('%d.%m.%Y')
-            buy_time = buy_time_moscow.strftime('%H:%M')
-            
-            # Получаем суммарный профит за день
-            daily_profit = await get_daily_profit(user_id, now.date())
-            
-            # Получаем обновленный баланс после возврата средств
-            new_balance = await get_user_balance(user_id)
-            
-            # Логирование изменения баланса
-            balance_change = new_balance - current_balance
-            print(f"Новый баланс пользователя {user_id} после закрытия ордера: {new_balance} (изменение: {balance_change})")
-            
-            # Определяем направление и символ
-            direction = "Long 🔰" if position_side == 'LONG' else "Short 🔻"
-            symbol = order.get('symbol', 'UNKNOWN')
-            symbol_base = symbol.replace('USDT', '')
-            timeframe = order.get('timeframe', order.get('interval', '1h'))
-            
-            # Форматируем разные сообщения в зависимости от причины закрытия
-            if close_reason == "TP":
+
+            # Формируем разные сообщения в зависимости от причины закрытия и фактического результата
+            # Обратите внимание, что теперь мы проверяем pnl_percent, а не просто причину закрытия
+            is_profitable = pnl > 0
+
+            if close_reason == "TP" and is_profitable:
                 message = (
                     f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
                     f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
                     f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
                     f"🎯✅ Достигнут Тейк-Профит\n"
-                    f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                    f"💸🔋Прибыль по сделке: +{abs(pnl_percent):.2f}% (+{abs(pnl):.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
-                    f"📈Цена продажи: {current_price:.4f}$\n"
-                    f"🛑Продано: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
+                    f"📈Цена {'продажи' if position_side == 'LONG' else 'закрытия'}: {current_price:.4f}$\n"
+                    f"🛑{'Продано' if position_side == 'LONG' else 'Закрыто'}: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
                     f"📆Сделка была открыта: {buy_date}\n"
                     f"🕐Время открытия: {buy_time} Мск\n"
                     f"📉ТФ открытия сделки: {timeframe}\n"
@@ -208,17 +166,35 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                     f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
                     f"💰 Текущий баланс: {new_balance:.2f} USDT"
                 )
-            else:  # SL
+            elif close_reason == "SL" or not is_profitable:
                 message = (
                     f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
                     f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
                     f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
-                    f"📛Закрыто по Стоп-лоссу\n"
-                    f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                    f"📛{'Закрыто по Стоп-лоссу' if close_reason == 'SL' else 'Убыточное закрытие'}\n"
+                    f"🤕🪫Убыток по сделке: -{abs(pnl_percent):.2f}% (-{abs(pnl):.2f} USDT)\n\n"
                     f"♻️Точка входа: {entry_price:.2f}$\n"
-                    f"📈Цена продажи: {current_price:.4f}$\n"
-                    f"🛑Продано: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
+                    f"📈Цена {'продажи' if position_side == 'LONG' else 'закрытия'}: {current_price:.4f}$\n"
+                    f"🛑{'Продано' if position_side == 'LONG' else 'Закрыто'}: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
+                    f"📆Сделка была открыта: {buy_date}\n"
+                    f"🕐Время открытия: {buy_time} Мск\n"
+                    f"📉ТФ открытия сделки: {timeframe}\n"
+                    f"Направление: {direction}\n\n"
+                    f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                    f"💰 Текущий баланс: {new_balance:.2f} USDT"
+                )
+            else:  # TP с убытком или другие случаи
+                message = (
+                    f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                    f"Биржа: {order.get('exchange', 'Bybit')}\n"
+                    f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
+                    f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
+                    f"🔄 Сделка закрыта\n"
+                    f"{'💸🔋Прибыль' if pnl_percent > 0 else '🤕🪫Убыток'} по сделке: {'+' if pnl_percent > 0 else '-'}{abs(pnl_percent):.2f}% ({'+' if pnl > 0 else '-'}{abs(pnl):.2f} USDT)\n\n"
+                    f"♻️Точка входа: {entry_price:.2f}$\n"
+                    f"📈Цена {'продажи' if position_side == 'LONG' else 'закрытия'}: {current_price:.4f}$\n"
+                    f"🛑{'Продано' if position_side == 'LONG' else 'Закрыто'}: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
                     f"📆Сделка была открыта: {buy_date}\n"
                     f"🕐Время открытия: {buy_time} Мск\n"
                     f"📉ТФ открытия сделки: {timeframe}\n"
@@ -433,6 +409,12 @@ async def process_tf(tf: str):
                 trading_settings = load_trading_settings(uid)
                 trading_type = trading_settings["trading_type"]
                 leverage = trading_settings["leverage"]
+                
+                # Проверяем, достаточно ли средств на балансе для открытия позиции
+                if investment_amount > user_balance:
+                    print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
+                    await bot.send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                    continue
                 
                 # ---------- вход ----------
                 if open_order is None:
@@ -1202,6 +1184,12 @@ async def internal_trade_logic(*args, **kwargs):
         rsi_settings = load_rsi_settings(user_id)
         trading_settings = load_trading_settings(user_id)
         leverage = trading_settings.get("leverage", 1)
+        
+        # Проверяем, достаточно ли средств на балансе для открытия позиции
+        if investment_amount > user_balance:
+            print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
+            await bot.send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+            return
         
         # ENTRY LOGIC (no open order)
         if open_order is None:
