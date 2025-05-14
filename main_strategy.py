@@ -185,9 +185,14 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             
             # Рассчитываем прибыль/убыток
             if position_side == 'SHORT':
-                # Для SHORT позиции: прибыль когда текущая цена НИЖЕ цены входа
-                pnl_percent = ((entry_price - current_price) / entry_price) * 100
-                pnl = (entry_price - current_price) * qty
+                # Для SHORT позиции: прибыль когда текущая цена НИЖЕ цены входа (цена снизилась)
+                # Убыток когда текущая цена ВЫШЕ цены входа (цена выросла)
+                price_change_percent = ((entry_price - current_price) / entry_price) * 100
+                price_change_amount = (entry_price - current_price) * qty
+                
+                # Для короткой позиции учитываем направление изменения
+                pnl_percent = price_change_percent
+                pnl = price_change_amount
             else:
                 # Для LONG позиции: прибыль когда текущая цена ВЫШЕ цены входа
                 pnl_percent = ((current_price - entry_price) / entry_price) * 100
@@ -197,6 +202,11 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             if trading_type == 'futures':
                 pnl_percent = pnl_percent * leverage
                 pnl = pnl * leverage
+                
+            # Дополнительный лог для отладки расчетов
+            print(f"[PNL_DEBUG] {symbol} {position_side}: entry={entry_price}, exit={current_price}, " 
+                  f"change={price_change_percent if position_side == 'SHORT' else ((current_price - entry_price) / entry_price) * 100:.4f}%, "
+                  f"qty={qty}, leverage={leverage}, final_pnl={pnl_percent:.4f}% / {pnl:.4f} USDT")
 
             # Формируем разные сообщения в зависимости от причины закрытия и фактического результата
             # Обратите внимание, что теперь мы проверяем pnl_percent, а не просто причину закрытия
