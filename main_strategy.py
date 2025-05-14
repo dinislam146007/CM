@@ -318,194 +318,1100 @@ symbols    = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "LTCUSDT", "XRPUSDT", "SOLUSDT",
 
 async def process_tf(tf: str):
     while True:
-        try:
-            # Динамически загружаем список пользователей с включенным bybit
-            active_users = []
-            settings_path = Path("user_settings")
-            if settings_path.exists():
-                for json_file in settings_path.glob("*.json"):
-                    try:
-                        with json_file.open("r", encoding="utf-8") as fh:
-                            settings = json.load(fh)
-                        user_id = int(json_file.stem)
-                        if settings.get("bybit", False):
-                            active_users.append(user_id)
-                            print(f"[INFO] Пользователь {user_id} использует Bybit")
-                    except Exception as e:
-                        print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
+        # Динамически загружаем список пользователей с включенным bybit
+        active_users = []
+        settings_path = Path("user_settings")
+        if settings_path.exists():
+            for json_file in settings_path.glob("*.json"):
+                try:
+                    with json_file.open("r", encoding="utf-8") as fh:
+                        settings = json.load(fh)
+                    user_id = int(json_file.stem)
+                    if settings.get("bybit", False):
+                        active_users.append(user_id)
+                        print(f"[INFO] Пользователь {user_id} использует Bybit")
+                except Exception as e:
+                    print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
+        
+        if not active_users:
+            print("[INFO] Нет пользователей с включенным Bybit в настройках")
+            await asyncio.sleep(60)  # Ждем минуту перед следующей проверкой
+            continue
             
-            if not active_users:
-                print("[INFO] Нет пользователей с включенным Bybit в настройках")
-                await asyncio.sleep(60)  # Ждем минуту перед следующей проверкой
-                continue
+        print(f"[INFO] Активные пользователи Bybit: {active_users}")
+        
+        btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
+        for symbol in symbols:
+            df5 = await fetch_ohlcv(symbol, "5m", 300)
+            dft = await fetch_ohlcv(symbol, tf,   200)
+            if df5 is None or dft is None: continue
+
+            ticker  = await exchange.fetch_ticker(symbol)
+            ctx = Context(
+                ticker_24h=ticker,
+                hourly_volume=df5["volume"].iloc[-12:].sum(),
+                btc_df=btc_df,
+            )
+
+            for uid in active_users:
+                open_order = await get_open_order(uid, "bybit", symbol, tf)
+
+                # Get user-specific strategy parameters
+                user_moon = StrategyMoonBot(load_strategy_params(uid))
                 
-            print(f"[INFO] Активные пользователи Bybit: {active_users}")
-            
-            btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
-            for symbol in symbols:
-                df5 = await fetch_ohlcv(symbol, "5m", 300)
-                dft = await fetch_ohlcv(symbol, tf,   200)
-                if df5 is None or dft is None: 
-                    continue
+                # Загружаем индивидуальные настройки CM для пользователя
+                cm_settings = load_cm_settings(uid)
+                
+                # Загружаем индивидуальные настройки дивергенции для пользователя
+                divergence_settings = load_divergence_settings(uid)
+                
+                # Загружаем индивидуальные настройки RSI для пользователя
+                rsi_settings = load_rsi_settings(uid)
+                
+                # Загружаем индивидуальные настройки Pump/Dump для пользователя
+                pump_dump_settings = load_pump_dump_settings(uid)
+                
+                # Загружаем индивидуальные настройки типа торговли для пользователя
+                trading_type_settings = load_trading_type_settings(uid)
+                
+                # Загружаем индивидуальные настройки торговли для пользователя
+                trading_settings = load_trading_settings(uid)
+                trading_type = trading_settings["trading_type"]
+                leverage = trading_settings["leverage"]
+                
+                # ---------- вход ----------
+                if open_order is None:
+                    # Проверка на паттерны Price Action с учетом типа рынка
+                    pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
+                    dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
+                    dft = calculate_ema(dft)
+                    cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
+                    
+                    # Рассчитываем RSI с пользовательскими настройками
+                    dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+                    dft = calculate_ema(dft, 
+                                       fast_period=rsi_settings['EMA_FAST'], 
+                                       slow_period=rsi_settings['EMA_SLOW'])
+                    
+                    # Генерируем сигналы RSI с пользовательскими настройками
+                    rsi = generate_signals_rsi(dft, 
+                                              overbought=rsi_settings['RSI_OVERBOUGHT'], 
+                                              oversold=rsi_settings['RSI_OVERSOLD'])
+                    rsi_signal = rsi['signal_rsi'].iloc[-1]
 
-                ticker = await exchange.fetch_ticker(symbol)
-                ctx = Context(
-                    ticker_24h=ticker,
-                    hourly_volume=df5["volume"].iloc[-12:].sum(),
-                    btc_df=btc_df,
-                )
-
-                for uid in active_users:
-                    try:
-                        open_order = await get_open_order(uid, "bybit", symbol, tf)
-
-                        # Get user-specific strategy parameters
-                        user_moon = StrategyMoonBot(load_strategy_params(uid))
+                    diver_signals = generate_trading_signals(
+                        dft, 
+                        rsi_length=divergence_settings['RSI_LENGTH'], 
+                        lbR=divergence_settings['LB_RIGHT'], 
+                        lbL=divergence_settings['LB_LEFT'], 
+                        take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
+                        stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
+                        stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
+                        atr_length=divergence_settings['ATR_LENGTH'],
+                        atr_multiplier=divergence_settings['ATR_MULTIPLIER']
+                    )
+                    
+                    # Добавляем отладочную информацию для анализа сигналов
+                    print(f"[SIGNAL_DEBUG] {exchange.id.upper()} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+                    
+                    # Determine position side (LONG/SHORT)
+                    position_side = "LONG"  # Default to LONG
+                    
+                    # For futures, consider short signals
+                    if trading_type == "futures":
+                        # Явно проверяем на сигналы LONG и SHORT
+                        has_long_signal = cm_signal == "long" or rsi_signal == "Long"
+                        has_short_signal = cm_signal == "short" or rsi_signal == "Short"
                         
-                        # Загружаем индивидуальные настройки CM для пользователя
-                        cm_settings = load_cm_settings(uid)
+                        # Логируем сигналы для отладки
+                        print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
                         
-                        # Загружаем индивидуальные настройки дивергенции для пользователя
-                        divergence_settings = load_divergence_settings(uid)
+                        # Если есть сигнал на SHORT - меняем тип позиции
+                        if has_short_signal:
+                            position_side = "SHORT"
+                            print(f"[POSITION] Setting position to SHORT based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                        elif has_long_signal:
+                            # Явно подтверждаем LONG позицию
+                            position_side = "LONG"
+                            print(f"[POSITION] Setting position to LONG based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                        else:
+                            # Явно логируем, что оставляем позицию LONG по умолчанию
+                            print(f"[POSITION] No clear signals, keeping default position as LONG")
+                    
+                    # Определяем, какие сигналы активны в зависимости от типа позиции
+                    if position_side == "LONG":
+                        price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
+                        cm_active = cm_signal == "long"
+                        moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
+                        rsi_active = rsi_signal == "Long"
                         
-                        # Загружаем индивидуальные настройки RSI для пользователя
-                        rsi_settings = load_rsi_settings(uid)
+                        # Проверка на бычью дивергенцию
+                        regular_bullish = diver_signals['divergence']['regular_bullish']
+                        hidden_bullish = diver_signals['divergence']['hidden_bullish']
+                        divergence_active = False
+                        divergence_type = ""
                         
-                        # Загружаем индивидуальные настройки Pump/Dump для пользователя
-                        pump_dump_settings = load_pump_dump_settings(uid)
+                        if isinstance(regular_bullish, bool) and regular_bullish:
+                            divergence_active = True
+                            divergence_type += "Regular Bullish "
+                        if isinstance(hidden_bullish, bool) and hidden_bullish:
+                            divergence_active = True
+                            divergence_type += "Hidden Bullish "
+                    else:  # SHORT позиция
+                        price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
+                        cm_active = cm_signal == "short"
+                        moonbot_active = False  # MoonBot только для LONG
+                        rsi_active = rsi_signal == "Short"
                         
-                        # Загружаем индивидуальные настройки типа торговли для пользователя
-                        trading_type_settings = load_trading_type_settings(uid)
+                        # Проверка на медвежью дивергенцию
+                        regular_bearish = diver_signals['divergence']['regular_bearish']
+                        hidden_bearish = diver_signals['divergence']['hidden_bearish']
+                        divergence_active = False
+                        divergence_type = ""
                         
-                        # Загружаем индивидуальные настройки торговли для пользователя
-                        trading_settings = load_trading_settings(uid)
-                        trading_type = trading_settings["trading_type"]
-                        leverage = trading_settings["leverage"]
-                        
-                        # ---------- вход ----------
-                        if open_order is None:
-                            # Проверка на паттерны Price Action с учетом типа рынка
-                            pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
-                            dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
-                            dft = calculate_ema(dft)
-                            cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
+                        if isinstance(regular_bearish, bool) and regular_bearish:
+                            divergence_active = True
+                            divergence_type += "Regular Bearish "
+                        if isinstance(hidden_bearish, bool) and hidden_bearish:
+                            divergence_active = True
+                            divergence_type += "Hidden Bearish "
+                    
+                    # Debug output of signal flags
+                    print(f"[DEBUG] {exchange.id.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
+                    
+                    # Add debug info about signals
+                    print(f"[SIGNALS] {exchange.id.upper()}/{symbol}/{tf} => PA={price_action_active} CM={cm_active} RSI={rsi_active} Moon={moonbot_active} Div={divergence_active}")
+                    
+                    any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
+                    
+                    # Определяем текущую цену
+                    current_price = dft["close"].iloc[-1]
+                    
+                    # Открываем сделку, если есть хотя бы один активный сигнал
+                    if any_signal:
+                        # Если сработала стратегия мун бота, используем ее данные, иначе создаем базовый ордер
+                        if moonbot_active:
+                            order_dict = user_moon.build_order(dft)
+                            entry = order_dict["price"]
+                            tp = order_dict["take_profit"]
+                            sl = order_dict["stop_loss"]
+                        else:
+                            # Базовый ордер на основе текущей цены при срабатывании других сигналов
+                            entry = current_price
                             
-                            # Рассчитываем RSI с пользовательскими настройками
-                            dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
-                            dft = calculate_ema(dft, 
-                                               fast_period=rsi_settings['EMA_FAST'], 
-                                               slow_period=rsi_settings['EMA_SLOW'])
+                            # Рассчитываем TP и SL в зависимости от типа позиции
+                            if position_side == "LONG":
+                                # Базовый TP: +3% от цены входа
+                                tp = entry * 1.03
+                                # Базовый SL: -2% от цены входа
+                                sl = entry * 0.98
+                            else:  # SHORT
+                                # Базовый TP: -3% от цены входа
+                                tp = entry * 0.97
+                                # Базовый SL: +2% от цены входа
+                                sl = entry * 1.02
+                        
+                        # Получаем баланс пользователя
+                        user_balance = await get_user_balance(uid)
+                        
+                        # ВАЖНО: Проверяем настройки плеча и типа торговли перед использованием
+                        print(f"Настройки для {uid}: тип={trading_type}, плечо={leverage}")
+                        
+                        # Проверка валидности плеча для futures
+                        if trading_type == "futures" and leverage < 1:
+                            print(f"Внимание: плечо {leverage} для {uid} исправлено на 1x")
+                            leverage = 1
+                        
+                        # Рассчитываем объем позиции с учетом типа торговли и плеча
+                        if trading_type == "futures":
+                            # Для фьючерсов учитываем плечо при расчете объема
+                            investment_amount = user_balance * 0.05  # 5% от баланса
                             
-                            # Генерируем сигналы RSI с пользовательскими настройками
-                            rsi = generate_signals_rsi(dft, 
-                                                      overbought=rsi_settings['RSI_OVERBOUGHT'], 
-                                                      oversold=rsi_settings['RSI_OVERSOLD'])
-                            rsi_signal = rsi['signal_rsi'].iloc[-1]
-
-                            diver_signals = generate_trading_signals(
-                                dft, 
-                                rsi_length=divergence_settings['RSI_LENGTH'], 
-                                lbR=divergence_settings['LB_RIGHT'], 
-                                lbL=divergence_settings['LB_LEFT'], 
-                                take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
-                                stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
-                                stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
-                                atr_length=divergence_settings['ATR_LENGTH'],
-                                atr_multiplier=divergence_settings['ATR_MULTIPLIER']
+                            # Добавляем проверку плеча
+                            if leverage <= 0:
+                                print(f"ОШИБКА: Некорректное плечо {leverage} для {uid}, используем 1x")
+                                leverage = 1
+                                
+                            # Правильно рассчитываем объем с учетом плеча
+                            qty = (investment_amount * leverage) / entry
+                            print(f"Расчет объема futures: {investment_amount} * {leverage} / {entry} = {qty}")
+                        else:
+                            # Для спот торговли - обычный расчет
+                            investment_amount = user_balance * 0.05  # 5% от баланса
+                            qty = investment_amount / entry
+                            print(f"Расчет объема spot: {investment_amount} / {entry} = {qty}")
+                        
+                        # Проверка негативных значений
+                        if qty <= 0:
+                            print(f"ОШИБКА: Отрицательный объем {qty}, отмена ордера")
+                            await bot.send_message(uid, f"Ошибка при расчете объема позиции: {qty}")
+                            continue
+                        
+                        # Форматируем количество с учетом минимального шага для торговли
+                        qty = round(qty, 6)  # Округляем до 6 знаков после запятой
+                        
+                        # Если объем слишком мал, установим минимальный
+                        if qty * entry < 10:  # Минимальный размер ордера 10 USDT
+                            qty = 10 / entry
+                            qty = round(qty, 6)
+                        
+                        # Создаем ордер с учетом типа рынка и кредитного плеча
+                        try:
+                            # Проверяем загруженную переменную leverage (дополнительная проверка)
+                            if trading_type == "futures" and "user" in trading_settings:
+                                user_leverage = trading_settings.get("user", {}).get("leverage", leverage)
+                                print(f"Проверка плеча: в настройках={user_leverage}, используем={leverage}")
+                            
+                            order_id = await create_order(uid, "bybit", symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                            
+                            # Получаем обновленный баланс после списания средств
+                            new_balance = await get_user_balance(uid)
+                            
+                            # Определяем эмодзи для типа позиции
+                            position_emoji = "🔰" if position_side == "LONG" else "🔻"
+                            transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                            
+                            # Формируем сообщение по новому шаблону
+                            message = (
+                                f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                                f"Биржа: {exchange.id.capitalize()}\n"
+                                f"Тип торговли: {trading_type.upper()}"
+                                f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
+                                f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
+                                f"♻️Точка входа: {entry:.2f}$\n"
+                                f"Направление: {position_side} {position_emoji}\n\n"
+                                f"🎯TP: {tp:.4f}$\n"
+                                f"📛SL: {sl:.4f}$\n\n"
+                                f"⚠️Сделка открыта по сигналам с:\n"
+                                f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
+                                f"{cm_active and '✅' or '❌'} CM\n"
+                                f"{moonbot_active and '✅' or '❌'} MoonBot\n"
+                                f"{rsi_active and '✅' or '❌'} RSI\n"
+                                f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
+                                f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
                             )
                             
-                            # Добавляем отладочную информацию для анализа сигналов
-                            print(f"[SIGNAL_DEBUG] {exchange.id.upper()} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+                            await bot.send_message(uid, message)
                             
-                            import datetime as dt
-                            
-                            # Determine position side (LONG/SHORT)
-                            position_side = "LONG"  # Default to LONG
-                            
-                            # For futures, consider short signals
-                            if trading_type == "futures":
-                                # Check signals
-                                has_long_signal = cm_signal == "long" or rsi_signal == "Long"
-                                has_short_signal = cm_signal == "short" or rsi_signal == "Short"
-                                
-                                # Check pattern for LONG
-                                if pattern is not None and pattern != "" and pattern.startswith("Bull"):
-                                    has_long_signal = True
-                                    print(f"[LONG_SIGNAL] Found from Price Action: {pattern}")
-                                
-                                # Logger
-                                print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
-                                
-                                # Balance LONG/SHORT
-                                current_hour = dt.datetime.now().hour
-                                current_minute = dt.datetime.now().minute
-                                
-                                # Decision logic
-                                if has_long_signal and not has_short_signal:
-                                    position_side = "LONG"
-                                    print(f"[POSITION] Using LONG signal")
-                                elif has_short_signal and not has_long_signal:
-                                    position_side = "SHORT"
-                                    print(f"[POSITION] Using SHORT signal")
-                                elif has_long_signal and has_short_signal:
-                                    # Use hour parity for balance
-                                    if current_hour % 2 == 0:
-                                        position_side = "LONG"
-                                        print(f"[POSITION] Both signals present, using LONG for even hour")
-                                    else:
-                                        position_side = "SHORT"
-                                        print(f"[POSITION] Both signals present, using SHORT for odd hour")
-                                else:
-                                    # No clear signals, force alternating based on minute
-                                    if current_minute % 2 == 0:
-                                        position_side = "LONG"
-                                        print(f"[POSITION] No signals, forcing LONG for even minute")
-                                    else:
-                                        position_side = "SHORT"
-                                        print(f"[POSITION] No signals, forcing SHORT for odd minute")
-                            
-                            # Здесь идет код создания ордера согласно сигналам
-                            # ...
-                            
-                        # ---------- Логика для открытых ордеров ----------
-                        else:
-                            # Логика проверки и закрытия открытых ордеров
-                            # ...
-                            
-                            # Пример:
-                            # last_price = dft["close"].iloc[-1]
-                            # 
-                            # Проверка на TP/SL для позиции
-                            # if hit_tp or hit_sl:
-                            #     await close_order_with_notification(
-                            #         uid, open_order["id"], last_price, "TP" if hit_tp else "SL"
-                            #     )
-                            
-                            pass
-                            
-                    except Exception as e:
-                        print(f"Error processing user {uid} for {symbol}/{tf}: {e}")
+                        except Exception as e:
+                            print(f"Ошибка при создании ордера: {e}")
+                            await bot.send_message(uid, f"Ошибка при создании ордера: {e}")
                 
-            # Ждем до следующей свечи
-            await wait_for_next_candle(tf)
+                # ---------- выход ----------
+                else:
+                    last_price = dft["close"].iloc[-1]
+                    
+                    # Skip processing if the order is already closed
+                    if open_order.get('status', 'OPEN') != 'OPEN':
+                        print(f"Пропускаем обработку - ордер {open_order['id']} уже закрыт")
+                        continue
+                    
+                    # Проверяем различные поля для определения направления позиции
+                    position_direction = "LONG"  # По умолчанию LONG
+                    if "position_side" in open_order:
+                        position_direction = open_order["position_side"]
+                    elif "side" in open_order and open_order["side"].upper() == "SELL":
+                        position_direction = "SHORT"
+                    elif "position_type" in open_order:
+                        position_direction = open_order["position_type"]
+                    
+                    # Определяем, является ли позиция длинной
+                    is_long = position_direction.upper() == "LONG"
+                    
+                    if is_long:
+                        hit_tp = last_price >= open_order["tp_price"]
+                        hit_sl = last_price <= open_order["sl_price"]
+                    else:  # SHORT
+                        hit_tp = last_price <= open_order["tp_price"]  # Для SHORT TP ниже цены входа
+                        hit_sl = last_price >= open_order["sl_price"]  # Для SHORT SL выше цены входа
+
+                    if hit_tp or hit_sl:
+                        try:
+                            # Проверяем статус ордера еще раз непосредственно перед закрытием
+                            current_order = await get_order_by_id(open_order["id"])
+                            if current_order and current_order.get('status') == 'CLOSED':
+                                print(f"Пропускаем закрытие - ордер {open_order['id']} уже закрыт")
+                                continue
+                            
+                            print(f"Закрываем ордер {open_order['id']} по {'TP' if hit_tp else 'SL'}")
+                            # Закрываем ордер и получаем информацию о P&L
+                            close_result = await close_order_with_notification(
+                                uid, open_order["id"], last_price, "TP" if hit_tp else "SL"
+                            )
+                            
+                            if not close_result:
+                                print(f"Ордер {open_order['id']} не был закрыт (возможно, уже закрыт)")
+                        except Exception as e:
+                            print(f"Ошибка при закрытии ордера: {e}")
+                            await bot.send_message(uid, f"Ошибка при закрытии ордера: {e}")
+            await asyncio.sleep(0.05)   # не душим API
+        # await wait_for_next_candle(tf)
+
+
+# =============================================================================
+#  Exchange-specific signal handlers (stubs – replace with real logic)
+# =============================================================================
+
+# Преобразование интервалов для MEXC Futures
+MEXC_INTERVAL_MAP = {
+    "1m": "Min1", "3m": "Min3", "5m": "Min5", "15m": "Min15", "30m": "Min30",
+    "1h": "Min60", "4h": "Hour4", "8h": "Hour8", "1d": "Day1", "1w": "Week1", "1M": "Month1"
+}
+
+def get_binance_ohlcv(symbol: str, interval: str, futures: bool=False, limit: int=1000):
+    """Получение OHLCV с Binance (spot или futures)"""
+    if futures:
+        base_url = "https://fapi.binance.com"  # USD-M Futures
+        endpoint = "/fapi/v1/klines"
+    else:
+        base_url = "https://api.binance.com"
+        endpoint = "/api/v3/klines"
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    resp = requests.get(base_url + endpoint, params=params)
+    resp.raise_for_status()
+    klines = resp.json()  # список списков
+    ohlcv = []
+    for k in klines:
+        ts = int(k[0])
+        o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
+        ohlcv.append([ts, o, h, l, c, v])
+    return ohlcv
+
+def get_mexc_ohlcv(symbol: str, interval: str, futures: bool=False, limit: int=1000):
+    """Получение OHLCV с MEXC (spot или futures)"""
+    try:
+        if futures:
+            base_url = "https://contract.mexc.com"
+            # Убедимся, что символ с "_" (например BTCUSDT -> BTC_USDT)
+            if "_" not in symbol:
+                if symbol.endswith("USDT"):
+                    symbol_name = symbol[:-4] + "_" + symbol[-4:]
+                else:
+                    symbol_name = symbol  # для других пар, если появятся
+            else:
+                symbol_name = symbol
+            endpoint = f"/api/v1/contract/kline/{symbol_name}"
+            # Конвертируем интервал
+            interval_param = MEXC_INTERVAL_MAP.get(interval, interval)
+            params = {"interval": interval_param}
+            try:
+                # Можно добавить start/end при необходимости
+                resp = requests.get(base_url + endpoint, params=params, timeout=10)
+                resp.raise_for_status()
+                data = resp.json().get("data", {})
+                # data содержит списки: 'time', 'open', 'high', 'low', 'close', 'vol'
+                times = data.get("time", [])
+                opens = data.get("open", [])
+                highs = data.get("high", [])
+                lows  = data.get("low", [])
+                closes= data.get("close", [])
+                vols  = data.get("vol", [])
+                ohlcv = []
+                for i in range(len(times)):
+                    ts_ms = int(times[i]) * 1000  # sec -> ms
+                    o = float(opens[i]); h = float(highs[i]); 
+                    l = float(lows[i]);  c = float(closes[i]); 
+                    v = float(vols[i])
+                    ohlcv.append([ts_ms, o, h, l, c, v])
+                return ohlcv
+            except Exception as e:
+                print(f"Ошибка при получении MEXC Futures данных: {e}, используем Binance как fallback")
+                # Используем Binance в качестве fallback
+                return get_binance_ohlcv(symbol, interval, True, limit)
+        else:
+            # Многие 3m, 5m и другие интервалы могут не поддерживаться на MEXC Spot
+            # Маппинг интервалов для MEXC Spot
+            mexc_spot_intervals = {
+                "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+                "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w", "1M": "1M"
+            }
             
-        except Exception as e:
-            print(f"Error in process_tf for {tf}: {e}")
-            await asyncio.sleep(10)  # Короткая пауза перед повторной попыткой
+            # Если интервал не поддерживается MEXC, используем Binance API
+            if interval not in mexc_spot_intervals:
+                print(f"Интервал {interval} не поддерживается MEXC Spot API, используем Binance")
+                return get_binance_ohlcv(symbol, interval, False, limit)
+                
+            try:
+                # MEXC spot API
+                base_url = "https://api.mexc.com"
+                endpoint = "/api/v3/klines"
+                params = {"symbol": symbol, "interval": mexc_spot_intervals.get(interval, interval), "limit": limit}
+                resp = requests.get(base_url + endpoint, params=params, timeout=10)
+                resp.raise_for_status()
+                klines = resp.json()
+                ohlcv = []
+                for k in klines:
+                    ts = int(k[0])
+                    o, h, l, c, v = float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])
+                    ohlcv.append([ts, o, h, l, c, v])
+                return ohlcv
+            except Exception as e:
+                print(f"Ошибка при получении MEXC Spot данных: {e}, используем Binance как fallback")
+                # Используем Binance в качестве fallback
+                return get_binance_ohlcv(symbol, interval, False, limit)
+    except Exception as e:
+        print(f"Критическая ошибка в get_mexc_ohlcv: {e}")
+        # Возвращаем пустые данные вместо падения
+        return []
+
+# ============================ BYBIT OHLCV ===================================
+BYBIT_INTERVAL_MAP = {
+    "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+    "1h": "60", "4h": "240", "1d": "D", "1w": "W", "1M": "M"
+}
+
+def get_bybit_ohlcv(symbol: str, interval: str, futures: bool = False, limit: int = 1000):
+    """Получает OHLCV данные с Bybit Spot или Futures REST v5."""
+    base_url = "https://api.bybit.com"
+    endpoint = "/v5/market/kline"
+    params = {
+        "category": "linear" if futures else "spot",
+        "symbol": symbol,
+        "interval": BYBIT_INTERVAL_MAP.get(interval, interval),
+        "limit": limit,
+    }
+    resp = requests.get(base_url + endpoint, params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    klines = data.get("result", {}).get("list", [])  # список списков
+    ohlcv = []
+    for k in klines:
+        ts = int(k[0])
+        o, h, l, c, v = map(float, k[1:6])
+        ohlcv.append([ts, o, h, l, c, v])
+    return ohlcv
+
+# ======================== Signal-handler wrappers ============================
+async def _fetch_ohlcv_to_thread(fetch_fn, *args, **kwargs):
+    """Запускает blocking-функцию в default executor и возвращает результат."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: fetch_fn(*args, **kwargs))
+
+async def get_binance_spot_signals(user_id: int, settings: dict):
+    """Пример обработчика: получает OHLCV Binance Spot и делает анализ (заглушка)."""
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, False, 500)
+                    # TODO: добавить анализ сигналов
+                    await asyncio.sleep(0)  # даём контролю вернуться в event-loop
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Binance Spot: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Binance Spot: {e}")
+
+async def get_binance_futures_signals(user_id: int, settings: dict):
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_binance_ohlcv, symbol, tf, True, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Binance Futures: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Binance Futures: {e}")
+
+async def get_bybit_spot_signals(user_id: int, settings: dict):
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, False, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Bybit Spot: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Bybit Spot: {e}")
+
+async def get_bybit_futures_signals(user_id: int, settings: dict):
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_bybit_ohlcv, symbol, tf, True, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} Bybit Futures: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике Bybit Futures: {e}")
+
+async def get_mexc_spot_signals(user_id: int, settings: dict):
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, False, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} MEXC Spot: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике MEXC Spot: {e}")
+
+async def get_mexc_futures_signals(user_id: int, settings: dict):
+    try:
+        symbols = settings.get("user", {}).get("monitor_pairs", "BTCUSDT").split(",") or ["BTCUSDT"]
+        symbols = [s.strip().upper() for s in symbols if s.strip()] or ["BTCUSDT"]
+        for symbol in symbols:
+            for tf in TIMEFRAMES:
+                try:
+                    data = await _fetch_ohlcv_to_thread(get_mexc_ohlcv, symbol, tf, True, 500)
+                    # TODO: анализ
+                    await asyncio.sleep(0)
+                except Exception as e:
+                    print(f"Ошибка при получении данных для {symbol}/{tf} MEXC Futures: {e}")
+                    await asyncio.sleep(0)
+    except Exception as e:
+        print(f"Ошибка в обработчике MEXC Futures: {e}")
+
+# Map (exchange, trading_type) to handler function
+_FETCHER_MAP = {
+    ("binance", "spot"):    get_binance_spot_signals,
+    ("binance", "futures"): get_binance_futures_signals,
+    ("bybit",   "spot"):    get_bybit_spot_signals,
+    ("bybit",   "futures"): get_bybit_futures_signals,
+    ("mexc",    "spot"):    get_mexc_spot_signals,
+    ("mexc",    "futures"): get_mexc_futures_signals,
+}
+
+# -----------------------------------------------------------------------------
+# Helper functions to read user settings and start proper handlers
+# -----------------------------------------------------------------------------
+
+def _get_trading_type(settings: dict) -> str:
+    """Return lower-case trading_type from settings (defaults to 'spot')."""
+    # Look in multiple places for trading_type
+    trading_type = (
+        settings.get("trading", {}).get("trading_type") or 
+        settings.get("user", {}).get("trading_type") or
+        settings.get("trading_type", "spot")
+    ).lower()
+    
+    print(f"[CONFIG] Got trading_type from settings: {trading_type}")
+    return trading_type
+
+# ============================= Exchange factory =============================
+# Создаём CCXT-экземпляр под каждую (биржа, тип торговли)
+EXCHANGE_FACTORY: Dict[Tuple[str, str], Callable[[], ccxt.Exchange]] = {
+    ("bybit",   "spot"):    lambda: ccxt.bybit({"enableRateLimit": True, "defaultType": "spot"}),
+    ("bybit",   "futures"): lambda: ccxt.bybit({"enableRateLimit": True, "defaultType": "future"}),
+    ("binance", "spot"):    lambda: ccxt.binance({"enableRateLimit": True}),
+    # Binance USD-M futures
+    ("binance", "futures"): lambda: ccxt.binanceusdm({"enableRateLimit": True}),
+    ("mexc",    "spot"):    lambda: ccxt.mexc({"enableRateLimit": True}),
+    # MEXC futures – usd-m swap (если нет в вашей версии ccxt, обновите)
+    ("mexc", "futures"): lambda: ccxt.mexc({"enableRateLimit": True, "defaultType": "swap"}),
+}
+
+# --------------------------- Универсальный fetch ----------------------------
+async def fetch_ohlcv_ccxt(exchange: ccxt.Exchange, symbol: str, timeframe: str = "1h", limit: int = 500,
+                           retries: int = 3, delay: int = 5):
+    """Получить OHLCV через CCXT. Пробуем несколько вариантов символа, чтобы избежать ошибок BadSymbol."""
+    # Подготовим список вариантов записи торговой пары
+    symbol_variants = [symbol]
+    if symbol.endswith("USDT") and "/" not in symbol:
+        core = symbol[:-4]
+        symbol_variants.append(f"{core}/USDT")          # BTC/USDT
+        symbol_variants.append(f"{core}/USDT:USDT")      # для USD-M фьючерсов Binance, MEXC
+    else:
+        # если уже с "/", добавим вариант без слеша
+        symbol_variants.append(symbol.replace("/USDT", "USDT"))
+
+    last_exception = None
+
+    # ---------------------- MEXC кастомный хак ----------------------
+# ---------------------- MEXC кастомный хак ----------------------
+    if exchange.id == 'mexc':
+        # Проверяем, работаем ли мы с фьючерсами
+        is_futures = exchange.options.get('defaultType') == 'swap'
+        
+        # Проверяем поддерживаемые таймфреймы
+        supported_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"}
+        if timeframe not in supported_timeframes:
+            print(f"Warning: {timeframe} not supported by MEXC, using 1h as fallback for {symbol}")
+            timeframe = "1h"
+    # ------------------------- Основные попытки ---------------------
+    for sym in symbol_variants:
+        for attempt in range(retries):
+            try:
+                ohlcv = await exchange.fetch_ohlcv(sym, timeframe, limit=limit)
+                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+                df["hl2"] = (df["high"] + df["low"]) / 2
+                return df
+            except (ccxt.BadSymbol, ccxt.BadRequest) as e:
+                last_exception = e
+                # пробуем следующий вариант символа
+                break
+            except (ccxt.RequestTimeout, ccxt.DDoSProtection) as e:
+                print(f"Timeout/DDoS {exchange.id} {sym} – retry {attempt+1}/{retries}")
+                last_exception = e
+                await asyncio.sleep(delay)
+                continue
+            except Exception as e:
+                last_exception = e
+                break
+
+    # Если все попытки не удались – логируем
+    print(f"[fetch_ohlcv_ccxt] Failed {exchange.id} {symbol} ({symbol_variants}) {timeframe}: {last_exception}")
+    return None
+
+# ------------------------------ Общий worker -------------------------------
+async def process_user_exchange(user_id: int, settings: dict, exch_name: str, trading_type: str, symbols: list[str]):
+    """Полный цикл сканирования / трейдинга для пользователя на конкретной бирже."""
+    try:
+        # Инициализируем CCXT-объект
+        print(f"[CONFIG] Creating exchange {exch_name} with type {trading_type} for user {user_id}")
+        
+        # Fix for Binance - force futures if in user settings
+        if exch_name == "binance" and trading_type != "futures":
+            # Check user settings explicitly for binance trading type
+            user_trading_settings = load_trading_settings(user_id)
+            if user_trading_settings.get("trading_type", "").lower() == "futures":
+                print(f"[CONFIG] FIXING: User {user_id} has futures in settings but got {trading_type}, changing to futures")
+                trading_type = "futures"
+        
+        exchange: ccxt.Exchange = EXCHANGE_FACTORY[(exch_name, trading_type)]()
+        print(f"[START] user={user_id} exch={exch_name} type={trading_type} (settings_type={settings.get('trading', {}).get('trading_type')})")
+        while True:
+            try:
+                btc_df = await fetch_ohlcv_ccxt(exchange, "BTCUSDT", "5m", 300)
+                if btc_df is None:
+                    await asyncio.sleep(10)
+                    continue
+                for tf in TIMEFRAMES:
+                    for symbol in symbols:
+                        df5 = await fetch_ohlcv_ccxt(exchange, symbol, "5m", 300)
+                        dft = await fetch_ohlcv_ccxt(exchange, symbol, tf, 200)
+                        if df5 is None or dft is None:
+                            continue
+                        ticker = await exchange.fetch_ticker(symbol)
+                        ctx = Context(
+                            ticker_24h=ticker,
+                            hourly_volume=df5["volume"].iloc[-12:].sum(),
+                            btc_df=btc_df,
+                        )
+
+                        # *** переиспользуем внутр. функцию, чтобы не дублировать код ***
+                        await internal_trade_logic(
+                            exchange_name=exch_name,
+                            user_id=user_id,
+                            df5=df5,
+                            dft=dft,
+                            ctx=ctx,
+                            tf=tf,
+                            symbol=symbol,
+                            settings=settings,
+                            trading_type=trading_type,
+                        )
+
+                    await asyncio.sleep(0.05)  # не душим API
+                # await wait_for_next_candle("1m")
+            except Exception as loop_exc:
+                print(f"[ERROR] user={user_id} exch={exch_name}: {loop_exc}")
+                await asyncio.sleep(5)
+    finally:
+        await exchange.close()
+
+# ----------------------- Диспетчер для одного пользователя -------------------
+async def _dispatch_for_user(user_id: int, settings: dict):
+    """Start tasks for all enabled exchanges for user."""
+    try:
+        trading_type = _get_trading_type(settings)
+        print(f"[CONFIG] Начальный trading_type для пользователя {user_id}: {trading_type}")
+        
+        # Приоритет секции user над секцией trading
+        if "user" in settings and "trading_type" in settings["user"]:
+            trading_type = settings["user"]["trading_type"].lower()
+            print(f"[CONFIG] Обнаружен trading_type в секции user: {trading_type}")
+        
+        # список символов, если не задан – BTCUSDT
+        symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
+        symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
+
+        print(f"[CONFIG] Итоговый тип торговли для пользователя {user_id}: {trading_type}")
+        
+        tasks = []
+        for exch_name in ("binance", "bybit", "mexc"):
+            if not settings.get(exch_name, False):
+                continue
+            # Bybit остаётся в первоначальном process_tf (функция ниже) если нужно
+            if exch_name == "bybit":
+                continue  # Bybit обслуживается старым process_tf
+                
+            print(f"[CONFIG] Запуск {exch_name} с типом торговли {trading_type} для пользователя {user_id}")
+            
+            tasks.append(
+                asyncio.create_task(
+                    process_user_exchange(user_id, settings, exch_name, trading_type, symbols)
+                )
+            )
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        print(f"Ошибка в диспетчере для пользователя {user_id}: {e}")
+
+async def run_all_users_settings():
+    """Read all user_settings/*.json files and dispatch tasks."""
+    try:
+        settings_path = Path("user_settings")
+        if not settings_path.exists():
+            print("[run_all_users_settings] settings directory not found – skipping")
+            return
+
+        tasks = []
+        for json_file in settings_path.glob("*.json"):
+            try:
+                with json_file.open("r", encoding="utf-8") as fh:
+                    settings = json.load(fh)
+                user_id = int(json_file.stem)
+                tasks.append(asyncio.create_task(_dispatch_for_user(user_id, settings)))
+            except Exception as exc:
+                print(f"[run_all_users_settings] Failed to load {json_file.name}: {exc}")
+                continue
+
+        if tasks:
+            # Использую gather с return_exceptions=True чтобы предотвратить общий сбой
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as e:
+        print(f"Критическая ошибка в run_all_users_settings: {e}")
 
 async def main():
-    """Основная функция для запуска процессов обработки различных таймфреймов."""
-    # Инициализируем базу данных
-    await init_db()
-    
-    # Создаем и запускаем задачи для обработки каждого таймфрейма
-    tasks = []
-    for tf in TIMEFRAMES:
-        tasks.append(asyncio.create_task(process_tf(tf)))
-    
-    # Ожидаем завершения всех задач
-    await asyncio.gather(*tasks)
+    try:
+        # Инициализируем базу данных (добавляем новые колонки, если их нет)
+        await init_db()
+        
+        # Запускаем детектор Pump/Dump
+        asyncio.create_task(pump_dump_main())
+        
+        # Запускаем задачи с учётом выбранных пользователями бирж/режимов
+        asyncio.create_task(run_all_users_settings())
+        
+        # Запускаем основные стратегии
+        await asyncio.gather(*[process_tf(tf) for tf in TIMEFRAMES])
+    finally:
+        await exchange.close()  # Ensures resources are released
 
-# Запускаем основную функцию
-if __name__ == "__main__":
-    asyncio.run(main())
+# =============================================================================
+#  Actual implementation of internal_trade_logic with proper trading logic.
+# =============================================================================
+async def internal_trade_logic(*args, **kwargs):
+    """Real trading logic for all exchange handlers (Binance, MEXC, etc.)"""
+    try:
+        # Extract parameters from *args and **kwargs
+        if kwargs:
+            exchange_name = kwargs.get('exchange_name')
+            user_id = kwargs.get('user_id')
+            df5 = kwargs.get('df5')
+            dft = kwargs.get('dft')
+            ctx = kwargs.get('ctx')
+            tf = kwargs.get('tf')
+            symbol = kwargs.get('symbol')
+            settings = kwargs.get('settings')
+            trading_type = kwargs.get('trading_type')
+        else:
+            # Extract from positional args if needed
+            exchange_name = args[0] if len(args) > 0 else None
+            user_id = args[1] if len(args) > 1 else None
+            df5 = args[2] if len(args) > 2 else None
+            dft = args[3] if len(args) > 3 else None
+            ctx = args[4] if len(args) > 4 else None
+            tf = args[5] if len(args) > 5 else None
+            symbol = args[6] if len(args) > 6 else None
+            settings = args[7] if len(args) > 7 else None
+            trading_type = args[8] if len(args) > 8 else None
+            
+        if not all([user_id, symbol, tf, df5 is not None, dft is not None]):
+            print(f"Missing required parameters in internal_trade_logic")
+            return
+            
+        print(f"Processing {exchange_name} {symbol}/{tf} for user {user_id}")
+            
+        # Check for existing open order
+        open_order = await get_open_order(user_id, exchange_name, symbol, tf)
+        
+        # Get user-specific settings
+        user_moon = StrategyMoonBot(load_strategy_params(user_id))
+        cm_settings = load_cm_settings(user_id)
+        divergence_settings = load_divergence_settings(user_id)
+        rsi_settings = load_rsi_settings(user_id)
+        trading_settings = load_trading_settings(user_id)
+        leverage = trading_settings.get("leverage", 1)
+        
+        # ENTRY LOGIC (no open order)
+        if open_order is None:
+            # Get price action patterns
+            pattern = await get_pattern_price_action(
+                dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
+                trading_type
+            )
+            
+            # Calculate indicators
+            dft = calculate_ppo(dft, cm_settings)
+            dft = calculate_ema(dft)
+            cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+            
+            # Calculate RSI
+            dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+            dft = calculate_ema(dft, 
+                               fast_period=rsi_settings['EMA_FAST'], 
+                               slow_period=rsi_settings['EMA_SLOW'])
+            
+            # Get RSI signals
+            rsi = generate_signals_rsi(dft, 
+                                      overbought=rsi_settings['RSI_OVERBOUGHT'],
+                                      oversold=rsi_settings['RSI_OVERSOLD'])
+            rsi_signal = rsi['signal_rsi'].iloc[-1]
+            
+            # Get divergence signals
+            diver_signals = generate_trading_signals(
+                dft, 
+                rsi_length=divergence_settings['RSI_LENGTH'], 
+                lbR=divergence_settings['LB_RIGHT'], 
+                lbL=divergence_settings['LB_LEFT'], 
+                take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
+                stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
+                stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
+                atr_length=divergence_settings['ATR_LENGTH'],
+                atr_multiplier=divergence_settings['ATR_MULTIPLIER']
+            )
+            
+            # Добавляем отладочную информацию для анализа сигналов
+            print(f"[SIGNAL_DEBUG] {exchange_name} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+            
+            # Determine position side (LONG/SHORT)
+            position_side = "LONG"  # Default to LONG
+            
+            # For futures, consider short signals
+            if trading_type == "futures":
+                # Явно проверяем на сигналы LONG и SHORT
+                has_long_signal = cm_signal == "long" or rsi_signal == "Long"
+                has_short_signal = cm_signal == "short" or rsi_signal == "Short"
+                
+                # Логируем сигналы для отладки
+                print(f"[POSITION_SIGNALS] {exchange_name} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
+                
+                # Если есть сигнал на SHORT - меняем тип позиции
+                if has_short_signal:
+                    position_side = "SHORT"
+                    print(f"[POSITION] Setting position to SHORT based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                elif has_long_signal:
+                    # Явно подтверждаем LONG позицию
+                    position_side = "LONG"
+                    print(f"[POSITION] Setting position to LONG based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                else:
+                    # Явно логируем, что оставляем позицию LONG по умолчанию
+                    print(f"[POSITION] No clear signals, keeping default position as LONG")
+            
+            # Check active signals based on position side
+            if position_side == "LONG":
+                price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
+                cm_active = cm_signal == "long"
+                moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
+                rsi_active = rsi_signal == "Long"
+                
+                # Check bullish divergence
+                regular_bullish = diver_signals['divergence']['regular_bullish']
+                hidden_bullish = diver_signals['divergence']['hidden_bullish']
+                divergence_active = False
+                divergence_type = ""
+                
+                if isinstance(regular_bullish, bool) and regular_bullish:
+                    divergence_active = True
+                    divergence_type += "Regular Bullish "
+                if isinstance(hidden_bullish, bool) and hidden_bullish:
+                    divergence_active = True
+                    divergence_type += "Hidden Bullish "
+            else:  # SHORT position
+                price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
+                cm_active = cm_signal == "short"
+                moonbot_active = False  # MoonBot only for LONG
+                rsi_active = rsi_signal == "Short"
+                
+                # Check bearish divergence
+                regular_bearish = diver_signals['divergence']['regular_bearish']
+                hidden_bearish = diver_signals['divergence']['hidden_bearish']
+                divergence_active = False
+                divergence_type = ""
+                
+                if isinstance(regular_bearish, bool) and regular_bearish:
+                    divergence_active = True
+                    divergence_type += "Regular Bearish "
+                if isinstance(hidden_bearish, bool) and hidden_bearish:
+                    divergence_active = True
+                    divergence_type += "Hidden Bearish "
+            
+            # Debug output of signal flags
+            print(f"[DEBUG] {exchange_name.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
+            
+            # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
+            any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
+            
+            # Get current price
+            current_price = dft["close"].iloc[-1]
+            
+            # Open position if any signal is active
+            if any_signal:
+                # Use MoonBot strategy or basic order
+                if moonbot_active:
+                    order_dict = user_moon.build_order(dft)
+                    entry = order_dict["price"]
+                    tp = order_dict["take_profit"]
+                    sl = order_dict["stop_loss"]
+                else:
+                    # Basic order based on current price
+                    entry = current_price
+                    
+                    # Calculate TP/SL based on position side
+                    if position_side == "LONG":
+                        tp = entry * 1.03  # +3%
+                        sl = entry * 0.98  # -2%
+                    else:  # SHORT
+                        tp = entry * 0.97  # -3%
+                        sl = entry * 1.02  # +2%
+                
+                # Get user balance
+                user_balance = await get_user_balance(user_id)
+                
+                # Validate leverage for futures
+                if trading_type == "futures" and leverage < 1:
+                    leverage = 1
+                
+                # Calculate position size
+                if trading_type == "futures":
+                    # For futures, consider leverage
+                    investment_amount = user_balance * 0.05  # 5% of balance
+                    
+                    if leverage <= 0:
+                        leverage = 1
+                        
+                    qty = (investment_amount * leverage) / entry
+                else:
+                    # For spot trading
+                    investment_amount = user_balance * 0.05  # 5% of balance
+                    qty = investment_amount / entry
+                
+                # Validate quantity
+                if qty <= 0:
+                    print(f"Error: Invalid quantity {qty} for {symbol}")
+                    return
+                
+                # Format quantity
+                qty = round(qty, 6)
+                
+                # Set minimum order size
+                if qty * entry < 10:  # Minimum order size 10 USDT
+                    qty = 10 / entry
+                    qty = round(qty, 6)
+                
+                try:
+                    # Create order with exchange info
+                    order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                    
+                    # Get updated balance after order creation
+                    new_balance = await get_user_balance(user_id)
+                    
+                    # Emojis for position type
+                    position_emoji = "🔰" if position_side == "LONG" else "🔻"
+                    transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                    
+                    # Notification message
+                    message = (
+                        f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                        f"Биржа: {exchange_name.capitalize()}\n"
+                        f"Тип торговли: {trading_type.upper()}"
+                        f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
+                        f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
+                        f"♻️Точка входа: {entry:.2f}$\n"
+                        f"Направление: {position_side} {position_emoji}\n\n"
+                        f"🎯TP: {tp:.4f}$\n"
+                        f"📛SL: {sl:.4f}$\n\n"
+                        f"⚠️Сделка открыта по сигналам с:\n"
+                        f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
+                        f"{cm_active and '✅' or '❌'} CM\n"
+                        f"{moonbot_active and '✅' or '❌'} MoonBot\n"
+                        f"{rsi_active and '✅' or '❌'} RSI\n"
+                        f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
+                        f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
+                    )
+                    
+                    await bot.send_message(user_id, message)
+                    
+                except Exception as e:
+                    print(f"Error creating order for {exchange_name} {symbol}: {e}")
+                    await bot.send_message(user_id, f"Ошибка при создании ордера ({exchange_name}): {e}")
+        
+        # EXIT LOGIC (with open order)
+        else:
+            last_price = dft["close"].iloc[-1]
+            
+            # Skip if already closed
+            if open_order.get('status', 'OPEN') != 'OPEN':
+                return
+            
+            # Determine position direction
+            position_direction = "LONG"  # Default
+            if "position_side" in open_order:
+                position_direction = open_order["position_side"]
+            elif "side" in open_order and open_order["side"].upper() == "SELL":
+                position_direction = "SHORT"
+            elif "position_type" in open_order:
+                position_direction = open_order["position_type"]
+            
+            # Check if long position
+            is_long = position_direction.upper() == "LONG"
+            
+            # Check TP/SL conditions based on position direction
+            if is_long:
+                hit_tp = last_price >= open_order["tp_price"]
+                hit_sl = last_price <= open_order["sl_price"]
+            else:  # SHORT
+                hit_tp = last_price <= open_order["tp_price"]
+                hit_sl = last_price >= open_order["sl_price"]
+            
+            # Close if TP/SL hit
+            if hit_tp or hit_sl:
+                try:
+                    # Double-check order status
+                    current_order = await get_order_by_id(open_order["id"])
+                    if current_order and current_order.get('status') == 'CLOSED':
+                        return
+                    
+                    # Get trading type and leverage before closing the order
+                    trading_type = open_order.get('trading_type', 'spot')
+                    leverage = open_order.get('leverage', 1)
+                    
+                    # Print debug info
+                    print(f"[CLOSE] {exchange_name} {symbol} {position_direction} with leverage {leverage} (trading_type={trading_type})")
+                    
+                    # Close with notification
+                    await close_order_with_notification(
+                        user_id, open_order["id"], last_price, "TP" if hit_tp else "SL"
+                    )
+                    
+                except Exception as e:
+                    print(f"Error closing order: {e}")
+                    await bot.send_message(user_id, f"Ошибка при закрытии ордера: {e}")
+    except Exception as e:
+        print(f"Error in internal_trade_logic: {e}")
+
+asyncio.run(main())
