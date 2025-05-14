@@ -107,16 +107,43 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             trading_type = order.get('trading_type', 'spot')
             leverage = order.get('leverage', 1)
             qty = order.get('qty', order.get('amount', 0))
-            buy_date = order.get('buy_time', order.get('open_time', ''))[:10]  # Берем только дату
-            buy_time = order.get('buy_time', order.get('open_time', ''))
             
-            # Если buy_time - это полная временная метка, извлечем только время
-            if buy_time and len(buy_time) > 10:
-                try:
-                    dt_obj = datetime.datetime.fromisoformat(buy_time.replace('Z', '+00:00'))
-                    buy_time = dt_obj.strftime('%H:%M')
-                except:
-                    buy_time = buy_time[11:16]  # Формат ЧЧ:ММ
+            # Обработка временных меток
+            buy_time_value = order.get('buy_time', order.get('open_time', ''))
+            
+            # Инициализируем значения по умолчанию
+            buy_date = "Неизвестно"
+            buy_time = "Неизвестно"
+            
+            if buy_time_value:
+                if isinstance(buy_time_value, str):
+                    # Если строка с датой времени
+                    if len(buy_time_value) >= 10:
+                        try:
+                            # Попытка разобрать строку даты-времени
+                            dt_obj = datetime.datetime.fromisoformat(buy_time_value.replace('Z', '+00:00'))
+                            buy_date = dt_obj.strftime('%Y-%m-%d')
+                            buy_time = dt_obj.strftime('%H:%M')
+                        except:
+                            # Если не получилось разобрать, просто отрезаем части строки
+                            buy_date = buy_time_value[:10]
+                            if len(buy_time_value) > 10:
+                                buy_time = buy_time_value[11:16]
+                elif isinstance(buy_time_value, datetime.datetime):
+                    # Если это объект datetime
+                    buy_date = buy_time_value.strftime('%Y-%m-%d')
+                    buy_time = buy_time_value.strftime('%H:%M')
+                else:
+                    # Если другой тип, пытаемся преобразовать в строку
+                    try:
+                        buy_time_str = str(buy_time_value)
+                        if len(buy_time_str) >= 10:
+                            buy_date = buy_time_str[:10]
+                            if len(buy_time_str) > 10:
+                                buy_time = buy_time_str[11:16]
+                    except:
+                        # В случае ошибки оставляем значения по умолчанию
+                        pass
             
             # Определяем базовую валюту (BTC в BTCUSDT)
             symbol_base = symbol.replace('USDT', '') if 'USDT' in symbol else symbol.split('/')[0] if '/' in symbol else symbol
