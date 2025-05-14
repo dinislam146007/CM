@@ -43,6 +43,17 @@ import requests
 import time
 
 
+def decide_position_side(cm_sig: str, rsi_sig: str) -> str | None:
+    long_sig  = cm_sig == "long"  or rsi_sig == "Long"
+    short_sig = cm_sig == "short" or rsi_sig == "Short"
+
+    if long_sig and not short_sig:      # только long‑сигнал
+        return "LONG"
+    if short_sig and not long_sig:      # только short‑сигнал
+        return "SHORT"
+    return None                         # конфликт или нет сигналов
+
+
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
 async def close_order_with_notification(user_id, order_id, current_price, close_reason):
@@ -419,6 +430,7 @@ async def process_tf(tf: str):
                     
                     # For futures, consider short signals
                     if trading_type == "futures":
+                        
                         # Явно проверяем на сигналы LONG и SHORT
                         has_long_signal = cm_signal == "long" or rsi_signal == "Long"
                         has_short_signal = cm_signal == "short" or rsi_signal == "Short"
@@ -427,16 +439,13 @@ async def process_tf(tf: str):
                         print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
                         
                         # Если есть сигнал на SHORT - меняем тип позиции
-                        if has_short_signal:
-                            position_side = "SHORT"
-                            print(f"[POSITION] Setting position to SHORT based on signals: CM={cm_signal}, RSI={rsi_signal}")
-                        elif has_long_signal:
-                            # Явно подтверждаем LONG позицию
-                            position_side = "LONG"
-                            print(f"[POSITION] Setting position to LONG based on signals: CM={cm_signal}, RSI={rsi_signal}")
-                        else:
-                            # Явно логируем, что оставляем позицию LONG по умолчанию
-                            print(f"[POSITION] No clear signals, keeping default position as LONG")
+                        side = decide_position_side(cm_signal, rsi_signal)
+
+                        if side is None:
+                            print(f"[POSITION] Конфликт / нет чётких сигналов – пропускаем вход")
+                            continue            # выходим из цикла, не открываем сделку
+
+                        position_side = side    # 'LONG' или 'SHORT'
                     
                     # Определяем, какие сигналы активны в зависимости от типа позиции
                     if position_side == "LONG":
@@ -1204,23 +1213,13 @@ async def internal_trade_logic(*args, **kwargs):
             # For futures, consider short signals
             if trading_type == "futures":
                 # Явно проверяем на сигналы LONG и SHORT
-                has_long_signal = cm_signal == "long" or rsi_signal == "Long"
-                has_short_signal = cm_signal == "short" or rsi_signal == "Short"
-                
-                # Логируем сигналы для отладки
-                print(f"[POSITION_SIGNALS] {exchange_name} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
-                
-                # Если есть сигнал на SHORT - меняем тип позиции
-                if has_short_signal:
-                    position_side = "SHORT"
-                    print(f"[POSITION] Setting position to SHORT based on signals: CM={cm_signal}, RSI={rsi_signal}")
-                elif has_long_signal:
-                    # Явно подтверждаем LONG позицию
-                    position_side = "LONG"
-                    print(f"[POSITION] Setting position to LONG based on signals: CM={cm_signal}, RSI={rsi_signal}")
-                else:
-                    # Явно логируем, что оставляем позицию LONG по умолчанию
-                    print(f"[POSITION] No clear signals, keeping default position as LONG")
+                side = decide_position_side(cm_signal, rsi_signal)
+
+                if side is None:
+                    print(f"[POSITION] conflict / no clear signal – skip")
+                    return      
+
+                position_side = side
             
             # Check active signals based on position side
             if position_side == "LONG":
