@@ -48,7 +48,13 @@ async def get_user_favorite_pairs(user_id: int) -> list:
     """Get user's favorite cryptocurrency pairs from database."""
     try:
         with sqlite3.connect("trading_data.db") as conn:
+            # Check if the users table exists
             cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            if not cursor.fetchone():
+                print(f"[WARNING] Таблица 'users' не существует в базе данных")
+                return []
+                
             cursor.execute("SELECT crypto_pairs FROM users WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
 
@@ -586,19 +592,19 @@ async def process_tf(tf: str):
                         
                         try:
                             # Create order with exchange info
-                            order_id = await create_order(uid, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                            order_id = await create_order(uid, exchange.id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                             
-                            # Get updated balance after order creation
+                            # Получаем обновленный баланс после списания средств
                             new_balance = await get_user_balance(uid)
                             
-                            # Emojis for position type
+                            # Определяем эмодзи для типа позиции
                             position_emoji = "🔰" if position_side == "LONG" else "🔻"
                             transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
                             
-                            # Notification message
+                            # Формируем сообщение по новому шаблону
                             message = (
                                 f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
-                                f"Биржа: {exchange_name.capitalize()}\n"
+                                f"Биржа: {exchange.id.capitalize()}\n"
                                 f"Тип торговли: {trading_type.upper()}"
                                 f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                                 f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
@@ -618,8 +624,8 @@ async def process_tf(tf: str):
                             await bot.send_message(uid, message)
                             
                         except Exception as e:
-                            print(f"Error creating order for {exchange_name} {symbol}: {e}")
-                            await bot.send_message(uid, f"Ошибка при создании ордера ({exchange_name}): {e}")
+                            print(f"Ошибка при создании ордера для {exchange.id} {symbol}: {e}")
+                            await bot.send_message(uid, f"Ошибка при создании ордера: {e}")
                 
                 # ---------- выход ----------
                 else:
@@ -1357,14 +1363,14 @@ async def internal_trade_logic(*args, **kwargs):
                     # Create order with exchange info
                     order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                     
-                    # Get updated balance after order creation
+                    # Получаем обновленный баланс после списания средств
                     new_balance = await get_user_balance(user_id)
                     
-                    # Emojis for position type
+                    # Определяем эмодзи для типа позиции
                     position_emoji = "🔰" if position_side == "LONG" else "🔻"
                     transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
                     
-                    # Notification message
+                    # Формируем сообщение по новому шаблону
                     message = (
                         f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
                         f"Биржа: {exchange_name.capitalize()}\n"
@@ -1387,8 +1393,8 @@ async def internal_trade_logic(*args, **kwargs):
                     await bot.send_message(user_id, message)
                     
                 except Exception as e:
-                    print(f"Error creating order for {exchange_name} {symbol}: {e}")
-                    await bot.send_message(user_id, f"Ошибка при создании ордера ({exchange_name}): {e}")
+                    print(f"Ошибка при создании ордера для {exchange_name} {symbol}: {e}")
+                    await bot.send_message(user_id, f"Ошибка при создании ордера: {e}")
         
         # EXIT LOGIC (with open order)
         else:
