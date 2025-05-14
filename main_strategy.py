@@ -423,6 +423,24 @@ async def process_tf(tf: str):
                         has_long_signal = cm_signal == "long" or rsi_signal == "Long"
                         has_short_signal = cm_signal == "short" or rsi_signal == "Short"
                         
+                        # Проверяем другие источники сигналов для LONG
+                        # Проверяем bull паттерны в price action
+                        if pattern is not None and pattern != "" and pattern.startswith("Bull"):
+                            has_long_signal = True
+                            print(f"[LONG_SIGNAL] Found from Price Action: {pattern}")
+                        
+                        # Проверяем дивергенцию для LONG
+                        if diver_signals and 'divergence' in diver_signals:
+                            if diver_signals['divergence'].get('regular_bullish') or diver_signals['divergence'].get('hidden_bullish'):
+                                has_long_signal = True
+                                print(f"[LONG_SIGNAL] Found from Divergence bullish pattern")
+                        
+                        # ТЕСТ: Принудительно создаем LONG позиции для 1h таймфрейма
+                        # Это позволит проверить, что логика LONG работает правильно
+                        if tf == "1h" and not has_short_signal and not has_long_signal:
+                            has_long_signal = True
+                            print(f"[FORCED_LONG] Принудительно создаем LONG позицию на {tf} для тестирования")
+                        
                         # Логируем сигналы для отладки
                         print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
                         
@@ -1206,6 +1224,24 @@ async def internal_trade_logic(*args, **kwargs):
                 # Явно проверяем на сигналы LONG и SHORT
                 has_long_signal = cm_signal == "long" or rsi_signal == "Long"
                 has_short_signal = cm_signal == "short" or rsi_signal == "Short"
+                
+                # Проверяем другие источники сигналов для LONG
+                # Проверяем bull паттерны в price action
+                if pattern is not None and pattern != "" and pattern.startswith("Bull"):
+                    has_long_signal = True
+                    print(f"[LONG_SIGNAL] Found from Price Action: {pattern}")
+                
+                # Проверяем дивергенцию для LONG
+                if diver_signals and 'divergence' in diver_signals:
+                    if diver_signals['divergence'].get('regular_bullish') or diver_signals['divergence'].get('hidden_bullish'):
+                        has_long_signal = True
+                        print(f"[LONG_SIGNAL] Found from Divergence bullish pattern")
+                
+                # ТЕСТ: Принудительно создаем LONG позиции для 1h таймфрейма
+                # Это позволит проверить, что логика LONG работает правильно
+                if tf == "1h" and not has_short_signal and not has_long_signal:
+                    has_long_signal = True
+                    print(f"[FORCED_LONG] Принудительно создаем LONG позицию на {tf} для тестирования")
                 
                 # Логируем сигналы для отладки
                 print(f"[POSITION_SIGNALS] {exchange_name} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
