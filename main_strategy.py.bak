@@ -318,180 +318,254 @@ symbols    = ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "LTCUSDT", "XRPUSDT", "SOLUSDT",
 
 async def process_tf(tf: str):
     while True:
-        try:
-            # Динамически загружаем список пользователей с включенным bybit
-            active_users = []
-            settings_path = Path("user_settings")
-            if settings_path.exists():
-                for json_file in settings_path.glob("*.json"):
-                    try:
-                        with json_file.open("r", encoding="utf-8") as fh:
-                            settings = json.load(fh)
-                        user_id = int(json_file.stem)
-                        if settings.get("bybit", False):
-                            active_users.append(user_id)
-                            print(f"[INFO] Пользователь {user_id} использует Bybit")
-                    except Exception as e:
-                        print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
+        # Динамически загружаем список пользователей с включенным bybit
+        active_users = []
+        settings_path = Path("user_settings")
+        if settings_path.exists():
+            for json_file in settings_path.glob("*.json"):
+                try:
+                    with json_file.open("r", encoding="utf-8") as fh:
+                        settings = json.load(fh)
+                    user_id = int(json_file.stem)
+                    if settings.get("bybit", False):
+                        active_users.append(user_id)
+                        print(f"[INFO] Пользователь {user_id} использует Bybit")
+                except Exception as e:
+                    print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
+        
+        if not active_users:
+            print("[INFO] Нет пользователей с включенным Bybit в настройках")
+            await asyncio.sleep(60)  # Ждем минуту перед следующей проверкой
+            continue
             
-            if not active_users:
-                print("[INFO] Нет пользователей с включенным Bybit в настройках")
-                await asyncio.sleep(60)  # Ждем минуту перед следующей проверкой
-                continue
+        print(f"[INFO] Активные пользователи Bybit: {active_users}")
+        
+        btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
+        for symbol in symbols:
+            df5 = await fetch_ohlcv(symbol, "5m", 300)
+            dft = await fetch_ohlcv(symbol, tf,   200)
+            if df5 is None or dft is None: continue
+
+            ticker  = await exchange.fetch_ticker(symbol)
+            ctx = Context(
+                ticker_24h=ticker,
+                hourly_volume=df5["volume"].iloc[-12:].sum(),
+                btc_df=btc_df,
+            )
+
+            for uid in active_users:
+                open_order = await get_open_order(uid, "bybit", symbol, tf)
+
+                # Get user-specific strategy parameters
+                user_moon = StrategyMoonBot(load_strategy_params(uid))
                 
-            print(f"[INFO] Активные пользователи Bybit: {active_users}")
-            
-            btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
-            for symbol in symbols:
-                df5 = await fetch_ohlcv(symbol, "5m", 300)
-                dft = await fetch_ohlcv(symbol, tf,   200)
-                if df5 is None or dft is None: 
-                    continue
+                # Загружаем индивидуальные настройки CM для пользователя
+                cm_settings = load_cm_settings(uid)
+                
+                # Загружаем индивидуальные настройки дивергенции для пользователя
+                divergence_settings = load_divergence_settings(uid)
+                
+                # Загружаем индивидуальные настройки RSI для пользователя
+                rsi_settings = load_rsi_settings(uid)
+                
+                # Загружаем индивидуальные настройки Pump/Dump для пользователя
+                pump_dump_settings = load_pump_dump_settings(uid)
+                
+                # Загружаем индивидуальные настройки типа торговли для пользователя
+                trading_type_settings = load_trading_type_settings(uid)
+                
+                # Загружаем индивидуальные настройки торговли для пользователя
+                trading_settings = load_trading_settings(uid)
+                trading_type = trading_settings["trading_type"]
+                leverage = trading_settings["leverage"]
+                
+                # ---------- вход ----------
+                if open_order is None:
+                    # Проверка на паттерны Price Action с учетом типа рынка
+                    pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
+                    dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
+                    dft = calculate_ema(dft)
+                    cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
+                    
+                    # Рассчитываем RSI с пользовательскими настройками
+                    dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+                    dft = calculate_ema(dft, 
+                                       fast_period=rsi_settings['EMA_FAST'], 
+                                       slow_period=rsi_settings['EMA_SLOW'])
+                    
+                    # Генерируем сигналы RSI с пользовательскими настройками
+                    rsi = generate_signals_rsi(dft, 
+                                              overbought=rsi_settings['RSI_OVERBOUGHT'], 
+                                              oversold=rsi_settings['RSI_OVERSOLD'])
+                    rsi_signal = rsi['signal_rsi'].iloc[-1]
 
-                ticker = await exchange.fetch_ticker(symbol)
-                ctx = Context(
-                    ticker_24h=ticker,
-                    hourly_volume=df5["volume"].iloc[-12:].sum(),
-                    btc_df=btc_df,
-                )
-
-                for uid in active_users:
-                    try:
-                        open_order = await get_open_order(uid, "bybit", symbol, tf)
-
-                        # Get user-specific strategy parameters
-                        user_moon = StrategyMoonBot(load_strategy_params(uid))
+                    diver_signals = generate_trading_signals(
+                        dft, 
+                        rsi_length=divergence_settings['RSI_LENGTH'], 
+                        lbR=divergence_settings['LB_RIGHT'], 
+                        lbL=divergence_settings['LB_LEFT'], 
+                        take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
+                        stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
+                        stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
+                        atr_length=divergence_settings['ATR_LENGTH'],
+                        atr_multiplier=divergence_settings['ATR_MULTIPLIER']
+                    )
+                    
+                    # Добавляем отладочную информацию для анализа сигналов
+                    print(f"[SIGNAL_DEBUG] {exchange.id.upper()} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+                    
+                    import datetime as dt
+                    
+                    # Determine position side (LONG/SHORT)
+                    position_side = "LONG"  # Default to LONG
+                    
+                    # For futures, consider short signals
+                    if trading_type == "futures":
+                        # Check signals
+                        has_long_signal = cm_signal == "long" or rsi_signal == "Long"
+                        has_short_signal = cm_signal == "short" or rsi_signal == "Short"
                         
-                        # Загружаем индивидуальные настройки CM для пользователя
-                        cm_settings = load_cm_settings(uid)
+                        # Check pattern for LONG
+                        if pattern is not None and pattern != "" and pattern.startswith("Bull"):
+                            has_long_signal = True
+                            print(f"[LONG_SIGNAL] Found from Price Action: {pattern}")
                         
-                        # Загружаем индивидуальные настройки дивергенции для пользователя
-                        divergence_settings = load_divergence_settings(uid)
+                        # Logger
+                        print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
                         
-                        # Загружаем индивидуальные настройки RSI для пользователя
-                        rsi_settings = load_rsi_settings(uid)
+                        # Balance LONG/SHORT
+                        current_hour = dt.datetime.now().hour
+                        current_minute = dt.datetime.now().minute
                         
-                        # Загружаем индивидуальные настройки Pump/Dump для пользователя
-                        pump_dump_settings = load_pump_dump_settings(uid)
-                        
-                        # Загружаем индивидуальные настройки типа торговли для пользователя
-                        trading_type_settings = load_trading_type_settings(uid)
-                        
-                        # Загружаем индивидуальные настройки торговли для пользователя
-                        trading_settings = load_trading_settings(uid)
-                        trading_type = trading_settings["trading_type"]
-                        leverage = trading_settings["leverage"]
-                        
-                        # ---------- вход ----------
-                        if open_order is None:
-                            # Проверка на паттерны Price Action с учетом типа рынка
-                            pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
-                            dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
-                            dft = calculate_ema(dft)
-                            cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
-                            
-                            # Рассчитываем RSI с пользовательскими настройками
-                            dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
-                            dft = calculate_ema(dft, 
-                                               fast_period=rsi_settings['EMA_FAST'], 
-                                               slow_period=rsi_settings['EMA_SLOW'])
-                            
-                            # Генерируем сигналы RSI с пользовательскими настройками
-                            rsi = generate_signals_rsi(dft, 
-                                                      overbought=rsi_settings['RSI_OVERBOUGHT'], 
-                                                      oversold=rsi_settings['RSI_OVERSOLD'])
-                            rsi_signal = rsi['signal_rsi'].iloc[-1]
-
-                            diver_signals = generate_trading_signals(
-                                dft, 
-                                rsi_length=divergence_settings['RSI_LENGTH'], 
-                                lbR=divergence_settings['LB_RIGHT'], 
-                                lbL=divergence_settings['LB_LEFT'], 
-                                take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
-                                stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
-                                stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
-                                atr_length=divergence_settings['ATR_LENGTH'],
-                                atr_multiplier=divergence_settings['ATR_MULTIPLIER']
-                            )
-                            
-                            # Добавляем отладочную информацию для анализа сигналов
-                            print(f"[SIGNAL_DEBUG] {exchange.id.upper()} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
-                            
-                            import datetime as dt
-                            
-                            # Determine position side (LONG/SHORT)
-                            position_side = "LONG"  # Default to LONG
-                            
-                            # For futures, consider short signals
-                            if trading_type == "futures":
-                                # Check signals
-                                has_long_signal = cm_signal == "long" or rsi_signal == "Long"
-                                has_short_signal = cm_signal == "short" or rsi_signal == "Short"
-                                
-                                # Check pattern for LONG
-                                if pattern is not None and pattern != "" and pattern.startswith("Bull"):
-                                    has_long_signal = True
-                                    print(f"[LONG_SIGNAL] Found from Price Action: {pattern}")
-                                
-                                # Logger
-                                print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
-                                
-                                # Balance LONG/SHORT
-                                current_hour = dt.datetime.now().hour
-                                current_minute = dt.datetime.now().minute
-                                
-                                # Decision logic
-                                if has_long_signal and not has_short_signal:
-                                    position_side = "LONG"
-                                    print(f"[POSITION] Using LONG signal")
-                                elif has_short_signal and not has_long_signal:
-                                    position_side = "SHORT"
-                                    print(f"[POSITION] Using SHORT signal")
-                                elif has_long_signal and has_short_signal:
-                                    # Use hour parity for balance
-                                    if current_hour % 2 == 0:
-                                        position_side = "LONG"
-                                        print(f"[POSITION] Both signals present, using LONG for even hour")
-                                    else:
-                                        position_side = "SHORT"
-                                        print(f"[POSITION] Both signals present, using SHORT for odd hour")
-                                else:
-                                    # No clear signals, force alternating based on minute
-                                    if current_minute % 2 == 0:
-                                        position_side = "LONG"
-                                        print(f"[POSITION] No signals, forcing LONG for even minute")
-                                    else:
-                                        position_side = "SHORT"
-                                        print(f"[POSITION] No signals, forcing SHORT for odd minute")
-                            
-                            # Здесь идет код создания ордера согласно сигналам
-                            # ...
-                            
-                        # ---------- Логика для открытых ордеров ----------
+                        # Decision logic
+                        if has_long_signal and not has_short_signal:
+                            position_side = "LONG"
+                            print(f"[POSITION] Using LONG signal")
+                        elif has_short_signal and not has_long_signal:
+                            position_side = "SHORT"
+                            print(f"[POSITION] Using SHORT signal")
+                        elif has_long_signal and has_short_signal:
+                            # Use hour parity for balance
+                            if current_hour % 2 == 0:
+                                position_side = "LONG"
+                                print(f"[POSITION] Both signals present, using LONG for even hour")
+                            else:
+                                position_side = "SHORT"
+                                print(f"[POSITION] Both signals present, using SHORT for odd hour")
                         else:
-                            # Логика проверки и закрытия открытых ордеров
-                            # ...
-                            
-                            # Пример:
-                            # last_price = dft["close"].iloc[-1]
-                            # 
-                            # Проверка на TP/SL для позиции
-                            # if hit_tp or hit_sl:
-                            #     await close_order_with_notification(
-                            #         uid, open_order["id"], last_price, "TP" if hit_tp else "SL"
-                            #     )
-                            
-                            pass
-                            
-                    except Exception as e:
-                        print(f"Error processing user {uid} for {symbol}/{tf}: {e}")
+                            # No clear signals, force alternating based on minute
+                            if current_minute % 2 == 0:
+                                position_side = "LONG"
+                                print(f"[POSITION] No signals, forcing LONG for even minute")
+                            else:
+                                position_side = "SHORT"
+                                print(f"[POSITION] No signals, forcing SHORT for odd minute")
+                    
+                    # После этого блока position_side может быть либо "LONG", либо "SHORT"
+                    # Никакой дополнительной обработки position_side не требуется
+                    
+                    # Создаем TP/SL уровни с учетом волатильности рынка
+                    # ... (оставьте этот код без изменений)
+                    
+                    # Применяем плечо для futures
+                    if trading_type == 'futures':
+                        pnl_percent = pnl_percent * leverage
+                    
+                    pnl = (current_price - entry_price) * qty
+                    if position_side == 'SHORT':
+                        pnl = -pnl
+                    
+                    # Если используется плечо, умножаем PnL на плечо
+                    if trading_type == 'futures':
+                        pnl = pnl * leverage
+                    
+                    # Получаем текущую дату и время в МСК
+                    moscow_tz = pytz.timezone('Europe/Moscow')
+                    now = dt.datetime.now(moscow_tz)
+                    current_date = now.strftime('%d.%m.%Y')
+                    current_time = now.strftime('%H:%M')
+                    
+                    # Конвертируем время открытия ордера из UTC в МСК
+                    open_time = None
+                    if 'open_time' in order:
+                        open_time = order['open_time']
+                    elif 'buy_time' in order:
+                        open_time = int(dt.datetime.timestamp(order['buy_time']))
+                    else:
+                        open_time = int(dt.datetime.now().timestamp())
+                    
+                    buy_time_utc = dt.datetime.fromtimestamp(open_time)
+                    buy_time_moscow = pytz.utc.localize(buy_time_utc).astimezone(moscow_tz)
+                    buy_date = buy_time_moscow.strftime('%d.%m.%Y')
+                    buy_time = buy_time_moscow.strftime('%H:%M')
+                    
+                    # Получаем суммарный профит за день
+                    daily_profit = await get_daily_profit(user_id, now.date())
+                    
+                    # Получаем обновленный баланс после возврата средств
+                    new_balance = await get_user_balance(user_id)
+                    
+                    # Логирование изменения баланса
+                    balance_change = new_balance - current_balance
+                    print(f"Новый баланс пользователя {user_id} после закрытия ордера: {new_balance} (изменение: {balance_change})")
+                    
+                    # Определяем направление и символ
+                    direction = "Long 🔰" if position_side == 'LONG' else "Short 🔻"
+                    symbol = order.get('symbol', 'UNKNOWN')
+                    symbol_base = symbol.replace('USDT', '')
+                    timeframe = order.get('timeframe', order.get('interval', '1h'))
+                    
+                    # Форматируем разные сообщения в зависимости от причины закрытия
+                    if close_reason == "TP":
+                        message = (
+                            f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                            f"Биржа: {order.get('exchange', 'Bybit')}\n"
+                            f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
+                            f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
+                            f"🎯✅ Достигнут Тейк-Профит\n"
+                            f"💸🔋Прибыль по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                            f"♻️Точка входа: {entry_price:.2f}$\n"
+                            f"📈Цена продажи: {current_price:.4f}$\n"
+                            f"🛑Продано: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
+                            f"📆Сделка была открыта: {buy_date}\n"
+                            f"🕐Время открытия: {buy_time} Мск\n"
+                            f"📉ТФ открытия сделки: {timeframe}\n"
+                            f"Направление: {direction}\n\n"
+                            f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                            f"💰 Текущий баланс: {new_balance:.2f} USDT"
+                        )
+                    else:  # SL
+                        message = (
+                            f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                            f"Биржа: {order.get('exchange', 'Bybit')}\n"
+                            f"Тип торговли: {order.get('trading_type', 'spot').upper()}"
+                            f"{' | Плечо: x' + str(order.get('leverage', 1)) if order.get('trading_type') == 'futures' else ''}\n\n"
+                            f"📛Закрыто по Стоп-лоссу\n"
+                            f"🤕🪫Убыток по сделке: {pnl_percent:.2f}% ({pnl:.2f} USDT)\n\n"
+                            f"♻️Точка входа: {entry_price:.2f}$\n"
+                            f"📈Цена продажи: {current_price:.4f}$\n"
+                            f"🛑Продано: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
+                            f"📆Сделка была открыта: {buy_date}\n"
+                            f"🕐Время открытия: {buy_time} Мск\n"
+                            f"📉ТФ открытия сделки: {timeframe}\n"
+                            f"Направление: {direction}\n\n"
+                            f"Общий профит за день: {'+' if daily_profit > 0 else ''} {daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                            f"💰 Текущий баланс: {new_balance:.2f} USDT"
+                        )
+                    
+                    # Отправляем сообщение пользователю
+                    await bot.send_message(user_id, message)
+                    
+                    return True
+                except Exception as e:
+                    print(f"Ошибка при закрытии ордера: {e}")
+                    await bot.send_message(user_id, f"Ошибка при закрытии ордера: {e}")
+                    return False
                 
-            # Ждем до следующей свечи
-            await wait_for_next_candle(tf)
-            
+        # Обработка исключений для всей функции process_tf
         except Exception as e:
-            print(f"Error in process_tf for {tf}: {e}")
-            await asyncio.sleep(10)  # Короткая пауза перед повторной попыткой
+            print(f"Error in internal_trade_logic: {e}")
+            await asyncio.sleep(0.05)  # не душим API
 
 async def main():
     """Основная функция для запуска процессов обработки различных таймфреймов."""
