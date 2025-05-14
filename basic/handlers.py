@@ -1007,24 +1007,40 @@ async def orders(callback: CallbackQuery, bot: Bot):
                 reply_markup=orders_inline(len(open_forms), len(close_forms))
             )
             return
-            
-        # Create a list of all orders
         msg = "📋 Список всех ваших сделок:\n\n"
-        
         for i, form in enumerate(all_forms, 1):
-            status = "🟢 Открыта" if form.get('sale_price') is None else "🔴 Закрыта"
+            status = "🟢 Открыта" if form.get('status') == 'OPEN' else "🔴 Закрыта"
             profit_loss = ""
-            if form.get('sale_price') is not None:
-                if form['buy_price'] < form['sale_price']:
-                    profit = form['sale_price'] - form['buy_price']
-                    profit_loss = f"(+{round(profit, 2)}$💸)"
-                else:
-                    loss = form['buy_price'] - form['sale_price'] 
-                    profit_loss = f"(-{round(loss, 2)}$🤕)"
-                    
-            msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {status} {profit_loss}\n"
             
-        # Split message if too long
+            # Calculate profit/loss for closed orders
+            if form.get('status') == 'CLOSED':
+                side = form.get('side', 'LONG')
+                buy_price = form.get('coin_buy_price', 0)
+                sale_price = form.get('coin_sale_price', 0)
+                
+                # Different calculation based on position side
+                if side == 'LONG':
+                    is_profit = sale_price > buy_price
+                else:  # SHORT
+                    is_profit = sale_price < buy_price
+                
+                pnl_usdt = form.get('pnl_usdt')
+                
+                if pnl_usdt is not None and pnl_usdt != 0:
+                    # Use pnl_usdt if available
+                    if pnl_usdt > 0:
+                        profit_loss = f"(+{round(pnl_usdt, 2)}$💸)"
+                    else:
+                        profit_loss = f"({round(pnl_usdt, 2)}$🤕)"
+                else:
+                    # Fallback calculation
+                    pnl = abs(sale_price - buy_price)
+                    if is_profit:
+                        profit_loss = f"(+{round(pnl, 2)}$💸)"
+                    else:
+                        profit_loss = f"(-{round(pnl, 2)}$🤕)"
+                    
+            msg += f"{i}. {form['symbol']} | {interval_conv(form.get('interval', ''))} | {status} {profit_loss}\n"
         chunks = split_text_to_chunks(msg)
         n = int(callback.data.split()[2]) if len(callback.data.split()) > 2 else 0
         
@@ -1054,10 +1070,38 @@ async def orders(callback: CallbackQuery, bot: Bot):
         
         # Filter for profit or loss
         if action == 'profit':
-            forms = [form for form in forms if form.get('sale_price', 0) > form.get('buy_price', 0)]
+            filtered_forms = []
+            for form in forms:
+                side = form.get('side', 'LONG')
+                buy_price = form.get('coin_buy_price', 0)
+                sale_price = form.get('coin_sale_price', 0)
+                
+                # Check if profitable based on position side
+                if side == 'LONG' and sale_price > buy_price:
+                    filtered_forms.append(form)
+                elif side == 'SHORT' and sale_price < buy_price:
+                    filtered_forms.append(form)
+                elif form.get('pnl_usdt', 0) > 0:
+                    filtered_forms.append(form)
+                    
+            forms = filtered_forms
             title = "прибыльных"
-        else:
-            forms = [form for form in forms if form.get('sale_price', 0) < form.get('buy_price', 0)]
+        else:  # Loss
+            filtered_forms = []
+            for form in forms:
+                side = form.get('side', 'LONG')
+                buy_price = form.get('coin_buy_price', 0)
+                sale_price = form.get('coin_sale_price', 0)
+                
+                # Check if loss based on position side
+                if side == 'LONG' and sale_price < buy_price:
+                    filtered_forms.append(form)
+                elif side == 'SHORT' and sale_price > buy_price:
+                    filtered_forms.append(form)
+                elif form.get('pnl_usdt', 0) < 0:
+                    filtered_forms.append(form)
+                    
+            forms = filtered_forms
             title = "убыточных"
         
         if not forms:
@@ -1072,14 +1116,36 @@ async def orders(callback: CallbackQuery, bot: Bot):
         msg = f"📋 Список {title} сделок:\n\n"
         
         for i, form in enumerate(forms, 1):
-            if action == 'profit':
-                profit = form['sale_price'] - form['buy_price']
-                profit_text = f"(+{round(profit, 2)}$💸)"
+            side = form.get('side', 'LONG')
+            buy_price = form.get('coin_buy_price', 0)
+            sale_price = form.get('coin_sale_price', 0)
+            
+            # Get profit/loss display
+            pnl_usdt = form.get('pnl_usdt')
+            if pnl_usdt is not None:
+                if pnl_usdt > 0:
+                    profit_text = f"(+{round(pnl_usdt, 2)}$💸)"
+                else:
+                    profit_text = f"({round(pnl_usdt, 2)}$🤕)"
             else:
-                loss = form['buy_price'] - form['sale_price']
-                profit_text = f"(-{round(loss, 2)}$🤕)"
+                # Fallback calculation
+                if (side == 'LONG' and sale_price > buy_price) or (side == 'SHORT' and sale_price < buy_price):
+                    profit = abs(sale_price - buy_price)
+                    profit_text = f"(+{round(profit, 2)}$💸)"
+                else:
+                    loss = abs(sale_price - buy_price)
+                    profit_text = f"(-{round(loss, 2)}$🤕)"
+            
+            # Format sale time
+            sale_time = ""
+            if isinstance(form.get('sale_time'), str):
+                sale_time = form['sale_time']
+            elif form.get('sale_time') is not None:
+                sale_time = form['sale_time'].strftime('%d-%m-%Y %H:%M')
+            else:
+                sale_time = "Время не указано"
                 
-            msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_text} | {form['sale_time']}\n"
+            msg += f"{i}. {form['symbol']} | {interval_conv(form.get('interval', ''))} | {side} | {profit_text} | {sale_time}\n"
         
         # Split message if too long
         chunks = split_text_to_chunks(msg)
@@ -1120,26 +1186,47 @@ async def orders(callback: CallbackQuery, bot: Bot):
         msg = f"📋 Список {'открытых' if action == 'open' else 'закрытых'} сделок:\n\n"
         
         for i, form in enumerate(forms, 1):
+            side = form.get('side', 'LONG')
+            interval = form.get('interval', '')
+            symbol = form.get('symbol', '')
+            
             if action == 'open':
-                # Используем coin_buy_price вместо buy_price для отображения цены
+                # Display open position information
                 buy_price = form.get('coin_buy_price', 0)
                 buy_time = form.get('buy_time', 'Неизвестно')
-                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {round(buy_price, 2)}$ | {buy_time}\n"
+                leverage = form.get('leverage', 1)
+                trading_type = form.get('trading_type', 'spot').upper()
+                
+                # Format display
+                lev_info = f" ({leverage}x)" if trading_type == 'FUTURES' and leverage > 1 else ""
+                msg += f"{i}. {symbol} | {interval_conv(interval)} | {side}{lev_info} | {round(buy_price, 2)}$ | {buy_time}\n"
             else:
-                profit_loss = ""
-                # Используем coin_buy_price и coin_sale_price
-                entry_price = form.get('coin_buy_price', 0)
+                # Display closed position with profit/loss
+                side = form.get('side', 'LONG')
+                buy_price = form.get('coin_buy_price', 0)
                 sale_price = form.get('coin_sale_price', 0)
                 
-                if entry_price < sale_price:
-                    profit = sale_price - entry_price
-                    profit_loss = f"(+{round(profit, 2)}$💸)"
+                # Get profit/loss display
+                pnl_usdt = form.get('pnl_usdt')
+                if pnl_usdt is not None:
+                    if pnl_usdt > 0:
+                        profit_loss = f"(+{round(pnl_usdt, 2)}$💸)"
+                    else:
+                        profit_loss = f"({round(pnl_usdt, 2)}$🤕)"
                 else:
-                    loss = entry_price - sale_price
-                    profit_loss = f"(-{round(loss, 2)}$🤕)"
+                    # Fallback calculation based on side
+                    if (side == 'LONG' and sale_price > buy_price) or (side == 'SHORT' and sale_price < buy_price):
+                        profit = abs(sale_price - buy_price)
+                        profit_loss = f"(+{round(profit, 2)}$💸)"
+                    else:
+                        loss = abs(sale_price - buy_price)
+                        profit_loss = f"(-{round(loss, 2)}$🤕)"
                 
                 sale_time = form.get('sale_time', 'Неизвестно')
-                msg += f"{i}. {form['symbol']} | {interval_conv(form['interval'])} | {profit_loss} | {sale_time}\n"
+                if isinstance(sale_time, dt):
+                    sale_time = sale_time.strftime('%d-%m-%Y %H:%M')
+                
+                msg += f"{i}. {symbol} | {interval_conv(interval)} | {side} | {profit_loss} | {sale_time}\n"
         
         # Split message if too long
         chunks = split_text_to_chunks(msg)
@@ -1166,7 +1253,7 @@ async def orders(callback: CallbackQuery, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
     else:
-        # For individual order view (deprecated but kept for compatibility)
+        # For individual order view
         forms = await get_all_orders(callback.from_user.id, action)
         n = int(callback.data.split()[2])
         if n < 0:
@@ -1177,32 +1264,79 @@ async def orders(callback: CallbackQuery, bot: Bot):
             return
 
         form = forms[n]
-        msg = f"Инструмент: {form['symbol']} | {interval_conv(form['interval'])}\n\n"
-        msg += f"Цена открытия: {round(form.get('coin_buy_price', 0), 2)}$ 📈\n"
+        side = form.get('side', 'LONG')
+        symbol = form.get('symbol', '')
+        interval = form.get('interval', '')
+        trading_type = form.get('trading_type', 'spot').upper()
+        leverage = form.get('leverage', 1)
+        exchange = form.get('exchange', 'Неизвестно')
+        
+        # Prepare detailed order view message
+        msg = f"<b>Инструмент:</b> {symbol} | {interval_conv(interval)}\n"
+        msg += f"<b>Тип позиции:</b> {side}\n\n"
+        msg += f"<b>Цена открытия:</b> {round(form.get('coin_buy_price', 0), 8)}$ 📈\n"
 
         if action == 'open':
-            # Используем investment_amount_usdt вместо buy_price
+            # Display open position details
             investment = form.get('investment_amount_usdt', 0)
-            msg += f"Объем сделки: {round(investment, 2)}$ 💵\n\n"
-            msg += f"Дата и время открытия:\n⏱️{form.get('buy_time', 'Неизвестно')}\n"
-        else:
-            msg += f"Цена закрытия: {round(form.get('coin_sale_price', 0), 2)}$ 📈\n"
-
-            # Используем поле pnl_usdt для отображения прибыли/убытка
-            pnl = form.get('pnl_usdt', 0)
-            if pnl > 0:
-                msg += f"Прибыль: {round(pnl, 2)}$💸🔋\n\n"
+            msg += f"<b>Объем сделки:</b> {round(investment, 2)}$ 💵\n\n"
+            msg += f"<b>Биржа:</b> {exchange}\n"
+            msg += f"<b>Тип торговли:</b> {trading_type}"
+            if trading_type == 'FUTURES' and leverage > 1:
+                msg += f" (плечо: x{leverage})\n\n"
             else:
-                msg += f"Убыток: {round(abs(pnl), 2)}$🤕🪫\n\n"
+                msg += "\n\n"
+            msg += f"<b>Дата и время открытия:</b>\n⏱️{form.get('buy_time', 'Неизвестно')}\n"
+        else:
+            # Display closed position details
+            sale_price = form.get('coin_sale_price', 0)
+            msg += f"<b>Цена закрытия:</b> {round(sale_price, 8)}$ 📈\n"
 
-            # Используем investment_amount_usdt вместо buy_price
+            # Calculate and display PnL
+            pnl = form.get('pnl_usdt')
+            if pnl is not None:
+                if pnl > 0:
+                    msg += f"<b>Прибыль:</b> {round(abs(pnl), 2)}$💸🔋\n\n"
+                else:
+                    msg += f"<b>Убыток:</b> {round(abs(pnl), 2)}$🤕🪫\n\n"
+            else:
+                # Fallback calculation
+                buy_price = form.get('coin_buy_price', 0)
+                if (side == 'LONG' and sale_price > buy_price) or (side == 'SHORT' and sale_price < buy_price):
+                    profit = abs(sale_price - buy_price)
+                    msg += f"<b>Прибыль:</b> {round(profit, 2)}$💸🔋\n\n"
+                else:
+                    loss = abs(sale_price - buy_price)
+                    msg += f"<b>Убыток:</b> {round(loss, 2)}$🤕🪫\n\n"
+
+            # Add investment amount
             investment = form.get('investment_amount_usdt', 0)
-            msg += f"Объем сделки: {round(investment, 2)}$ 💵\n\n"
-            msg += f"Дата и время закрытия:\n⏱️{form.get('sale_time', 'Неизвестно')}\n\n"
-            msg += f"Сделка была открыта:\n⏱️{form.get('buy_time', 'Неизвестно')}\n"
+            msg += f"<b>Объем сделки:</b> {round(investment, 2)}$ 💵\n\n"
+            
+            # Add trading details
+            msg += f"<b>Биржа:</b> {exchange}\n"
+            msg += f"<b>Тип торговли:</b> {trading_type}"
+            if trading_type == 'FUTURES' and leverage > 1:
+                msg += f" (плечо: x{leverage})\n\n"
+            else:
+                msg += "\n\n"
+                
+            # Add timestamps
+            sale_time = form.get('sale_time', 'Неизвестно')
+            if isinstance(sale_time, dt):
+                sale_time = sale_time.strftime('%d-%m-%Y %H:%M')
+                
+            buy_time = form.get('buy_time', 'Неизвестно')
+            if isinstance(buy_time, dt):
+                buy_time = buy_time.strftime('%d-%m-%Y %H:%M')
+                
+            msg += f"<b>Дата и время закрытия:</b>\n⏱️{sale_time}\n\n"
+            msg += f"<b>Сделка была открыта:</b>\n⏱️{buy_time}\n"
+            
         await callback.message.edit_text(
             text=msg,
-            reply_markup=orders_inline_n(n, action, len(forms), "orders")
+            reply_markup=orders_inline_n(n, action, len(forms), "orders"),
+            parse_mode="HTML"
         )
 
 
