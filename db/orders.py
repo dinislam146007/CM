@@ -142,12 +142,26 @@ async def close_order(order_id, sale_price):
             else:
                 pnl_percent = price_change_percent
                 
-            pnl_usdt = (sale_price - entry_price) * qty
+            # Базовый PnL в USDT (без учета плеча)
+            base_pnl_usdt = (sale_price - entry_price) * qty
+            
+            # Применяем плечо для futures для конечного PnL в USDT
+            if trading_type == 'futures':
+                pnl_usdt = base_pnl_usdt * leverage
+                print(f"[PNL_DEBUG] LONG: base_pnl={base_pnl_usdt:.2f}USDT, price_change={price_change_percent:.2f}%, with leverage={leverage}x: {pnl_usdt:.2f}USDT ({pnl_percent:.2f}%)")
+            else:
+                pnl_usdt = base_pnl_usdt
         else:  # SHORT
             price_change_percent = ((entry_price - sale_price) / entry_price) * 100
             # Для futures учитываем плечо (SHORT доступен только в futures)
             pnl_percent = price_change_percent * leverage
-            pnl_usdt = (entry_price - sale_price) * qty
+            
+            # Базовый PnL в USDT (без учета плеча)
+            base_pnl_usdt = (entry_price - sale_price) * qty
+            
+            # Применяем плечо для конечного PnL в USDT
+            pnl_usdt = base_pnl_usdt * leverage
+            print(f"[PNL_DEBUG] SHORT: base_pnl={base_pnl_usdt:.2f}USDT, price_change={price_change_percent:.2f}%, with leverage={leverage}x: {pnl_usdt:.2f}USDT ({pnl_percent:.2f}%)")
         
         # Сумма к возврату: вложенные средства + прибыль (или - убыток)
         # Преобразуем Decimal в float

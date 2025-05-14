@@ -411,17 +411,32 @@ async def process_tf(tf: str):
                         atr_multiplier=divergence_settings['ATR_MULTIPLIER']
                     )
                     
-                    # Определяем, какой тип позиции открывать (LONG или SHORT)
-                    # По умолчанию LONG, для spot доступен только LONG
-                    position_side = "LONG"
+                    # Добавляем отладочную информацию для анализа сигналов
+                    print(f"[SIGNAL_DEBUG] {exchange.id.upper()} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
                     
-                    # Для futures типа торговли, можно открывать SHORT позиции
+                    # Determine position side (LONG/SHORT)
+                    position_side = "LONG"  # Default to LONG
+                    
+                    # For futures, consider short signals
                     if trading_type == "futures":
+                        # Явно проверяем на сигналы LONG и SHORT
+                        has_long_signal = cm_signal == "long" or rsi_signal == "Long"
+                        has_short_signal = cm_signal == "short" or rsi_signal == "Short"
+                        
+                        # Логируем сигналы для отладки
+                        print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
+                        
                         # Если есть сигнал на SHORT - меняем тип позиции
-                        if cm_signal == "short" or rsi_signal == "Short":
+                        if has_short_signal:
                             position_side = "SHORT"
-                        # Иначе оставляем LONG, нет необходимости менять значение
-                        # Это исправляет проблему, когда открывались только SHORT позиции
+                            print(f"[POSITION] Setting position to SHORT based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                        elif has_long_signal:
+                            # Явно подтверждаем LONG позицию
+                            position_side = "LONG"
+                            print(f"[POSITION] Setting position to LONG based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                        else:
+                            # Явно логируем, что оставляем позицию LONG по умолчанию
+                            print(f"[POSITION] No clear signals, keeping default position as LONG")
                     
                     # Определяем, какие сигналы активны в зависимости от типа позиции
                     if position_side == "LONG":
@@ -1180,16 +1195,32 @@ async def internal_trade_logic(*args, **kwargs):
                 atr_multiplier=divergence_settings['ATR_MULTIPLIER']
             )
             
+            # Добавляем отладочную информацию для анализа сигналов
+            print(f"[SIGNAL_DEBUG] {exchange_name} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+            
             # Determine position side (LONG/SHORT)
             position_side = "LONG"  # Default to LONG
             
             # For futures, consider short signals
             if trading_type == "futures":
+                # Явно проверяем на сигналы LONG и SHORT
+                has_long_signal = cm_signal == "long" or rsi_signal == "Long"
+                has_short_signal = cm_signal == "short" or rsi_signal == "Short"
+                
+                # Логируем сигналы для отладки
+                print(f"[POSITION_SIGNALS] {exchange_name} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
+                
                 # Если есть сигнал на SHORT - меняем тип позиции
-                if cm_signal == "short" or rsi_signal == "Short":
+                if has_short_signal:
                     position_side = "SHORT"
-                # Иначе оставляем LONG, нет необходимости менять значение
-                # Это исправляет проблему, когда открывались только SHORT позиции
+                    print(f"[POSITION] Setting position to SHORT based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                elif has_long_signal:
+                    # Явно подтверждаем LONG позицию
+                    position_side = "LONG"
+                    print(f"[POSITION] Setting position to LONG based on signals: CM={cm_signal}, RSI={rsi_signal}")
+                else:
+                    # Явно логируем, что оставляем позицию LONG по умолчанию
+                    print(f"[POSITION] No clear signals, keeping default position as LONG")
             
             # Check active signals based on position side
             if position_side == "LONG":
