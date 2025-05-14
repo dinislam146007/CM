@@ -162,7 +162,9 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             
             # Получаем обновленный баланс и суточную прибыль
             new_balance = await get_user_balance(user_id)
-            daily_profit = await get_daily_profit(user_id)
+            # Используем текущую дату для получения суточной прибыли
+            current_date = datetime.datetime.now().date()
+            daily_profit = await get_daily_profit(user_id, current_date)
             
             # Проверяем наличие поля entry_price или альтернативных полей
             entry_price = None
