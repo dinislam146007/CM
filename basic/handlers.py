@@ -980,9 +980,70 @@ async def start_message(message: Message, bot: Bot):
         await set_user_db(message.from_user.id, 5.0, 50000.0)
         await reset_user_params(message.from_user.id)
     user = await get_user_db(message.from_user.id)
+    
+    # Форматируем баланс с разделителями тысяч для лучшей читаемости
+    formatted_balance = "{:,}".format(round(user['balance'])).replace(',', ' ')
+    
+    welcome_message = (
+        "🚀 <b>Moon Bot | CM_Laguerre PPO</b> 🚀\n\n"
+        "🤖 Ваш умный торговый бот на базе индикатора\n"
+        "📊 <i>PercentileRank Mkt Tops & Bottoms</i>\n\n"
+        f"💰 <b>Ваш баланс:</b> <code>{formatted_balance}$</code> 💸\n"
+        "🔄 Автоматическая торговля SPOT и FUTURES\n"
+        "📈 Поддержка Long и Short позиций\n"
+    )
+    
     await message.answer(
-        f"Бот по обработке фильтра CM_Laguerre PPO PercentileRank Mkt Tops & Bottoms\nВаш баланс: {round(user['balance'])}$  💸",
-        reply_markup=start_inline()
+        welcome_message,
+        reply_markup=start_inline(),
+        parse_mode="HTML"
+    )
+
+@router.callback_query(F.data == 'close_state')
+async def close_state_cal(callback: CallbackQuery, state: FSMContext):
+    try:
+        await state.clear()
+    except Exception:
+        pass
+    
+    user = await get_user(callback.from_user.id)
+    formatted_balance = "{:,}".format(round(user['balance'])).replace(',', ' ')
+    
+    welcome_message = (
+        "🚀 <b>Moon Bot | CM_Laguerre PPO</b> 🚀\n\n"
+        "🤖 Ваш умный торговый бот на базе индикатора\n"
+        "📊 <i>PercentileRank Mkt Tops & Bottoms</i>\n\n"
+        f"💰 <b>Ваш баланс:</b> <code>{formatted_balance}$</code> 💸\n"
+        "🔄 Автоматическая торговля SPOT и FUTURES\n"
+        "📈 Поддержка Long и Short позиций\n"
+    )
+    
+    await callback.message.edit_text(
+        welcome_message,
+        reply_markup=start_inline(),
+        parse_mode="HTML"
+    )
+
+@router.callback_query(F.data == 'start')
+async def start_cal(callback: CallbackQuery, state: FSMContext):
+    user = await get_user(callback.from_user.id)
+    
+    # Форматируем баланс с разделителями тысяч для лучшей читаемости
+    formatted_balance = "{:,}".format(round(user['balance'])).replace(',', ' ')
+    
+    welcome_message = (
+        "🚀 <b>Moon Bot | CM_Laguerre PPO</b> 🚀\n\n"
+        "🤖 Ваш умный торговый бот на базе индикатора\n"
+        "📊 <i>PercentileRank Mkt Tops & Bottoms</i>\n\n"
+        f"💰 <b>Ваш баланс:</b> <code>{formatted_balance}$</code> 💸\n"
+        "🔄 Автоматическая торговля SPOT и FUTURES\n"
+        "📈 Поддержка Long и Short позиций\n"
+    )
+    
+    await callback.message.edit_text(
+        welcome_message,
+        reply_markup=start_inline(),
+        parse_mode="HTML"
     )
 
 @router.callback_query(F.data.startswith('orders'))
