@@ -410,11 +410,6 @@ async def process_tf(tf: str):
                 trading_type = trading_settings["trading_type"]
                 leverage = trading_settings["leverage"]
                 
-                # Проверяем, достаточно ли средств на балансе для открытия позиции
-                if investment_amount > user_balance:
-                    print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
-                    await bot.send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
-                    continue
                 
                 # ---------- вход ----------
                 if open_order is None:
@@ -550,6 +545,12 @@ async def process_tf(tf: str):
                             # For futures, consider leverage
                             investment_amount = user_balance * 0.05  # 5% of balance
                             
+                            # Проверяем, достаточно ли средств на балансе для открытия позиции
+                            if investment_amount > user_balance:
+                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
+                                await bot.send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                                continue
+                            
                             if leverage <= 0:
                                 leverage = 1
                                 
@@ -557,6 +558,13 @@ async def process_tf(tf: str):
                         else:
                             # For spot trading
                             investment_amount = user_balance * 0.05  # 5% of balance
+                            
+                            # Проверяем, достаточно ли средств на балансе для открытия позиции
+                            if investment_amount > user_balance:
+                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
+                                await bot.send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                                continue
+                            
                             qty = investment_amount / entry
                         
                         # Validate quantity
@@ -1185,204 +1193,209 @@ async def internal_trade_logic(*args, **kwargs):
         trading_settings = load_trading_settings(user_id)
         leverage = trading_settings.get("leverage", 1)
         
-        # Проверяем, достаточно ли средств на балансе для открытия позиции
-        if investment_amount > user_balance:
-            print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
-            await bot.send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
-            return
+        # Get Price Action patterns
+        pattern = await get_pattern_price_action(
+            dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
+            trading_type
+        )
         
-        # ENTRY LOGIC (no open order)
-        if open_order is None:
-            # Get price action patterns
-            pattern = await get_pattern_price_action(
-                dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
-                trading_type
-            )
+        # Calculate indicators
+        dft = calculate_ppo(dft, cm_settings)
+        dft = calculate_ema(dft)
+        cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+        
+        # Calculate RSI
+        dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+        dft = calculate_ema(dft, 
+                           fast_period=rsi_settings['EMA_FAST'], 
+                           slow_period=rsi_settings['EMA_SLOW'])
+        
+        # Get RSI signals
+        rsi = generate_signals_rsi(dft, 
+                                  overbought=rsi_settings['RSI_OVERBOUGHT'],
+                                  oversold=rsi_settings['RSI_OVERSOLD'])
+        rsi_signal = rsi['signal_rsi'].iloc[-1]
+        
+        # Get divergence signals
+        diver_signals = generate_trading_signals(
+            dft, 
+            rsi_length=divergence_settings['RSI_LENGTH'], 
+            lbR=divergence_settings['LB_RIGHT'], 
+            lbL=divergence_settings['LB_LEFT'], 
+            take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
+            stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
+            stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
+            atr_length=divergence_settings['ATR_LENGTH'],
+            atr_multiplier=divergence_settings['ATR_MULTIPLIER']
+        )
+        
+        # Добавляем отладочную информацию для анализа сигналов
+        print(f"[SIGNAL_DEBUG] {exchange_name} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+        
+        # Determine position side (LONG/SHORT)
+        position_side = "LONG"  # Default to LONG
+        
+        # For futures, consider short signals
+        if trading_type == "futures":
+            # Явно проверяем на сигналы LONG и SHORT
+            side = decide_position_side(cm_signal, rsi_signal)
+
+            if side is None:
+                print(f"[POSITION] conflict / no clear signal – skip")
+                return      
+
+            position_side = side
+        
+        # Check active signals based on position side
+        if position_side == "LONG":
+            price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
+            cm_active = cm_signal == "long"
+            moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
+            rsi_active = rsi_signal == "Long"
             
-            # Calculate indicators
-            dft = calculate_ppo(dft, cm_settings)
-            dft = calculate_ema(dft)
-            cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+            # Check bullish divergence
+            regular_bullish = diver_signals['divergence']['regular_bullish']
+            hidden_bullish = diver_signals['divergence']['hidden_bullish']
+            divergence_active = False
+            divergence_type = ""
             
-            # Calculate RSI
-            dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
-            dft = calculate_ema(dft, 
-                               fast_period=rsi_settings['EMA_FAST'], 
-                               slow_period=rsi_settings['EMA_SLOW'])
+            if isinstance(regular_bullish, bool) and regular_bullish:
+                divergence_active = True
+                divergence_type += "Regular Bullish "
+            if isinstance(hidden_bullish, bool) and hidden_bullish:
+                divergence_active = True
+                divergence_type += "Hidden Bullish "
+        else:  # SHORT position
+            price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
+            cm_active = cm_signal == "short"
+            moonbot_active = False  # MoonBot only for LONG
+            rsi_active = rsi_signal == "Short"
             
-            # Get RSI signals
-            rsi = generate_signals_rsi(dft, 
-                                      overbought=rsi_settings['RSI_OVERBOUGHT'],
-                                      oversold=rsi_settings['RSI_OVERSOLD'])
-            rsi_signal = rsi['signal_rsi'].iloc[-1]
+            # Check bearish divergence
+            regular_bearish = diver_signals['divergence']['regular_bearish']
+            hidden_bearish = diver_signals['divergence']['hidden_bearish']
+            divergence_active = False
+            divergence_type = ""
             
-            # Get divergence signals
-            diver_signals = generate_trading_signals(
-                dft, 
-                rsi_length=divergence_settings['RSI_LENGTH'], 
-                lbR=divergence_settings['LB_RIGHT'], 
-                lbL=divergence_settings['LB_LEFT'], 
-                take_profit_level=divergence_settings['TAKE_PROFIT_RSI_LEVEL'],
-                stop_loss_type=divergence_settings['STOP_LOSS_TYPE'],
-                stop_loss_perc=divergence_settings['STOP_LOSS_PERC'],
-                atr_length=divergence_settings['ATR_LENGTH'],
-                atr_multiplier=divergence_settings['ATR_MULTIPLIER']
-            )
+            if isinstance(regular_bearish, bool) and regular_bearish:
+                divergence_active = True
+                divergence_type += "Regular Bearish "
+            if isinstance(hidden_bearish, bool) and hidden_bearish:
+                divergence_active = True
+                divergence_type += "Hidden Bearish "
+        
+        # Debug output of signal flags
+        print(f"[DEBUG] {exchange_name.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
+        
+        # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
+        any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
+        
+        # Get current price
+        current_price = dft["close"].iloc[-1]
+        
+        # Open position if any signal is active
+        if any_signal:
+            # Use MoonBot strategy or basic order
+            if moonbot_active:
+                order_dict = user_moon.build_order(dft)
+                entry = order_dict["price"]
+                tp = order_dict["take_profit"]
+                sl = order_dict["stop_loss"]
+            else:
+                # Basic order based on current price
+                entry = current_price
+                
+                # Calculate TP/SL based on position side
+                if position_side == "LONG":
+                    tp = entry * 1.03  # +3%
+                    sl = entry * 0.98  # -2%
+                else:  # SHORT
+                    tp = entry * 0.97  # -3%
+                    sl = entry * 1.02  # +2%
             
-            # Добавляем отладочную информацию для анализа сигналов
-            print(f"[SIGNAL_DEBUG] {exchange_name} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
+            # Get user balance
+            user_balance = await get_user_balance(user_id)
             
-            # Determine position side (LONG/SHORT)
-            position_side = "LONG"  # Default to LONG
+            # Validate leverage for futures
+            if trading_type == "futures" and leverage < 1:
+                leverage = 1
             
-            # For futures, consider short signals
+            # Calculate position size
             if trading_type == "futures":
-                # Явно проверяем на сигналы LONG и SHORT
-                side = decide_position_side(cm_signal, rsi_signal)
-
-                if side is None:
-                    print(f"[POSITION] conflict / no clear signal – skip")
-                    return      
-
-                position_side = side
-            
-            # Check active signals based on position side
-            if position_side == "LONG":
-                price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
-                cm_active = cm_signal == "long"
-                moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
-                rsi_active = rsi_signal == "Long"
+                # For futures, consider leverage
+                investment_amount = user_balance * 0.05  # 5% of balance
                 
-                # Check bullish divergence
-                regular_bullish = diver_signals['divergence']['regular_bullish']
-                hidden_bullish = diver_signals['divergence']['hidden_bullish']
-                divergence_active = False
-                divergence_type = ""
-                
-                if isinstance(regular_bullish, bool) and regular_bullish:
-                    divergence_active = True
-                    divergence_type += "Regular Bullish "
-                if isinstance(hidden_bullish, bool) and hidden_bullish:
-                    divergence_active = True
-                    divergence_type += "Hidden Bullish "
-            else:  # SHORT position
-                price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
-                cm_active = cm_signal == "short"
-                moonbot_active = False  # MoonBot only for LONG
-                rsi_active = rsi_signal == "Short"
-                
-                # Check bearish divergence
-                regular_bearish = diver_signals['divergence']['regular_bearish']
-                hidden_bearish = diver_signals['divergence']['hidden_bearish']
-                divergence_active = False
-                divergence_type = ""
-                
-                if isinstance(regular_bearish, bool) and regular_bearish:
-                    divergence_active = True
-                    divergence_type += "Regular Bearish "
-                if isinstance(hidden_bearish, bool) and hidden_bearish:
-                    divergence_active = True
-                    divergence_type += "Hidden Bearish "
-            
-            # Debug output of signal flags
-            print(f"[DEBUG] {exchange_name.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
-            
-            # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
-            any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
-            
-            # Get current price
-            current_price = dft["close"].iloc[-1]
-            
-            # Open position if any signal is active
-            if any_signal:
-                # Use MoonBot strategy or basic order
-                if moonbot_active:
-                    order_dict = user_moon.build_order(dft)
-                    entry = order_dict["price"]
-                    tp = order_dict["take_profit"]
-                    sl = order_dict["stop_loss"]
-                else:
-                    # Basic order based on current price
-                    entry = current_price
-                    
-                    # Calculate TP/SL based on position side
-                    if position_side == "LONG":
-                        tp = entry * 1.03  # +3%
-                        sl = entry * 0.98  # -2%
-                    else:  # SHORT
-                        tp = entry * 0.97  # -3%
-                        sl = entry * 1.02  # +2%
-                
-                # Get user balance
-                user_balance = await get_user_balance(user_id)
-                
-                # Validate leverage for futures
-                if trading_type == "futures" and leverage < 1:
-                    leverage = 1
-                
-                # Calculate position size
-                if trading_type == "futures":
-                    # For futures, consider leverage
-                    investment_amount = user_balance * 0.05  # 5% of balance
-                    
-                    if leverage <= 0:
-                        leverage = 1
-                        
-                    qty = (investment_amount * leverage) / entry
-                else:
-                    # For spot trading
-                    investment_amount = user_balance * 0.05  # 5% of balance
-                    qty = investment_amount / entry
-                
-                # Validate quantity
-                if qty <= 0:
-                    print(f"Error: Invalid quantity {qty} for {symbol}")
+                # Проверяем, достаточно ли средств на балансе для открытия позиции
+                if investment_amount > user_balance:
+                    print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
+                    await bot.send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                     return
                 
-                # Format quantity
+                if leverage <= 0:
+                    leverage = 1
+                    
+                qty = (investment_amount * leverage) / entry
+            else:
+                # For spot trading
+                investment_amount = user_balance * 0.05  # 5% of balance
+                
+                # Проверяем, достаточно ли средств на балансе для открытия позиции
+                if investment_amount > user_balance:
+                    print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
+                    await bot.send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                    return
+                
+                qty = investment_amount / entry
+            
+            # Validate quantity
+            if qty <= 0:
+                print(f"Error: Invalid quantity {qty} for {symbol}")
+                return
+            
+            # Format quantity
+            qty = round(qty, 6)
+            
+            # Set minimum order size
+            if qty * entry < 10:  # Minimum order size 10 USDT
+                qty = 10 / entry
                 qty = round(qty, 6)
+            
+            try:
+                # Create order with exchange info
+                order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                 
-                # Set minimum order size
-                if qty * entry < 10:  # Minimum order size 10 USDT
-                    qty = 10 / entry
-                    qty = round(qty, 6)
+                # Получаем обновленный баланс после списания средств
+                new_balance = await get_user_balance(user_id)
                 
-                try:
-                    # Create order with exchange info
-                    order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
-                    
-                    # Получаем обновленный баланс после списания средств
-                    new_balance = await get_user_balance(user_id)
-                    
-                    # Определяем эмодзи для типа позиции
-                    position_emoji = "🔰" if position_side == "LONG" else "🔻"
-                    transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
-                    
-                    # Формируем сообщение по новому шаблону
-                    message = (
-                        f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
-                        f"Биржа: {exchange_name.capitalize()}\n"
-                        f"Тип торговли: {trading_type.upper()}"
-                        f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
-                        f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
-                        f"♻️Точка входа: {entry:.2f}$\n"
-                        f"Направление: {position_side} {position_emoji}\n\n"
-                        f"🎯TP: {tp:.4f}$\n"
-                        f"📛SL: {sl:.4f}$\n\n"
-                        f"⚠️Сделка открыта по сигналам с:\n"
-                        f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
-                        f"{cm_active and '✅' or '❌'} CM\n"
-                        f"{moonbot_active and '✅' or '❌'} MoonBot\n"
-                        f"{rsi_active and '✅' or '❌'} RSI\n"
-                        f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
-                        f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
-                    )
-                    
-                    await bot.send_message(user_id, message)
-                    
-                except Exception as e:
-                    print(f"Ошибка при создании ордера для {exchange_name} {symbol}: {e}")
-                    await bot.send_message(user_id, f"Ошибка при создании ордера: {e}")
+                # Определяем эмодзи для типа позиции
+                position_emoji = "🔰" if position_side == "LONG" else "🔻"
+                transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                
+                # Формируем сообщение по новому шаблону
+                message = (
+                    f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                    f"Биржа: {exchange_name.capitalize()}\n"
+                    f"Тип торговли: {trading_type.upper()}"
+                    f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
+                    f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
+                    f"♻️Точка входа: {entry:.2f}$\n"
+                    f"Направление: {position_side} {position_emoji}\n\n"
+                    f"🎯TP: {tp:.4f}$\n"
+                    f"📛SL: {sl:.4f}$\n\n"
+                    f"⚠️Сделка открыта по сигналам с:\n"
+                    f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
+                    f"{cm_active and '✅' or '❌'} CM\n"
+                    f"{moonbot_active and '✅' or '❌'} MoonBot\n"
+                    f"{rsi_active and '✅' or '❌'} RSI\n"
+                    f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
+                    f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
+                )
+                
+                await bot.send_message(user_id, message)
+                
+            except Exception as e:
+                print(f"Ошибка при создании ордера для {exchange_name} {symbol}: {e}")
+                await bot.send_message(user_id, f"Ошибка при создании ордера: {e}")
         
         # EXIT LOGIC (with open order)
         else:
