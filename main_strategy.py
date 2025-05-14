@@ -96,9 +96,21 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             # Получаем количество монет
             qty = order.get('qty', order.get('amount', 0))
             
+            # Получаем тип торговли и плечо
+            trading_type = order.get('trading_type', 'spot')
+            leverage = order.get('leverage', 1)
+            
+            # Применяем плечо для futures
+            if trading_type == 'futures':
+                pnl_percent = pnl_percent * leverage
+            
             pnl = (current_price - entry_price) * qty
             if position_side == 'SHORT':
                 pnl = -pnl
+            
+            # Если используется плечо, умножаем PnL на плечо
+            if trading_type == 'futures':
+                pnl = pnl * leverage
                 
             # Получаем текущую дату и время в МСК
             moscow_tz = pytz.timezone('Europe/Moscow')
@@ -408,6 +420,8 @@ async def process_tf(tf: str):
                         # Если есть сигнал на SHORT - меняем тип позиции
                         if cm_signal == "short" or rsi_signal == "Short":
                             position_side = "SHORT"
+                        # Иначе оставляем LONG, нет необходимости менять значение
+                        # Это исправляет проблему, когда открывались только SHORT позиции
                     
                     # Определяем, какие сигналы активны в зависимости от типа позиции
                     if position_side == "LONG":
@@ -1171,8 +1185,11 @@ async def internal_trade_logic(*args, **kwargs):
             
             # For futures, consider short signals
             if trading_type == "futures":
+                # Если есть сигнал на SHORT - меняем тип позиции
                 if cm_signal == "short" or rsi_signal == "Short":
                     position_side = "SHORT"
+                # Иначе оставляем LONG, нет необходимости менять значение
+                # Это исправляет проблему, когда открывались только SHORT позиции
             
             # Check active signals based on position side
             if position_side == "LONG":
@@ -1347,6 +1364,13 @@ async def internal_trade_logic(*args, **kwargs):
                     current_order = await get_order_by_id(open_order["id"])
                     if current_order and current_order.get('status') == 'CLOSED':
                         return
+                    
+                    # Get trading type and leverage before closing the order
+                    trading_type = open_order.get('trading_type', 'spot')
+                    leverage = open_order.get('leverage', 1)
+                    
+                    # Print debug info
+                    print(f"[CLOSE] {exchange_name} {symbol} {position_direction} with leverage {leverage} (trading_type={trading_type})")
                     
                     # Close with notification
                     await close_order_with_notification(

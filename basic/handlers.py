@@ -25,7 +25,7 @@ from db import set_user as set_user_db
 from db.orders import ( 
                     get_all_orders)
 from db.select import (get_signal, 
-                     get_statistics_for_period, get_signals, count_signals, 
+                     get_statistics_for_period, all_signals, count_signals, 
                      get_daily_statistics, all_signals_no_signal, 
                      get_all_intervals_for_pairs_with_status, fetch_signals, fetch_stat,
                      get_signals)
@@ -731,12 +731,6 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
             
             if buy_price and sale_price:
                 profit_percent = ((sale_price - buy_price) / buy_price) * 100
-                # Convert decimal.Decimal to float before performing calculations
-                if hasattr(invest_amount, 'to_float'):
-                    invest_amount = invest_amount.to_float()
-                elif hasattr(invest_amount, 'normalize'):  # It's a Decimal
-                    invest_amount = float(invest_amount)
-                
                 profit_amount = invest_amount * (profit_percent / 100)
                 total_profit += profit_amount
                 
@@ -941,9 +935,9 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
         message += f"<b>Цена закрытия:</b> {round(sale_price, 8)}$ 📈\n"
         
         if is_profit:
-            message += f"<b>Убыток:</b> {abs(round(pnl, 2))}$🤕🪫\n\n"
-        else:
             message += f"<b>Прибыль:</b> {abs(round(pnl, 2))}$💸🔋\n\n"
+        else:
+            message += f"<b>Убыток:</b> {abs(round(pnl, 2))}$🤕🪫\n\n"
             
         message += f"<b>Объем сделки:</b> {round(invest_amount, 2)}$ 💵\n\n"
         message += f"<b>Биржа:</b> {exchange}\n"
