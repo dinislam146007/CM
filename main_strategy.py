@@ -41,6 +41,30 @@ import json
 from typing import Callable, Awaitable, Dict, Tuple, Any
 import requests
 import time
+import sqlite3
+
+
+async def get_user_favorite_pairs(user_id: int) -> list:
+    """Get user's favorite cryptocurrency pairs from database."""
+    try:
+        with sqlite3.connect("trading_data.db") as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT crypto_pairs FROM users WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+
+            if row and row[0]:  # Если есть данные
+                # Разделяем строку с парами и удаляем пустые значения
+                pairs = [pair.strip() for pair in row[0].split(',') if pair.strip()]
+                if pairs:
+                    print(f"[INFO] Пользователь {user_id} имеет избранные пары: {pairs}")
+                    return pairs
+            
+            # Если нет избранных пар, используем дефолтные
+            print(f"[INFO] Пользователь {user_id} не имеет избранных пар, используем дефолтные")
+            return []
+    except Exception as e:
+        print(f"[ERROR] Ошибка при получении избранных пар пользователя {user_id}: {e}")
+        return []
 
 
 def decide_position_side(cm_sig: str, rsi_sig: str) -> str | None:
@@ -352,19 +376,33 @@ async def process_tf(tf: str):
         print(f"[INFO] Активные пользователи Bybit: {active_users}")
         
         btc_df = await fetch_ohlcv("BTCUSDT", "5m", 300)
-        for symbol in symbols:
-            df5 = await fetch_ohlcv(symbol, "5m", 300)
-            dft = await fetch_ohlcv(symbol, tf,   200)
-            if df5 is None or dft is None: continue
+        
+        # Индивидуальная обработка для каждого пользователя
+        for uid in active_users:
+            # Получаем избранные пары пользователя
+            user_favorite_pairs = await get_user_favorite_pairs(uid)
+            
+            # Определяем символы для торговли - если есть избранные, используем их, иначе дефолтные
+            trading_symbols = user_favorite_pairs if user_favorite_pairs else symbols
+            
+            # Если у пользователя нет избранных пар, используем глобальные символы
+            if not trading_symbols:
+                trading_symbols = symbols
+            
+            print(f"[INFO] Пользователь {uid} торгует следующими парами: {trading_symbols}")
+            
+            for symbol in trading_symbols:
+                df5 = await fetch_ohlcv(symbol, "5m", 300)
+                dft = await fetch_ohlcv(symbol, tf, 200)
+                if df5 is None or dft is None: continue
 
-            ticker  = await exchange.fetch_ticker(symbol)
-            ctx = Context(
-                ticker_24h=ticker,
-                hourly_volume=df5["volume"].iloc[-12:].sum(),
-                btc_df=btc_df,
-            )
+                ticker = await exchange.fetch_ticker(symbol)
+                ctx = Context(
+                    ticker_24h=ticker,
+                    hourly_volume=df5["volume"].iloc[-12:].sum(),
+                    btc_df=btc_df,
+                )
 
-            for uid in active_users:
                 open_order = await get_open_order(uid, "bybit", symbol, tf)
 
                 # Get user-specific strategy parameters
@@ -393,23 +431,29 @@ async def process_tf(tf: str):
                 # ---------- вход ----------
                 if open_order is None:
                     # Проверка на паттерны Price Action с учетом типа рынка
-                    pattern = await get_pattern_price_action(dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], trading_type)
-                    dft = calculate_ppo(dft, cm_settings)  # Используем индивидуальные настройки
-                    dft = calculate_ema(dft)
-                    cm_signal, last_candle = find_cm_signal(dft, cm_settings)  # Используем индивидуальные настройки
+                    pattern = await get_pattern_price_action(
+                        dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
+                        trading_type
+                    )
                     
-                    # Рассчитываем RSI с пользовательскими настройками
+                    # Calculate indicators
+                    dft = calculate_ppo(dft, cm_settings)
+                    dft = calculate_ema(dft)
+                    cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+                    
+                    # Calculate RSI
                     dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
                     dft = calculate_ema(dft, 
                                        fast_period=rsi_settings['EMA_FAST'], 
                                        slow_period=rsi_settings['EMA_SLOW'])
                     
-                    # Генерируем сигналы RSI с пользовательскими настройками
+                    # Get RSI signals
                     rsi = generate_signals_rsi(dft, 
-                                              overbought=rsi_settings['RSI_OVERBOUGHT'], 
+                                              overbought=rsi_settings['RSI_OVERBOUGHT'],
                                               oversold=rsi_settings['RSI_OVERSOLD'])
                     rsi_signal = rsi['signal_rsi'].iloc[-1]
-
+                    
+                    # Get divergence signals
                     diver_signals = generate_trading_signals(
                         dft, 
                         rsi_length=divergence_settings['RSI_LENGTH'], 
@@ -430,31 +474,23 @@ async def process_tf(tf: str):
                     
                     # For futures, consider short signals
                     if trading_type == "futures":
-                        
                         # Явно проверяем на сигналы LONG и SHORT
-                        has_long_signal = cm_signal == "long" or rsi_signal == "Long"
-                        has_short_signal = cm_signal == "short" or rsi_signal == "Short"
-                        
-                        # Логируем сигналы для отладки
-                        print(f"[POSITION_SIGNALS] {exchange.id.upper()} {symbol} {tf} => LONG_signals={has_long_signal}, SHORT_signals={has_short_signal}")
-                        
-                        # Если есть сигнал на SHORT - меняем тип позиции
                         side = decide_position_side(cm_signal, rsi_signal)
 
                         if side is None:
-                            print(f"[POSITION] Конфликт / нет чётких сигналов – пропускаем вход")
-                            continue            # выходим из цикла, не открываем сделку
+                            print(f"[POSITION] conflict / no clear signal – skip")
+                            continue      
 
-                        position_side = side    # 'LONG' или 'SHORT'
+                        position_side = side
                     
-                    # Определяем, какие сигналы активны в зависимости от типа позиции
+                    # Check active signals based on position side
                     if position_side == "LONG":
                         price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
                         cm_active = cm_signal == "long"
                         moonbot_active = user_moon.check_coin(symbol, df5, ctx) and user_moon.should_place_order(dft)
                         rsi_active = rsi_signal == "Long"
                         
-                        # Проверка на бычью дивергенцию
+                        # Check bullish divergence
                         regular_bullish = diver_signals['divergence']['regular_bullish']
                         hidden_bullish = diver_signals['divergence']['hidden_bullish']
                         divergence_active = False
@@ -466,13 +502,13 @@ async def process_tf(tf: str):
                         if isinstance(hidden_bullish, bool) and hidden_bullish:
                             divergence_active = True
                             divergence_type += "Hidden Bullish "
-                    else:  # SHORT позиция
+                    else:  # SHORT position
                         price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bear")
                         cm_active = cm_signal == "short"
-                        moonbot_active = False  # MoonBot только для LONG
+                        moonbot_active = False  # MoonBot only for LONG
                         rsi_active = rsi_signal == "Short"
                         
-                        # Проверка на медвежью дивергенцию
+                        # Check bearish divergence
                         regular_bearish = diver_signals['divergence']['regular_bearish']
                         hidden_bearish = diver_signals['divergence']['hidden_bearish']
                         divergence_active = False
@@ -488,102 +524,81 @@ async def process_tf(tf: str):
                     # Debug output of signal flags
                     print(f"[DEBUG] {exchange.id.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
                     
-                    # Add debug info about signals
-                    print(f"[SIGNALS] {exchange.id.upper()}/{symbol}/{tf} => PA={price_action_active} CM={cm_active} RSI={rsi_active} Moon={moonbot_active} Div={divergence_active}")
-                    
+                    # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
                     any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
                     
-                    # Определяем текущую цену
+                    # Get current price
                     current_price = dft["close"].iloc[-1]
                     
-                    # Открываем сделку, если есть хотя бы один активный сигнал
+                    # Open position if any signal is active
                     if any_signal:
-                        # Если сработала стратегия мун бота, используем ее данные, иначе создаем базовый ордер
+                        # Use MoonBot strategy or basic order
                         if moonbot_active:
                             order_dict = user_moon.build_order(dft)
                             entry = order_dict["price"]
                             tp = order_dict["take_profit"]
                             sl = order_dict["stop_loss"]
                         else:
-                            # Базовый ордер на основе текущей цены при срабатывании других сигналов
+                            # Basic order based on current price
                             entry = current_price
                             
-                            # Рассчитываем TP и SL в зависимости от типа позиции
+                            # Calculate TP/SL based on position side
                             if position_side == "LONG":
-                                # Базовый TP: +3% от цены входа
-                                tp = entry * 1.03
-                                # Базовый SL: -2% от цены входа
-                                sl = entry * 0.98
+                                tp = entry * 1.03  # +3%
+                                sl = entry * 0.98  # -2%
                             else:  # SHORT
-                                # Базовый TP: -3% от цены входа
-                                tp = entry * 0.97
-                                # Базовый SL: +2% от цены входа
-                                sl = entry * 1.02
+                                tp = entry * 0.97  # -3%
+                                sl = entry * 1.02  # +2%
                         
-                        # Получаем баланс пользователя
+                        # Get user balance
                         user_balance = await get_user_balance(uid)
                         
-                        # ВАЖНО: Проверяем настройки плеча и типа торговли перед использованием
-                        print(f"Настройки для {uid}: тип={trading_type}, плечо={leverage}")
-                        
-                        # Проверка валидности плеча для futures
+                        # Validate leverage for futures
                         if trading_type == "futures" and leverage < 1:
-                            print(f"Внимание: плечо {leverage} для {uid} исправлено на 1x")
                             leverage = 1
                         
-                        # Рассчитываем объем позиции с учетом типа торговли и плеча
+                        # Calculate position size
                         if trading_type == "futures":
-                            # Для фьючерсов учитываем плечо при расчете объема
-                            investment_amount = user_balance * 0.05  # 5% от баланса
+                            # For futures, consider leverage
+                            investment_amount = user_balance * 0.05  # 5% of balance
                             
-                            # Добавляем проверку плеча
                             if leverage <= 0:
-                                print(f"ОШИБКА: Некорректное плечо {leverage} для {uid}, используем 1x")
                                 leverage = 1
                                 
-                            # Правильно рассчитываем объем с учетом плеча
                             qty = (investment_amount * leverage) / entry
-                            print(f"Расчет объема futures: {investment_amount} * {leverage} / {entry} = {qty}")
                         else:
-                            # Для спот торговли - обычный расчет
-                            investment_amount = user_balance * 0.05  # 5% от баланса
+                            # For spot trading
+                            investment_amount = user_balance * 0.05  # 5% of balance
                             qty = investment_amount / entry
-                            print(f"Расчет объема spot: {investment_amount} / {entry} = {qty}")
                         
-                        # Проверка негативных значений
+                        # Validate quantity
                         if qty <= 0:
-                            print(f"ОШИБКА: Отрицательный объем {qty}, отмена ордера")
-                            await bot.send_message(uid, f"Ошибка при расчете объема позиции: {qty}")
-                            continue
+                            print(f"Error: Invalid quantity {qty} for {symbol}")
+                            return
                         
-                        # Форматируем количество с учетом минимального шага для торговли
-                        qty = round(qty, 6)  # Округляем до 6 знаков после запятой
+                        # Format quantity
+                        qty = round(qty, 6)
                         
-                        # Если объем слишком мал, установим минимальный
-                        if qty * entry < 10:  # Минимальный размер ордера 10 USDT
+                        # Set minimum order size
+                        if qty * entry < 10:  # Minimum order size 10 USDT
                             qty = 10 / entry
                             qty = round(qty, 6)
                         
-                        # Создаем ордер с учетом типа рынка и кредитного плеча
                         try:
-                            # Проверяем загруженную переменную leverage (дополнительная проверка)
-                            if trading_type == "futures" and "user" in trading_settings:
-                                user_leverage = trading_settings.get("user", {}).get("leverage", leverage)
-                                print(f"Проверка плеча: в настройках={user_leverage}, используем={leverage}")
+                            # Create order with exchange info
+                            order_id = await create_order(uid, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
                             
-                            order_id = await create_order(uid, "bybit", symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
-                            
-                            # Получаем обновленный баланс после списания средств
+                            # Get updated balance after order creation
                             new_balance = await get_user_balance(uid)
                             
-                            # Определяем эмодзи для типа позиции
+                            # Emojis for position type
                             position_emoji = "🔰" if position_side == "LONG" else "🔻"
                             transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
                             
-                            # Формируем сообщение по новому шаблону
+                            # Notification message
                             message = (
                                 f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
-                                f"Биржа: {exchange.id.capitalize()}\n"
+                                f"Биржа: {exchange_name.capitalize()}\n"
                                 f"Тип торговли: {trading_type.upper()}"
                                 f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
                                 f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
@@ -603,8 +618,8 @@ async def process_tf(tf: str):
                             await bot.send_message(uid, message)
                             
                         except Exception as e:
-                            print(f"Ошибка при создании ордера: {e}")
-                            await bot.send_message(uid, f"Ошибка при создании ордера: {e}")
+                            print(f"Error creating order for {exchange_name} {symbol}: {e}")
+                            await bot.send_message(uid, f"Ошибка при создании ордера ({exchange_name}): {e}")
                 
                 # ---------- выход ----------
                 else:
@@ -1002,14 +1017,22 @@ async def process_user_exchange(user_id: int, settings: dict, exch_name: str, tr
         
         exchange: ccxt.Exchange = EXCHANGE_FACTORY[(exch_name, trading_type)]()
         print(f"[START] user={user_id} exch={exch_name} type={trading_type} (settings_type={settings.get('trading', {}).get('trading_type')})")
+        
         while True:
             try:
+                # Получаем избранные пары пользователя
+                user_favorite_pairs = await get_user_favorite_pairs(user_id)
+                
+                # Определяем символы для торговли - если есть избранные, используем их, иначе используем переданные
+                trading_symbols = user_favorite_pairs if user_favorite_pairs else symbols
+                
                 btc_df = await fetch_ohlcv_ccxt(exchange, "BTCUSDT", "5m", 300)
                 if btc_df is None:
                     await asyncio.sleep(10)
                     continue
+                
                 for tf in TIMEFRAMES:
-                    for symbol in symbols:
+                    for symbol in trading_symbols:
                         df5 = await fetch_ohlcv_ccxt(exchange, symbol, "5m", 300)
                         dft = await fetch_ohlcv_ccxt(exchange, symbol, tf, 200)
                         if df5 is None or dft is None:
@@ -1054,11 +1077,18 @@ async def _dispatch_for_user(user_id: int, settings: dict):
             trading_type = settings["user"]["trading_type"].lower()
             print(f"[CONFIG] Обнаружен trading_type в секции user: {trading_type}")
         
-        # список символов, если не задан – BTCUSDT
-        symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
-        symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
+        # Получаем избранные пары пользователя
+        user_favorite_pairs = await get_user_favorite_pairs(user_id)
+        
+        # список символов, если не заданы избранные и нет в настройках - BTCUSDT
+        if user_favorite_pairs:
+            symbols = user_favorite_pairs
+        else:
+            symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
+            symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
 
         print(f"[CONFIG] Итоговый тип торговли для пользователя {user_id}: {trading_type}")
+        print(f"[CONFIG] Торговые пары для пользователя {user_id}: {symbols}")
         
         tasks = []
         for exch_name in ("binance", "bybit", "mexc"):

@@ -2929,7 +2929,6 @@ async def set_leverage_simple(callback: CallbackQuery):
             [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
         ]
         
-        # Отправляем сообщение
         await callback.message.edit_text(
             text=text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
