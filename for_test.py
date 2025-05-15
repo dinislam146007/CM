@@ -5,11 +5,12 @@ import time
 import aiohttp
 from pybit.unified_trading import WebSocket
 from config import config
-from aiogram import Bot, types
+from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
 from strategy_logic.get_all_coins import get_usdt_pairs  # Добавляем импорт функции
 
-# Инициализируем бота
-bot = Bot(token=config.tg_bot_token)
+# Инициализация бота
+bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
 # Определение классов данных для работы скринера
 class Candle:

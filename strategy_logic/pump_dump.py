@@ -8,9 +8,15 @@ from config import config
 from aiogram import Bot, types
 from strategy_logic.get_all_coins import get_usdt_pairs
 from strategy_logic.pump_dump_settings import load_pump_dump_settings, load_subscribers
+from aiogram.client.default import DefaultBotProperties
+import logging
+import numpy as np
+import pandas as pd
+import ccxt
+from user_settings import is_subscribed
 
 # Инициализируем бота
-bot = Bot(token=config.tg_bot_token)
+bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
 # Определение классов данных для работы скринера
 class Candle:

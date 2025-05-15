@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 import asyncio
 from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
 from config import config
 from user_settings import is_cm_notifications_enabled, is_cm_group_notifications_enabled
 
@@ -18,7 +19,7 @@ GROUP_ID = -1002467387559  # Fixed group ID
 os.makedirs(CM_NOTIFICATIONS_DIR, exist_ok=True)
 
 # Initialize bot
-bot = Bot(token=config.tg_bot_token, parse_mode="HTML")
+bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
 def load_user_last_signals() -> Dict[int, Dict[str, Dict[str, str]]]:
     """Load the last CM signals sent to each user"""

@@ -1,16 +1,25 @@
 import logging
 
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, functions, types
 from telethon.sessions import StringSession
 from deepseek.deepsekk import analyze_with_deepseek
 from news import set_file_text
 from aiogram import Bot
 from config import config
 from aiogram.enums import ParseMode
+import os
+import asyncio
+import time
+import base64
+import json
+from datetime import datetime
+from telethon.tl.types import Message
+from telethon.tl.functions.messages import GetBotCallbackAnswerRequest
+from aiogram.client.default import DefaultBotProperties
 
 
 # Инициализация бота
-bot = Bot(token=config.tg_bot_token)
+bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
 
 channel_ids = [-1001203560567, -1002208140065, -1001268341728, -1001337895647, -1001000499465]
 
