@@ -206,6 +206,66 @@ async def reset_cm_settings(user_id: int) -> bool:
     """Reset CM indicator settings to default"""
     return reset_user_settings(user_id, "cm")
 
+# === CM Notification Functions ===
+
+async def enable_cm_notifications(user_id: int) -> bool:
+    """Enable CM notifications for user"""
+    settings = load_user_settings(user_id)
+    settings["cm_notifications_enabled"] = True
+    return save_user_settings(user_id, settings)
+
+async def disable_cm_notifications(user_id: int) -> bool:
+    """Disable CM notifications for user"""
+    settings = load_user_settings(user_id)
+    settings["cm_notifications_enabled"] = False
+    return save_user_settings(user_id, settings)
+
+async def is_cm_notifications_enabled(user_id: int) -> bool:
+    """Check if user has enabled CM notifications"""
+    settings = load_user_settings(user_id)
+    return settings.get("cm_notifications_enabled", False)
+
+async def enable_cm_group_notifications() -> bool:
+    """Enable CM notifications for group"""
+    # We use a special settings file for group notifications
+    settings = load_global_settings()
+    settings["cm_group_notifications_enabled"] = True
+    return save_global_settings(settings)
+
+async def disable_cm_group_notifications() -> bool:
+    """Disable CM notifications for group"""
+    settings = load_global_settings()
+    settings["cm_group_notifications_enabled"] = False
+    return save_global_settings(settings)
+
+async def is_cm_group_notifications_enabled() -> bool:
+    """Check if group notifications are enabled"""
+    settings = load_global_settings()
+    return settings.get("cm_group_notifications_enabled", False)
+
+def load_global_settings() -> Dict[str, Any]:
+    """Load global settings"""
+    global_settings_path = os.path.join(SETTINGS_DIR, "global_settings.json")
+    if os.path.exists(global_settings_path):
+        try:
+            with open(global_settings_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading global settings: {e}")
+    return {}
+
+def save_global_settings(settings: Dict[str, Any]) -> bool:
+    """Save global settings"""
+    global_settings_path = os.path.join(SETTINGS_DIR, "global_settings.json")
+    try:
+        os.makedirs(os.path.dirname(global_settings_path), exist_ok=True)
+        with open(global_settings_path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving global settings: {e}")
+        return False
+
 # === Divergence Settings Functions ===
 
 def load_divergence_settings(user_id: int) -> Dict[str, Any]:

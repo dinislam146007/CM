@@ -36,12 +36,15 @@ from strategy_logic.pump_dump_settings import load_pump_dump_settings  # Имп�
 from strategy_logic.pump_dump_trading import process_pump_dump_signal  # Импортируем функцию обработки сигналов Pump/Dump
 from strategy_logic.trading_type_settings import load_trading_type_settings  # Импортируем функцию загрузки настроек типа торговли
 from strategy_logic.trading_settings import load_trading_settings  # Импортируем функцию загрузки настроек торговли
+from strategy_logic.cm_notifications import process_cm_signal  # Импортируем функцию обработки CM уведомлений
+from user_settings import is_cm_notifications_enabled, is_cm_group_notifications_enabled  # Импортируем функции проверки настроек CM уведомлений
 from pathlib import Path
 import json
 from typing import Callable, Awaitable, Dict, Tuple, Any
 import requests
 import time
 import sqlite3
+from aiogram.exceptions import TelegramAPIError
 
 
 async def get_user_favorite_pairs(user_id: int) -> list:
@@ -85,6 +88,52 @@ def decide_position_side(cm_sig: str, rsi_sig: str) -> str | None:
 
 
 bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
+
+async def safe_send_message(user_id, text, max_retries=3):
+    """Безопасная отправка сообщений с обработкой флуд-контроля"""
+    for attempt in range(max_retries):
+        try:
+            return await bot.send_message(user_id, text)
+        except TelegramAPIError as e:
+            # Проверяем наличие флуд-ограничения
+            if "Flood control" in str(e) or "Too Many Requests" in str(e) or "retry after" in str(e).lower():
+                # Извлекаем время ожидания из сообщения об ошибке (обычно "retry after X")
+                wait_time = 5  # Стандартное время ожидания
+                error_str = str(e).lower()
+                # Проверяем на наличие числа после "retry after"
+                if "retry after" in error_str:
+                    try:
+                        wait_part = error_str.split("retry after")[1].strip()
+                        # Извлекаем числовое значение
+                        wait_digits = ''.join(c for c in wait_part if c.isdigit())
+                        if wait_digits:
+                            wait_time = int(wait_digits) + 1  # +1 секунда для надежности
+                    except:
+                        pass  # Используем стандартное значение
+                
+                print(f"[WARN] Telegram flood control hit. Waiting {wait_time} seconds before retry.")
+                # Логируем сокращенную версию сообщения, чтобы не спамить консоль
+                log_text = text[:100] + "..." if len(text) > 100 else text
+                print(f"[WARN] Message queued for delivery: {log_text}")
+                
+                # Ждем и пробуем снова
+                await asyncio.sleep(wait_time)
+                # Если это последняя попытка, уменьшаем текст сообщения
+                if attempt == max_retries - 1:
+                    # Укорачиваем сообщение до базовой информации
+                    lines = text.split('\n')
+                    # Берем только первые 5-6 строк и последние 2-3
+                    if len(lines) > 10:
+                        short_text = '\n'.join(lines[:6] + ["..."] + lines[-3:])
+                        text = short_text
+            else:
+                # Если ошибка не связана с флуд-контролем, пробуем еще раз через 1 сек
+                print(f"[ERROR] Telegram API error: {e}")
+                await asyncio.sleep(1)
+    
+    # Если все попытки не удались, логируем ошибку
+    print(f"[ERROR] Failed to send message to user {user_id} after {max_retries} attempts")
+    return None
 
 async def close_order_with_notification(user_id, order_id, current_price, close_reason):
     # Получаем информацию об ордере
@@ -180,7 +229,7 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             if entry_price is None:
                 # Если не удалось найти цену входа, выводим информацию об ордере для отладки
                 print(f"Ошибка: не найдено поле с ценой входа. Структура ордера: {order}")
-                await bot.send_message(user_id, f"Ошибка при закрытии ордера: не найдена цена входа")
+                await safe_send_message(user_id, f"Ошибка при закрытии ордера: не найдена цена входа")
                 return False
             
             # Рассчитываем прибыль/убыток
@@ -268,12 +317,12 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 )
             
             # Отправляем сообщение пользователю
-            await bot.send_message(user_id, message)
+            await safe_send_message(user_id, message)
             
             return True
         except Exception as e:
             print(f"Ошибка при закрытии ордера: {e}")
-            await bot.send_message(user_id, f"Ошибка при закрытии ордера: {e}")
+            await safe_send_message(user_id, f"Ошибка при закрытии ордера: {e}")
             return False
     return False
 
@@ -488,6 +537,12 @@ async def process_tf(tf: str):
                     dft = calculate_ema(dft)
                     cm_signal, last_candle = find_cm_signal(dft, cm_settings)
                     
+                    # Отправляем уведомление о сигнале CM, если он есть
+                    if cm_signal in ["long", "short"]:
+                        current_price = dft["close"].iloc[-1]
+                        # Асинхронно обрабатываем уведомления о CM сигнале
+                        asyncio.create_task(process_cm_signal(uid, symbol, tf, cm_signal, current_price))
+                    
                     # Calculate RSI
                     dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
                     dft = calculate_ema(dft, 
@@ -612,7 +667,7 @@ async def process_tf(tf: str):
                             # Проверяем, достаточно ли средств на балансе для открытия позиции
                             if investment_amount > user_balance:
                                 print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
-                                await bot.send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                                 continue
                             
                             if leverage <= 0:
@@ -626,7 +681,7 @@ async def process_tf(tf: str):
                             # Проверяем, достаточно ли средств на балансе для открытия позиции
                             if investment_amount > user_balance:
                                 print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
-                                await bot.send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                                 continue
                             
                             qty = investment_amount / entry
@@ -675,11 +730,11 @@ async def process_tf(tf: str):
                                 f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
                             )
                             
-                            await bot.send_message(uid, message)
+                            await safe_send_message(uid, message)
                             
                         except Exception as e:
                             print(f"Ошибка при создании ордера для {exchange.id} {symbol}: {e}")
-                            await bot.send_message(uid, f"Ошибка при создании ордера: {e}")
+                            await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
                 
                 # ---------- выход ----------
                 else:
@@ -727,7 +782,7 @@ async def process_tf(tf: str):
                                 print(f"Ордер {open_order['id']} не был закрыт (возможно, уже закрыт)")
                         except Exception as e:
                             print(f"Ошибка при закрытии ордера: {e}")
-                            await bot.send_message(uid, f"Ошибка при закрытии ордера: {e}")
+                            await safe_send_message(uid, f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
         # await wait_for_next_candle(tf)
 
@@ -1268,6 +1323,12 @@ async def internal_trade_logic(*args, **kwargs):
         dft = calculate_ema(dft)
         cm_signal, last_candle = find_cm_signal(dft, cm_settings)
         
+        # Отправляем уведомление о сигнале CM, если он есть
+        if cm_signal in ["long", "short"]:
+            current_price = dft["close"].iloc[-1]
+            # Асинхронно обрабатываем уведомления о CM сигнале
+            asyncio.create_task(process_cm_signal(user_id, symbol, tf, cm_signal, current_price))
+        
         # Calculate RSI
         dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
         dft = calculate_ema(dft, 
@@ -1392,7 +1453,7 @@ async def internal_trade_logic(*args, **kwargs):
                 # Проверяем, достаточно ли средств на балансе для открытия позиции
                 if investment_amount > user_balance:
                     print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
-                    await bot.send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                    await safe_send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                     return
                 
                 if leverage <= 0:
@@ -1406,7 +1467,7 @@ async def internal_trade_logic(*args, **kwargs):
                 # Проверяем, достаточно ли средств на балансе для открытия позиции
                 if investment_amount > user_balance:
                     print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
-                    await bot.send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                    await safe_send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                     return
                 
                 qty = investment_amount / entry
@@ -1455,11 +1516,11 @@ async def internal_trade_logic(*args, **kwargs):
                     f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
                 )
                 
-                await bot.send_message(user_id, message)
+                await safe_send_message(user_id, message)
                 
             except Exception as e:
                 print(f"Ошибка при создании ордера для {exchange_name} {symbol}: {e}")
-                await bot.send_message(user_id, f"Ошибка при создании ордера: {e}")
+                await safe_send_message(user_id, f"Ошибка при создании ордера: {e}")
         
         # EXIT LOGIC (with open order)
         else:
@@ -1511,7 +1572,7 @@ async def internal_trade_logic(*args, **kwargs):
                     
                 except Exception as e:
                     print(f"Error closing order: {e}")
-                    await bot.send_message(user_id, f"Ошибка при закрытии ордера: {e}")
+                    await safe_send_message(user_id, f"Ошибка при закрытии ордера: {e}")
     except Exception as e:
         print(f"Error in internal_trade_logic: {e}")
 

@@ -47,6 +47,14 @@ from user_settings import (
     get_user_exchanges, update_user_exchanges, toggle_exchange
 )
 
+from strategy_logic.cm_settings import load_cm_settings, update_cm_setting
+from strategy_logic.divergence_settings import load_divergence_settings, update_divergence_setting
+from strategy_logic.rsi_settings import load_rsi_settings, update_rsi_setting
+from strategy_logic.pump_dump_settings import load_pump_dump_settings, update_pump_dump_setting
+from user_settings import reset_cm_settings, reset_divergence_settings, reset_rsi_settings, reset_pump_dump_settings
+from user_settings import enable_cm_notifications, disable_cm_notifications, is_cm_notifications_enabled
+from user_settings import enable_cm_group_notifications, disable_cm_group_notifications, is_cm_group_notifications_enabled
+
 router = Router()
 
 
@@ -1650,6 +1658,10 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         # Загружаем настройки CM индикатора для пользователя
         cm_settings = load_cm_settings(callback.from_user.id)
         
+        # Получаем статус уведомлений
+        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
+        is_group_enabled = await is_cm_group_notifications_enabled()
+        
         text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
         
         # Отображаем текущие параметры CM
@@ -1659,6 +1671,10 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
         text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
         text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+        
+        # Статус уведомлений
+        text += f"Уведомления CM индикатора: {'✅ Включены' if is_enabled else '❌ Отключены'}\n"
+        text += f"Уведомления CM в группу: {'✅ Включены' if is_group_enabled else '❌ Отключены'}\n\n"
         
         text += "Выберите параметр для изменения:"
         
@@ -2019,24 +2035,117 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
             text=text,
             reply_markup=cm_params_inline()
         )
-    elif action in ['SHORT_GAMMA', 'LONG_GAMMA', 'LOOKBACK_T', 'LOOKBACK_B', 'PCTILE']:
-        # Редактирование параметра CM
+    
+    elif action == 'notifications':
+        # Включение/выключение уведомлений CM для пользователя
+        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
+        
+        if is_enabled:
+            # Если уведомления включены, выключаем их
+            await disable_cm_notifications(callback.from_user.id)
+            await callback.answer("Уведомления CM индикатора отключены")
+        else:
+            # Если уведомления выключены, включаем их
+            await enable_cm_notifications(callback.from_user.id)
+            await callback.answer("Уведомления CM индикатора включены")
+        
+        # Обновляем текст с учетом нового статуса уведомлений
+        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
+        is_group_enabled = await is_cm_group_notifications_enabled()
+        
+        # Загружаем настройки CM
         cm_settings = load_cm_settings(callback.from_user.id)
-        current_value = cm_settings.get(action, "не установлено")
         
-        kb = [
-            [InlineKeyboardButton(text='Назад', callback_data='settings cm')]
-        ]
+        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
         
-        msg = await callback.message.edit_text(
-            f"Изменение параметра: {action}\n"
-            f"Текущее значение: {current_value}\n\n"
-            f"Введите новое значение:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
+        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
+        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
+        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
+        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+        
+        # Статус уведомлений
+        text += f"Уведомления CM индикатора: {'✅ Включены' if is_enabled else '❌ Отключены'}\n"
+        text += f"Уведомления CM в группу: {'✅ Включены' if is_group_enabled else '❌ Отключены'}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=cm_params_inline()
         )
+    
+    elif action == 'group_notifications':
+        # Включение/выключение уведомлений CM для группы
+        # Проверяем, является ли пользователь администратором
+        user = await bot.get_chat_member(config.trading_group_id, callback.from_user.id)
+        is_admin = user.status in ['administrator', 'creator']
         
+        if not is_admin:
+            await callback.answer("Только администраторы могут управлять уведомлениями для группы", show_alert=True)
+            return
+        
+        is_group_enabled = await is_cm_group_notifications_enabled()
+        
+        if is_group_enabled:
+            # Если уведомления для группы включены, выключаем их
+            await disable_cm_group_notifications()
+            await callback.answer("Уведомления CM индикатора для группы отключены")
+        else:
+            # Если уведомления для группы выключены, включаем их
+            await enable_cm_group_notifications()
+            await callback.answer("Уведомления CM индикатора для группы включены")
+        
+        # Обновляем текст с учетом нового статуса уведомлений
+        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
+        is_group_enabled = await is_cm_group_notifications_enabled()
+        
+        # Загружаем настройки CM
+        cm_settings = load_cm_settings(callback.from_user.id)
+        
+        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
+        
+        # Отображаем текущие параметры
+        text += "📊 Текущие параметры:\n"
+        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
+        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
+        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
+        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
+        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+        
+        # Статус уведомлений
+        text += f"Уведомления CM индикатора: {'✅ Включены' if is_enabled else '❌ Отключены'}\n"
+        text += f"Уведомления CM в группу: {'✅ Включены' if is_group_enabled else '❌ Отключены'}\n\n"
+        
+        text += "Выберите параметр для изменения:"
+        
+        await callback.message.edit_text(
+            text=text,
+            reply_markup=cm_params_inline()
+        )
+    
+    elif action in ['SHORT_GAMMA', 'LONG_GAMMA', 'LOOKBACK_T', 'LOOKBACK_B', 'PCTILE']:
+        # Обработка редактирования других параметров CM (существующая логика)
+        # Получаем текущее значение параметра
+        cm_settings = load_cm_settings(callback.from_user.id)
+        current_value = cm_settings[action]
+        
+        # Сохраняем параметр для формы редактирования
+        await state.update_data(param_name=action)
+        
+        # Переходим в состояние редактирования параметра
         await state.set_state(CMParamStates.edit_param)
-        await state.update_data(param_name=action, last_msg=msg.message_id)
+        
+        # Запрашиваем новое значение
+        await callback.message.edit_text(
+            f"Текущее значение {action}: {current_value}\n\n"
+            f"Введите новое значение для {action}:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Отмена', callback_data='settings cm')]
+            ])
+        )
 
 @router.message(CMParamStates.edit_param)
 async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
