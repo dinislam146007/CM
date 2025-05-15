@@ -10,6 +10,7 @@ from db import create_tables
 from db.update_schema import update_schema
 from telethon_handler.get_messages import telethon_channels_main
 from strategy_logic.admin_commands import trading_router
+from strategy_logic.cm_notification_processor import start_notification_processor
 
 logging.basicConfig(level=logging.INFO)
 
@@ -20,6 +21,9 @@ dp.include_router(trading_router)
 
 async def on_startup():
     logging.info("Бот запущен")
+    # Start CM notification processor
+    start_notification_processor()
+    logging.info("CM notification processor started")
 
 async def on_shutdown():
     await dp.storage.close()
