@@ -95,6 +95,19 @@ async def safe_send_message(user_id, text, max_retries=3):
         try:
             return await bot.send_message(user_id, text)
         except TelegramAPIError as e:
+            # Проверяем наличие ошибки парсинга HTML
+            if "can't parse entities" in str(e):
+                # Если проблема с HTML-тегами, пробуем отправить без HTML форматирования
+                try:
+                    # Заменяем HTML-теги и эмодзи, которые могут вызвать проблемы
+                    clean_text = text.replace("<b>", "").replace("</b>", "")
+                    clean_text = clean_text.replace("<i>", "").replace("</i>", "")
+                    clean_text = clean_text.replace("<code>", "").replace("</code>", "")
+                    print(f"[WARN] HTML parsing issue detected. Trying to send clean message.")
+                    return await bot.send_message(user_id, clean_text, parse_mode=None)
+                except Exception as clean_e:
+                    print(f"[ERROR] Failed to send clean message: {clean_e}")
+            
             # Проверяем наличие флуд-ограничения
             if "Flood control" in str(e) or "Too Many Requests" in str(e) or "retry after" in str(e).lower():
                 # Извлекаем время ожидания из сообщения об ошибке (обычно "retry after X")
@@ -263,7 +276,7 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
 
             if close_reason == "TP" and is_profitable:
                 message = (
-                    f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                    f"🔴 ЗАКРЫТИЕ ОРДЕРА {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
                     f"Тип торговли: {trading_type.upper()}"
                     f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
@@ -281,7 +294,7 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 )
             elif close_reason == "SL" or not is_profitable:
                 message = (
-                    f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                    f"🔴 ЗАКРЫТИЕ ОРДЕРА {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
                     f"Тип торговли: {trading_type.upper()}"
                     f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
@@ -299,7 +312,7 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 )
             else:  # TP с убытком или другие случаи
                 message = (
-                    f"🔴 <b>ЗАКРЫТИЕ ОРДЕРА</b> {symbol} {timeframe}\n\n"
+                    f"🔴 ЗАКРЫТИЕ ОРДЕРА {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
                     f"Тип торговли: {trading_type.upper()}"
                     f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
@@ -712,7 +725,7 @@ async def process_tf(tf: str):
                             
                             # Формируем сообщение по новому шаблону
                             message = (
-                                f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                                f"{transaction_emoji} ОТКРЫТИЕ ОРДЕРА {symbol} {tf}\n\n"
                                 f"Биржа: {exchange.id.capitalize()}\n"
                                 f"Тип торговли: {trading_type.upper()}"
                                 f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
@@ -1498,7 +1511,7 @@ async def internal_trade_logic(*args, **kwargs):
                 
                 # Формируем сообщение по новому шаблону
                 message = (
-                    f"{transaction_emoji} <b>ОТКРЫТИЕ ОРДЕРА</b> {symbol} {tf}\n\n"
+                    f"{transaction_emoji} ОТКРЫТИЕ ОРДЕРА {symbol} {tf}\n\n"
                     f"Биржа: {exchange_name.capitalize()}\n"
                     f"Тип торговли: {trading_type.upper()}"
                     f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"

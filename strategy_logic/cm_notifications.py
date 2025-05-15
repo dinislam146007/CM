@@ -126,7 +126,7 @@ async def send_cm_notification_to_user(user_id: int, symbol: str, timeframe: str
             return  # No valid signal
             
         message = (
-            f"🔔 <b>CM СИГНАЛ</b> {symbol} {timeframe}\n\n"
+            f"🔔 CM СИГНАЛ {symbol} {timeframe}\n\n"
             f"⚙️ Индикатор CM обнаружил сигнал\n"
             f"📈 Цена: {price:.4f} USDT\n"
             f"📊 Сигнал: {direction} {emoji}\n\n"
@@ -160,7 +160,7 @@ async def send_cm_notification_to_group(symbol: str, timeframe: str, signal: str
             return  # No valid signal
             
         message = (
-            f"🔔 <b>CM СИГНАЛ</b> {symbol} {timeframe}\n\n"
+            f"🔔 CM СИГНАЛ {symbol} {timeframe}\n\n"
             f"⚙️ Индикатор CM обнаружил сигнал\n"
             f"📈 Цена: {price:.4f} USDT\n"
             f"📊 Сигнал: {direction} {emoji}\n\n"
