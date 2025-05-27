@@ -133,8 +133,12 @@ async def process_callback_set_trading_type(callback_query: types.CallbackQuery)
     # Отображаем обновленные настройки
     settings = load_trading_settings(user_id)
     
+    # Получаем множественные типы торговли
+    from user_settings import load_trading_types
+    current_types = load_trading_types(user_id)
+    
     text = f"✅ Настройки обновлены!\n\n"
-    text += f"🔹 Тип торговли: <b>{settings['trading_type'].upper()}</b>\n"
+    text += f"🔹 Активные типы торговли: <b>{', '.join([t.upper() for t in current_types])}</b>\n"
     text += f"🔹 Кредитное плечо: <b>x{settings['leverage']}</b>\n\n"
     
     if trading_type == "futures":
@@ -207,8 +211,12 @@ async def process_callback_set_leverage(callback_query: types.CallbackQuery):
     # Отображаем обновленные настройки
     settings = load_trading_settings(user_id)
     
+    # Получаем множественные типы торговли
+    from user_settings import load_trading_types
+    current_types = load_trading_types(user_id)
+    
     text = f"✅ Настройки обновлены!\n\n"
-    text += f"🔹 Тип торговли: <b>{settings['trading_type'].upper()}</b>\n"
+    text += f"🔹 Активные типы торговли: <b>{', '.join([t.upper() for t in current_types])}</b>\n"
     text += f"🔹 Кредитное плечо: <b>x{settings['leverage']}</b>\n\n"
     
     if leverage > 1:
@@ -234,8 +242,12 @@ async def process_callback_back_to_settings(callback_query: types.CallbackQuery)
     settings = load_trading_settings(user_id)
     
     # Создаем сообщение с текущими настройками
+    # Получаем множественные типы торговли
+    from user_settings import load_trading_types
+    current_types = load_trading_types(user_id)
+    
     text = f"📊 <b>Настройки торговли</b>\n\n"
-    text += f"🔹 Тип торговли: <b>{settings['trading_type'].upper()}</b>\n"
+    text += f"🔹 Активные типы торговли: <b>{', '.join([t.upper() for t in current_types])}</b>\n"
     text += f"🔹 Кредитное плечо: <b>x{settings['leverage']}</b>\n\n"
     text += "Выберите параметр для изменения:"
     

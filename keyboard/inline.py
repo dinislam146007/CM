@@ -337,7 +337,7 @@ def trading_type_settings_inline(user_id=None):
             InlineKeyboardButton(text=spot_text, callback_data="toggle_trading_type:spot"),
             InlineKeyboardButton(text=futures_text, callback_data="toggle_trading_type:futures")
         ],
-        [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
+        [InlineKeyboardButton(text="Настроить плечо", callback_data="show_leverage_options")],
         [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
