@@ -759,9 +759,9 @@ async def process_tf(tf: str):
                              # Recalculate investment_amount based on adjusted qty for accurate message
                              investment_amount = qty * entry
 
-                        # Final check if recalculated investment amount is too low or exceeds balance significantly
-                        if investment_amount < min_trade_usdt or investment_amount > user_balance :
-                             print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} некорректна или превышает баланс {user_balance:.2f}. Пропуск ордера.")
+                        # Final check if recalculated investment amount exceeds balance significantly
+                        if investment_amount > user_balance:
+                             print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} превышает баланс {user_balance:.2f}. Пропуск ордера.")
                              continue
                         
                         try:
@@ -802,7 +802,7 @@ async def process_tf(tf: str):
                             await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
                 
                     # ---------- выход ----------
-                    else:
+                    elif open_order_for_type is not None:
                         last_price = dft["close"].iloc[-1]
                         
                         # Skip processing if the order is already closed
@@ -1572,9 +1572,9 @@ async def internal_trade_logic(*args, **kwargs):
                  qty = round(qty, 6)
                  investment_amount = qty * entry # Recalculate for accurate message
 
-            # Final check if recalculated investment amount is too low or exceeds balance
-            if investment_amount < min_trade_usdt or investment_amount > user_balance:
-                 print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} (internal_trade_logic) некорректна или превышает баланс {user_balance:.2f}. Пропуск ордера.")
+            # Final check if recalculated investment amount exceeds balance
+            if investment_amount > user_balance:
+                 print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} (internal_trade_logic) превышает баланс {user_balance:.2f}. Пропуск ордера.")
                  return
             
             try:
@@ -1615,7 +1615,7 @@ async def internal_trade_logic(*args, **kwargs):
                 await safe_send_message(user_id, f"Ошибка при создании ордера: {e}")
         
         # EXIT LOGIC (with open order)
-        else:
+        elif open_order is not None:
             last_price = dft["close"].iloc[-1]
             
             # Skip if already closed
