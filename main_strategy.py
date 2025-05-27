@@ -533,40 +533,56 @@ async def process_tf(tf: str):
                 
                 # Загружаем индивидуальные настройки торговли для пользователя
                 trading_settings = load_trading_settings(uid)
-                trading_type = trading_settings["trading_type"]
-                leverage = trading_settings["leverage"]
                 
+                # Получаем множественные типы торговли
+                from user_settings import load_trading_types
+                trading_types = load_trading_types(uid)
                 
-                # ---------- вход ----------
-                if open_order is None:
-                    # Проверка на паттерны Price Action с учетом типа рынка
-                    pattern = await get_pattern_price_action(
-                        dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
-                        trading_type
-                    )
+                print(f"[CONFIG] Пользователь {uid} имеет активные типы торговли: {trading_types}")
+                
+                # Обрабатываем каждый тип торговли отдельно
+                for trading_type in trading_types:
+                    leverage = trading_settings["leverage"]
                     
-                    # Calculate indicators
-                    dft = calculate_ppo(dft, cm_settings)
-                    dft = calculate_ema(dft)
-                    cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+                    print(f"[PROCESSING] Обработка {symbol} {tf} для типа торговли: {trading_type}")
                     
-                    # Отправляем уведомление о сигнале CM, если он есть
-                    if cm_signal in ["long", "short"]:
-                        current_price = dft["close"].iloc[-1]
-                        # Асинхронно обрабатываем уведомления о CM сигнале
-                        asyncio.create_task(process_cm_signal(uid, symbol, tf, cm_signal, current_price))
+                    # Проверяем открытые ордера для конкретного типа торговли
+                    open_order_for_type = await get_open_order(uid, "bybit", symbol, tf)
                     
-                    # Calculate RSI
-                    dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
-                    dft = calculate_ema(dft, 
-                                       fast_period=rsi_settings['EMA_FAST'], 
-                                       slow_period=rsi_settings['EMA_SLOW'])
+                    # Если есть открытый ордер, проверяем его тип торговли
+                    if open_order_for_type and open_order_for_type.get('trading_type') != trading_type:
+                        open_order_for_type = None  # Игнорируем ордер другого типа торговли
                     
-                    # Get RSI signals
-                    rsi = generate_signals_rsi(dft, 
-                                              overbought=rsi_settings['RSI_OVERBOUGHT'],
-                                              oversold=rsi_settings['RSI_OVERSOLD'])
-                    rsi_signal = rsi['signal_rsi'].iloc[-1]
+                    # ---------- вход ----------
+                    if open_order_for_type is None:
+                        # Проверка на паттерны Price Action с учетом типа рынка
+                        pattern = await get_pattern_price_action(
+                            dft[['timestamp', 'open', 'high', 'low', 'close']].values.tolist()[-5:], 
+                            trading_type
+                        )
+                    
+                        # Calculate indicators
+                        dft = calculate_ppo(dft, cm_settings)
+                        dft = calculate_ema(dft)
+                        cm_signal, last_candle = find_cm_signal(dft, cm_settings)
+                        
+                        # Отправляем уведомление о сигнале CM, если он есть
+                        if cm_signal in ["long", "short"]:
+                            current_price = dft["close"].iloc[-1]
+                            # Асинхронно обрабатываем уведомления о CM сигнале
+                            asyncio.create_task(process_cm_signal(uid, symbol, tf, cm_signal, current_price))
+                    
+                        # Calculate RSI
+                        dft = calculate_rsi(dft, period=rsi_settings['RSI_PERIOD'])
+                        dft = calculate_ema(dft, 
+                                           fast_period=rsi_settings['EMA_FAST'], 
+                                           slow_period=rsi_settings['EMA_SLOW'])
+                        
+                        # Get RSI signals
+                        rsi = generate_signals_rsi(dft, 
+                                                  overbought=rsi_settings['RSI_OVERBOUGHT'],
+                                                  oversold=rsi_settings['RSI_OVERSOLD'])
+                        rsi_signal = rsi['signal_rsi'].iloc[-1]
                     
                     # Get divergence signals
                     diver_signals = generate_trading_signals(
@@ -749,53 +765,53 @@ async def process_tf(tf: str):
                             print(f"Ошибка при создании ордера для {exchange.id} {symbol}: {e}")
                             await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
                 
-                # ---------- выход ----------
-                else:
-                    last_price = dft["close"].iloc[-1]
-                    
-                    # Skip processing if the order is already closed
-                    if open_order.get('status', 'OPEN') != 'OPEN':
-                        print(f"Пропускаем обработку - ордер {open_order['id']} уже закрыт")
-                        continue
-                    
-                    # Проверяем различные поля для определения направления позиции
-                    position_direction = "LONG"  # По умолчанию LONG
-                    if "position_side" in open_order:
-                        position_direction = open_order["position_side"]
-                    elif "side" in open_order and open_order["side"].upper() == "SELL":
-                        position_direction = "SHORT"
-                    elif "position_type" in open_order:
-                        position_direction = open_order["position_type"]
-                    
-                    # Определяем, является ли позиция длинной
-                    is_long = position_direction.upper() == "LONG"
-                    
-                    if is_long:
-                        hit_tp = last_price >= open_order["tp_price"]
-                        hit_sl = last_price <= open_order["sl_price"]
-                    else:  # SHORT
-                        hit_tp = last_price <= open_order["tp_price"]  # Для SHORT TP ниже цены входа
-                        hit_sl = last_price >= open_order["sl_price"]  # Для SHORT SL выше цены входа
+                    # ---------- выход ----------
+                    else:
+                        last_price = dft["close"].iloc[-1]
+                        
+                        # Skip processing if the order is already closed
+                        if open_order_for_type.get('status', 'OPEN') != 'OPEN':
+                            print(f"Пропускаем обработку - ордер {open_order_for_type['id']} уже закрыт")
+                            continue
+                        
+                        # Проверяем различные поля для определения направления позиции
+                        position_direction = "LONG"  # По умолчанию LONG
+                        if "position_side" in open_order_for_type:
+                            position_direction = open_order_for_type["position_side"]
+                        elif "side" in open_order_for_type and open_order_for_type["side"].upper() == "SELL":
+                            position_direction = "SHORT"
+                        elif "position_type" in open_order_for_type:
+                            position_direction = open_order_for_type["position_type"]
+                        
+                        # Определяем, является ли позиция длинной
+                        is_long = position_direction.upper() == "LONG"
+                        
+                        if is_long:
+                            hit_tp = last_price >= open_order_for_type["tp_price"]
+                            hit_sl = last_price <= open_order_for_type["sl_price"]
+                        else:  # SHORT
+                            hit_tp = last_price <= open_order_for_type["tp_price"]  # Для SHORT TP ниже цены входа
+                            hit_sl = last_price >= open_order_for_type["sl_price"]  # Для SHORT SL выше цены входа
 
-                    if hit_tp or hit_sl:
-                        try:
-                            # Проверяем статус ордера еще раз непосредственно перед закрытием
-                            current_order = await get_order_by_id(open_order["id"])
-                            if current_order and current_order.get('status') == 'CLOSED':
-                                print(f"Пропускаем закрытие - ордер {open_order['id']} уже закрыт")
-                                continue
-                            
-                            print(f"Закрываем ордер {open_order['id']} по {'TP' if hit_tp else 'SL'}")
-                            # Закрываем ордер и получаем информацию о P&L
-                            close_result = await close_order_with_notification(
-                                uid, open_order["id"], last_price, "TP" if hit_tp else "SL"
-                            )
-                            
-                            if not close_result:
-                                print(f"Ордер {open_order['id']} не был закрыт (возможно, уже закрыт)")
-                        except Exception as e:
-                            print(f"Ошибка при закрытии ордера: {e}")
-                            await safe_send_message(uid, f"Ошибка при закрытии ордера: {e}")
+                        if hit_tp or hit_sl:
+                            try:
+                                # Проверяем статус ордера еще раз непосредственно перед закрытием
+                                current_order = await get_order_by_id(open_order_for_type["id"])
+                                if current_order and current_order.get('status') == 'CLOSED':
+                                    print(f"Пропускаем закрытие - ордер {open_order_for_type['id']} уже закрыт")
+                                    continue
+                                
+                                print(f"Закрываем ордер {open_order_for_type['id']} по {'TP' if hit_tp else 'SL'}")
+                                # Закрываем ордер и получаем информацию о P&L
+                                close_result = await close_order_with_notification(
+                                    uid, open_order_for_type["id"], last_price, "TP" if hit_tp else "SL"
+                                )
+                                
+                                if not close_result:
+                                    print(f"Ордер {open_order_for_type['id']} не был закрыт (возможно, уже закрыт)")
+                            except Exception as e:
+                                print(f"Ошибка при закрытии ордера: {e}")
+                                await safe_send_message(uid, f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
         # await wait_for_next_candle(tf)
 
@@ -1316,6 +1332,10 @@ async def internal_trade_logic(*args, **kwargs):
             
         # Check for existing open order
         open_order = await get_open_order(user_id, exchange_name, symbol, tf)
+        
+        # Если есть открытый ордер, проверяем его тип торговли
+        if open_order and open_order.get('trading_type') != trading_type:
+            open_order = None  # Игнорируем ордер другого типа торговли
         
         # Get user-specific settings
         user_moon = StrategyMoonBot(load_strategy_params(user_id))
