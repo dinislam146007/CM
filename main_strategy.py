@@ -705,19 +705,25 @@ async def process_tf(tf: str):
                         # Get user balance
                         user_balance = await get_user_balance(uid)
                         
+                        min_trade_usdt = 5.0
+
+                        if user_balance < min_trade_usdt:
+                            print(f"[WARNING] Баланс пользователя {uid} ({user_balance:.2f} USDT) меньше минимально требуемой суммы для торговли ({min_trade_usdt} USDT).")
+                            continue
+
                         # Validate leverage for futures
                         if trading_type == "futures" and leverage < 1:
                             leverage = 1
                         
                         # Calculate position size
                         if trading_type == "futures":
-                            # For futures, consider leverage
-                            investment_amount = min(user_balance * 0.05, user_balance - 1)  # 5% of balance but leave 1 USDT
-                            
-                            # Проверяем, достаточно ли средств на балансе для открытия позиции
-                            if investment_amount < 5:  # Minimum 5 USDT
-                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, минимум: 5 USDT")
-                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Минимум: 5 USDT, доступно: {user_balance:.2f} USDT")
+                            desired_investment = user_balance * 0.05 
+                            investment_amount = max(min_trade_usdt, desired_investment)
+                            # Ensure we don't invest more than available balance (leaving 1 USDT if possible)
+                            investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+
+                            if investment_amount < min_trade_usdt:
+                                print(f"[WARNING] Недостаточно средств для открытия фьючерсной позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
                                 continue
                             
                             if leverage <= 0:
@@ -726,28 +732,37 @@ async def process_tf(tf: str):
                             qty = (investment_amount * leverage) / entry
                         else:
                             # For spot trading
-                            investment_amount = min(user_balance * 0.05, user_balance - 1)  # 5% of balance but leave 1 USDT
-                            
-                            # Проверяем, достаточно ли средств на балансе для открытия позиции
-                            if investment_amount < 5:  # Minimum 5 USDT
-                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, минимум: 5 USDT")
-                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Минимум: 5 USDT, доступно: {user_balance:.2f} USDT")
+                            desired_investment = user_balance * 0.05
+                            investment_amount = max(min_trade_usdt, desired_investment)
+                            # Ensure we don't invest more than available balance (leaving 1 USDT if possible)
+                            investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+
+                            if investment_amount < min_trade_usdt:
+                                print(f"[WARNING] Недостаточно средств для открытия спотовой позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
                                 continue
                             
                             qty = investment_amount / entry
                         
-                        # Validate quantity
+                        # Validate quantity (already rounded later, but good to check early)
                         if qty <= 0:
-                            print(f"Error: Invalid quantity {qty} for {symbol}")
-                            return
+                            print(f"Error: Invalid quantity {qty} for {symbol} before final formatting.")
+                            continue # Changed from return to continue
                         
                         # Format quantity
                         qty = round(qty, 6)
                         
-                        # Set minimum order size
-                        if qty * entry < 5:  # Minimum order size 5 USDT
-                            qty = 5 / entry
-                            qty = round(qty, 6)
+                        # Ensure minimum order size in USDT (this check might be redundant now but safe to keep)
+                        if qty * entry < min_trade_usdt:
+                             print(f"[INFO] Расчетное кол-во {qty} для {symbol} ({qty*entry:.2f} USDT) < {min_trade_usdt} USDT. Корректировка до минимального размера ордера.")
+                             qty = min_trade_usdt / entry
+                             qty = round(qty, 6)
+                             # Recalculate investment_amount based on adjusted qty for accurate message
+                             investment_amount = qty * entry
+
+                        # Final check if recalculated investment amount is too low or exceeds balance significantly
+                        if investment_amount < min_trade_usdt or investment_amount > user_balance :
+                             print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} некорректна или превышает баланс {user_balance:.2f}. Пропуск ордера.")
+                             continue
                         
                         try:
                             # Create order with exchange info
@@ -1352,6 +1367,8 @@ async def internal_trade_logic(*args, **kwargs):
             return
             
         print(f"Processing {exchange_name} {symbol}/{tf} for user {user_id}")
+        
+        min_trade_usdt = 5.0 # Standardizing to 5 USDT as in process_tf
             
         # Check for existing open order
         open_order = await get_open_order(user_id, exchange_name, symbol, tf)
@@ -1506,19 +1523,22 @@ async def internal_trade_logic(*args, **kwargs):
             # Get user balance
             user_balance = await get_user_balance(user_id)
             
+            if user_balance < min_trade_usdt:
+                print(f"[WARNING] Баланс пользователя {user_id} ({user_balance:.2f} USDT) меньше минимально требуемой суммы для торговли ({min_trade_usdt} USDT) в internal_trade_logic.")
+                return
+
             # Validate leverage for futures
             if trading_type == "futures" and leverage < 1:
                 leverage = 1
             
             # Calculate position size
             if trading_type == "futures":
-                # For futures, consider leverage
-                investment_amount = user_balance * 0.05  # 5% of balance
-                
-                # Проверяем, достаточно ли средств на балансе для открытия позиции
-                if investment_amount > user_balance:
-                    print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
-                    await safe_send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                desired_investment = user_balance * 0.05 
+                investment_amount = max(min_trade_usdt, desired_investment)
+                investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+
+                if investment_amount < min_trade_usdt:
+                    print(f"[WARNING] Недостаточно средств для открытия фьючерсной позиции {symbol} для {user_id} после всех расчетов (internal_trade_logic). Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
                     return
                 
                 if leverage <= 0:
@@ -1527,28 +1547,35 @@ async def internal_trade_logic(*args, **kwargs):
                 qty = (investment_amount * leverage) / entry
             else:
                 # For spot trading
-                investment_amount = user_balance * 0.05  # 5% of balance
-                
-                # Проверяем, достаточно ли средств на балансе для открытия позиции
-                if investment_amount > user_balance:
-                    print(f"[WARNING] Недостаточно средств на счете пользователя {user_id}. Баланс: {user_balance}, требуется: {investment_amount}")
-                    await safe_send_message(user_id, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
+                desired_investment = user_balance * 0.05
+                investment_amount = max(min_trade_usdt, desired_investment)
+                investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+
+                if investment_amount < min_trade_usdt:
+                    print(f"[WARNING] Недостаточно средств для открытия спотовой позиции {symbol} для {user_id} после всех расчетов (internal_trade_logic). Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
                     return
                 
                 qty = investment_amount / entry
             
-            # Validate quantity
+            # Validate quantity (already rounded later, but good to check early)
             if qty <= 0:
-                print(f"Error: Invalid quantity {qty} for {symbol}")
+                print(f"Error: Invalid quantity {qty} for {symbol} before final formatting (internal_trade_logic).")
                 return
             
             # Format quantity
             qty = round(qty, 6)
             
-            # Set minimum order size
-            if qty * entry < 10:  # Minimum order size 10 USDT
-                qty = 10 / entry
-                qty = round(qty, 6)
+            # Ensure minimum order size in USDT
+            if qty * entry < min_trade_usdt:
+                 print(f"[INFO] Расчетное кол-во {qty} для {symbol} ({qty*entry:.2f} USDT) < {min_trade_usdt} USDT (internal_trade_logic). Корректировка до минимального размера ордера.")
+                 qty = min_trade_usdt / entry
+                 qty = round(qty, 6)
+                 investment_amount = qty * entry # Recalculate for accurate message
+
+            # Final check if recalculated investment amount is too low or exceeds balance
+            if investment_amount < min_trade_usdt or investment_amount > user_balance:
+                 print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} (internal_trade_logic) некорректна или превышает баланс {user_balance:.2f}. Пропуск ордера.")
+                 return
             
             try:
                 # Create order with exchange info
