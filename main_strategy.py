@@ -55,8 +55,18 @@ async def get_user_favorite_pairs(user_id: int) -> list:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
             if not cursor.fetchone():
-                print(f"[WARNING] Таблица 'users' не существует в базе данных")
-                return []
+                print(f"[WARNING] Таблица 'users' не существует в базе данных. Создание таблицы...")
+                # Create the table if it doesn't exist
+                cursor.execute('''
+                    CREATE TABLE users (
+                        user_id INTEGER PRIMARY KEY,
+                        crypto_pairs TEXT
+                        -- Add other fields as necessary, e.g., balance, api_key, etc.
+                    )
+                ''')
+                conn.commit()
+                print(f"[INFO] Таблица 'users' успешно создана.")
+                return [] # Return empty list as no users or pairs exist yet
                 
             cursor.execute("SELECT crypto_pairs FROM users WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
@@ -473,6 +483,8 @@ async def process_tf(tf: str):
                     if settings.get("bybit", False):
                         active_users.append(user_id)
                         print(f"[INFO] Пользователь {user_id} использует Bybit")
+                except ValueError:
+                    print(f"[ERROR] Не удалось извлечь user_id из имени файла {json_file.name} в process_tf - пропуск.")
                 except Exception as e:
                     print(f"[ERROR] Не удалось загрузить настройки пользователя {json_file.name}: {e}")
         
@@ -544,6 +556,15 @@ async def process_tf(tf: str):
                 for trading_type in trading_types:
                     leverage = trading_settings["leverage"]
                     
+                    # Initialize signal flags here
+                    price_action_active = False
+                    cm_active = False
+                    moonbot_active = False
+                    rsi_active = False
+                    divergence_active = False
+                    pattern = ""  # Initialize pattern as well
+                    divergence_type = ""
+
                     print(f"[PROCESSING] Обработка {symbol} {tf} для типа торговли: {trading_type}")
                     
                     # Проверяем открытые ордера для конкретного типа торговли
@@ -1267,8 +1288,10 @@ async def run_all_users_settings():
             try:
                 with json_file.open("r", encoding="utf-8") as fh:
                     settings = json.load(fh)
-                user_id = int(json_file.stem)
+                user_id = int(json_file.stem)  # This line can cause ValueError
                 tasks.append(asyncio.create_task(_dispatch_for_user(user_id, settings)))
+            except ValueError:
+                print(f"[run_all_users_settings] Failed to parse user_id from filename {json_file.name} - skipping.")
             except Exception as exc:
                 print(f"[run_all_users_settings] Failed to load {json_file.name}: {exc}")
                 continue
