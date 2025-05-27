@@ -598,7 +598,7 @@ async def process_tf(tf: str):
                     # Добавляем отладочную информацию для анализа сигналов
                     print(f"[SIGNAL_DEBUG] {exchange.id.upper()} {symbol} {tf} => CM={cm_signal}, RSI={rsi_signal}")
 
-                    # ---------- вход ----------
+                                        # ---------- вход ----------
                     if open_order_for_type is None:
                         # Determine position side (LONG/SHORT)
                         position_side = "LONG"  # Default to LONG
