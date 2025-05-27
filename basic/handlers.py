@@ -1598,6 +1598,7 @@ async def monitoring(callback: CallbackQuery, state: FSMContext):
 
 def settings_inline():
     kb = [
+        [InlineKeyboardButton(text='💰 Изменить баланс', callback_data='settings set_balance')], # New button
         [InlineKeyboardButton(text='📊 Процент списания', callback_data='settings percent')],
         [InlineKeyboardButton(text='🧠 Стратегия Moon Bot', callback_data='settings strategy')],
         [InlineKeyboardButton(text='📈 Настройки индикатора CM', callback_data='settings cm')],
@@ -1619,6 +1620,14 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
             "Выберите раздел:",
             reply_markup=settings_inline()
         )
+    elif action == 'set_balance': # New action handler
+        await callback.message.edit_text(
+            "Пожалуйста, введите новое значение баланса (например, 1000.50):",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+            ])
+        )
+        await state.set_state(SetBalanceStates.waiting_for_balance) # Use the existing state
     elif action == 'percent':
         msg = await callback.message.edit_text(
             f"Изменение процента для показа новых сделок и сигналов\n"
