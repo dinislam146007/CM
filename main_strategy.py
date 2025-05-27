@@ -1404,6 +1404,15 @@ async def internal_trade_logic(*args, **kwargs):
 
             position_side = side
         
+        # Initialize signal flags before if/else blocks
+        price_action_active = False
+        cm_active = False
+        moonbot_active = False
+        rsi_active = False
+        divergence_active = False
+        divergence_type = ""
+        # pattern is already initialized from get_pattern_price_action
+
         # Check active signals based on position side
         if position_side == "LONG":
             price_action_active = pattern is not None and pattern != "" and pattern.startswith("Bull")
