@@ -691,12 +691,12 @@ async def process_tf(tf: str):
                         # Calculate position size
                         if trading_type == "futures":
                             # For futures, consider leverage
-                            investment_amount = min(user_balance * 0.05, user_balance - 1)  # 5% of balance but leave 1 USDT
+                            investment_amount = user_balance * 0.05  # 5% of balance
                             
                             # Проверяем, достаточно ли средств на балансе для открытия позиции
-                            if investment_amount < 5:  # Minimum 5 USDT
-                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, минимум: 5 USDT")
-                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Минимум: 5 USDT, доступно: {user_balance:.2f} USDT")
+                            if investment_amount > user_balance:
+                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
+                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                                 continue
                             
                             if leverage <= 0:
@@ -705,12 +705,12 @@ async def process_tf(tf: str):
                             qty = (investment_amount * leverage) / entry
                         else:
                             # For spot trading
-                            investment_amount = min(user_balance * 0.05, user_balance - 1)  # 5% of balance but leave 1 USDT
+                            investment_amount = user_balance * 0.05  # 5% of balance
                             
                             # Проверяем, достаточно ли средств на балансе для открытия позиции
-                            if investment_amount < 5:  # Minimum 5 USDT
-                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, минимум: 5 USDT")
-                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Минимум: 5 USDT, доступно: {user_balance:.2f} USDT")
+                            if investment_amount > user_balance:
+                                print(f"[WARNING] Недостаточно средств на счете пользователя {uid}. Баланс: {user_balance}, требуется: {investment_amount}")
+                                await safe_send_message(uid, f"⚠️ Недостаточно средств для открытия позиции. Необходимо: {investment_amount:.2f} USDT, доступно: {user_balance:.2f} USDT")
                                 continue
                             
                             qty = investment_amount / entry
@@ -724,8 +724,8 @@ async def process_tf(tf: str):
                         qty = round(qty, 6)
                         
                         # Set minimum order size
-                        if qty * entry < 5:  # Minimum order size 5 USDT
-                            qty = 5 / entry
+                        if qty * entry < 10:  # Minimum order size 10 USDT
+                            qty = 10 / entry
                             qty = round(qty, 6)
                         
                         try:
