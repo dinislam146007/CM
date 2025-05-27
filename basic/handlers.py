@@ -23,7 +23,9 @@ import re
 from db import get_user as get_user_db
 from db import set_user as set_user_db
 from db.orders import ( 
-                    get_all_orders)
+                    get_all_orders,
+                    set_user_balance
+)
 from db.select import (get_signal, 
                      get_statistics_for_period, all_signals, count_signals, 
                      get_daily_statistics, all_signals_no_signal, 
@@ -3376,3 +3378,38 @@ async def toggle_exchange_status(callback: CallbackQuery):
             print(f"Ошибка при обновлении сообщения: {e}")
             await callback.answer("Произошла ошибка при обновлении интерфейса")
     
+
+# States for setting user balance
+class SetBalanceStates(StatesGroup):
+    waiting_for_balance = State()
+
+@router.message(Command("setbalance"))
+async def cmd_set_balance(message: Message, state: FSMContext):
+    await message.answer("Пожалуйста, введите новое значение баланса (например, 1000.50):")
+    await state.set_state(SetBalanceStates.waiting_for_balance)
+
+@router.message(SetBalanceStates.waiting_for_balance)
+async def process_balance_input(message: Message, state: FSMContext, bot: Bot):
+    try:
+        new_balance = float(message.text)
+        if new_balance < 0:
+            await message.answer("Баланс не может быть отрицательным. Пожалуйста, введите корректное значение.")
+            return
+
+        user_id = message.from_user.id
+        try:
+            await set_user_balance(user_id, new_balance)
+            await message.answer(f"Ваш баланс успешно обновлен на {new_balance:.2f} USDT.")
+        except Exception as e:
+            await message.answer(f"Произошла ошибка при обновлении баланса: {e}")
+            print(f"Ошибка при вызове set_user_balance для user_id {user_id}: {e}")
+
+        await state.clear()
+
+    except ValueError:
+        await message.answer("Некорректный ввод. Пожалуйста, введите числовое значение для баланса.")
+    except Exception as e:
+        await message.answer("Произошла непредвиденная ошибка. Попробуйте еще раз.")
+        print(f"Непредвиденная ошибка в process_balance_input: {e}")
+        await state.clear()
+

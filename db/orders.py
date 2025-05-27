@@ -29,6 +29,23 @@ async def update_user_balance(user_id, amount):
     # Возвращаем новый баланс
     return await get_user_balance(user_id)
 
+async def set_user_balance(user_id: int, new_balance: float):
+    """Устанавливает новое значение баланса для пользователя."""
+    conn = await connect()
+    try:
+        await conn.execute("""
+            UPDATE users SET balance = $2 WHERE user_id = $1
+        """, user_id, new_balance)
+        print(f"[DB] Баланс пользователя {user_id} обновлен на {new_balance}")
+    except Exception as e:
+        print(f"[DB_ERROR] Ошибка при обновлении баланса пользователя {user_id}: {e}")
+        raise  # Перевыбрасываем исключение для обработки выше
+    finally:
+        await conn.close()
+    # Возвращаем новый баланс для подтверждения или дальнейшего использования
+    # Можно также вернуть просто True/False в зависимости от успеха операции
+    return new_balance
+
 async def create_order(user_id, exchange, symbol, interval, side, qty,
                        buy_price, tp, sl, trading_type=None, leverage=None):
     """Создание ордера и списание средств с баланса пользователя"""
