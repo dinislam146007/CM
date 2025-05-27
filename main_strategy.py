@@ -1195,15 +1195,14 @@ async def process_user_exchange(user_id: int, settings: dict, exch_name: str, tr
 
 # ----------------------- Диспетчер для одного пользователя -------------------
 async def _dispatch_for_user(user_id: int, settings: dict):
-    """Start tasks for all enabled exchanges for user."""
+    """Start tasks for all enabled exchanges for user with support for multiple trading types."""
     try:
-        trading_type = _get_trading_type(settings)
-        print(f"[CONFIG] Начальный trading_type для пользователя {user_id}: {trading_type}")
+        # Импортируем функцию для загрузки множественных типов торговли
+        from user_settings import load_trading_types
         
-        # Приоритет секции user над секцией trading
-        if "user" in settings and "trading_type" in settings["user"]:
-            trading_type = settings["user"]["trading_type"].lower()
-            print(f"[CONFIG] Обнаружен trading_type в секции user: {trading_type}")
+        # Получаем множественные типы торговли
+        trading_types = load_trading_types(user_id)
+        print(f"[CONFIG] Активные типы торговли для пользователя {user_id}: {trading_types}")
         
         # Получаем избранные пары пользователя
         user_favorite_pairs = await get_user_favorite_pairs(user_id)
@@ -1215,7 +1214,6 @@ async def _dispatch_for_user(user_id: int, settings: dict):
             symbols_cfg = settings.get("user", {}).get("monitor_pairs", "BTCUSDT")
             symbols = [s.strip().upper() for s in symbols_cfg.split(",") if s.strip()] or ["BTCUSDT"]
 
-        print(f"[CONFIG] Итоговый тип торговли для пользователя {user_id}: {trading_type}")
         print(f"[CONFIG] Торговые пары для пользователя {user_id}: {symbols}")
         
         tasks = []
@@ -1225,14 +1223,16 @@ async def _dispatch_for_user(user_id: int, settings: dict):
             # Bybit остаётся в первоначальном process_tf (функция ниже) если нужно
             if exch_name == "bybit":
                 continue  # Bybit обслуживается старым process_tf
-                
-            print(f"[CONFIG] Запуск {exch_name} с типом торговли {trading_type} для пользователя {user_id}")
             
-            tasks.append(
-                asyncio.create_task(
-                    process_user_exchange(user_id, settings, exch_name, trading_type, symbols)
+            # Запускаем задачи для каждого типа торговли
+            for trading_type in trading_types:
+                print(f"[CONFIG] Запуск {exch_name} с типом торговли {trading_type} для пользователя {user_id}")
+                
+                tasks.append(
+                    asyncio.create_task(
+                        process_user_exchange(user_id, settings, exch_name, trading_type, symbols)
+                    )
                 )
-            )
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:

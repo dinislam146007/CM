@@ -109,11 +109,13 @@ def orders_inline(open, close):
 def settings_inline():
     kb = [
         [InlineKeyboardButton(text='Изменить процент', callback_data='settings percent')],
+        [InlineKeyboardButton(text='Типы торговли и плечо', callback_data='trading_settings')],
         [InlineKeyboardButton(text='Параметры торговой стратегии', callback_data='settings strategy')],
         [InlineKeyboardButton(text='Настройки CM индикатора', callback_data='settings cm')],
         [InlineKeyboardButton(text='Настройки индикатора дивергенции', callback_data='settings divergence')],
         [InlineKeyboardButton(text='Настройки RSI индикатора', callback_data='settings rsi')],
         [InlineKeyboardButton(text='Настройки Pump/Dump детектора', callback_data='settings pump_dump')],
+        [InlineKeyboardButton(text='Настройки бирж', callback_data='settings exchanges')],
         [InlineKeyboardButton(text='Назад', callback_data='start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -310,15 +312,30 @@ def leverage_inline():
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def trading_type_settings_inline():
+def trading_type_settings_inline(user_id=None):
     """
-    Create a keyboard for selecting trading type (SPOT or FUTURES)
-    Support both callback formats: 'set_trading_type:spot' and 'trading_type spot'
+    Create a keyboard for selecting multiple trading types (SPOT and/or FUTURES)
+    Shows checkmarks for selected types
     """
+    # Import here to avoid circular imports
+    from user_settings import load_trading_types
+    
+    # Get current trading types for the user
+    current_types = []
+    if user_id:
+        try:
+            current_types = load_trading_types(user_id)
+        except:
+            current_types = ["spot"]
+    
+    # Create buttons with checkmarks for selected types
+    spot_text = "✅ SPOT" if "spot" in current_types else "❌ SPOT"
+    futures_text = "✅ FUTURES" if "futures" in current_types else "❌ FUTURES"
+    
     kb = [
         [
-            InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
-            InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
+            InlineKeyboardButton(text=spot_text, callback_data="toggle_trading_type:spot"),
+            InlineKeyboardButton(text=futures_text, callback_data="toggle_trading_type:futures")
         ],
         [InlineKeyboardButton(text="Настроить плечо", callback_data="trading_type_leverage")],
         [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]

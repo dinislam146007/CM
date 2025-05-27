@@ -62,7 +62,8 @@ DEFAULT_SETTINGS = {
         "ENABLE_SHORT_TRADES": False
     },
     "trading": {
-        "trading_type": "spot",
+        "trading_types": ["spot"],  # Массив типов торговли
+        "trading_type": "spot",     # Для обратной совместимости
         "leverage": 3,
         "enable_short_trades": False
     },
@@ -347,6 +348,89 @@ async def update_leverage_setting(user_id: int, leverage: int) -> bool:
     
     # Now set the leverage
     return await update_user_settings(user_id, "trading", "leverage", int(leverage))
+
+# === Multiple Trading Types Functions ===
+
+def load_trading_types(user_id: int) -> list:
+    """Load multiple trading types for a user"""
+    settings = get_settings_category(user_id, "trading")
+    trading_types = settings.get("trading_types", ["spot"])
+    
+    # Ensure it's a list
+    if isinstance(trading_types, str):
+        trading_types = [trading_types]
+    
+    # Validate trading types
+    valid_types = []
+    for t_type in trading_types:
+        if t_type.lower() in ["spot", "futures"]:
+            valid_types.append(t_type.lower())
+    
+    return valid_types if valid_types else ["spot"]
+
+async def update_trading_types(user_id: int, trading_types: list) -> bool:
+    """Update multiple trading types for a user"""
+    # Validate input
+    if not isinstance(trading_types, list) or not trading_types:
+        return False
+    
+    # Validate each type
+    valid_types = []
+    for t_type in trading_types:
+        if isinstance(t_type, str) and t_type.lower() in ["spot", "futures"]:
+            valid_types.append(t_type.lower())
+    
+    if not valid_types:
+        return False
+    
+    # Update settings
+    success = await update_user_settings(user_id, "trading", "trading_types", valid_types)
+    
+    # Also update the single trading_type for backward compatibility (use first type)
+    if success:
+        await update_user_settings(user_id, "trading", "trading_type", valid_types[0])
+    
+    return success
+
+async def add_trading_type(user_id: int, trading_type: str) -> bool:
+    """Add a trading type to user's list"""
+    if trading_type.lower() not in ["spot", "futures"]:
+        return False
+    
+    current_types = load_trading_types(user_id)
+    trading_type = trading_type.lower()
+    
+    if trading_type not in current_types:
+        current_types.append(trading_type)
+        return await update_trading_types(user_id, current_types)
+    
+    return True  # Already exists
+
+async def remove_trading_type(user_id: int, trading_type: str) -> bool:
+    """Remove a trading type from user's list"""
+    current_types = load_trading_types(user_id)
+    trading_type = trading_type.lower()
+    
+    if trading_type in current_types and len(current_types) > 1:
+        current_types.remove(trading_type)
+        return await update_trading_types(user_id, current_types)
+    
+    return False  # Can't remove if it's the only type or doesn't exist
+
+async def toggle_trading_type(user_id: int, trading_type: str) -> bool:
+    """Toggle a trading type (add if not present, remove if present)"""
+    current_types = load_trading_types(user_id)
+    trading_type = trading_type.lower()
+    
+    if trading_type in current_types:
+        # Remove if present and not the only one
+        if len(current_types) > 1:
+            return await remove_trading_type(user_id, trading_type)
+        else:
+            return False  # Can't remove the only type
+    else:
+        # Add if not present
+        return await add_trading_type(user_id, trading_type)
 
 # === User Settings Functions ===
 

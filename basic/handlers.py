@@ -2936,32 +2936,32 @@ async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == 'trading_settings')
 async def show_trading_types(callback: CallbackQuery):
     try:
+        from user_settings import load_trading_types
+        from keyboard.inline import trading_type_settings_inline
+        
         # Отладка для проверки callback
         print(f"В обработчике show_trading_types, callback.data={callback.data}")
         
-        # Получаем информацию о пользователе
-        user = await get_user(callback.from_user.id)
-        print(f"Showing trading types for user: {user}")
+        user_id = callback.from_user.id
+        
+        # Получаем текущие типы торговли
+        current_types = load_trading_types(user_id)
+        
+        # Получаем информацию о пользователе для плеча
+        user = await get_user(user_id)
         
         # Создаем UI
-        text = "⚙️ Выбор типа торговли\n\n"
-        text += f"Текущий тип: {user.get('trading_type', 'SPOT').upper()}\n\n"
-        text += "Выберите тип торговли:"
+        text = "📊 Настройки торговли\n\n"
+        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
+        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
+        text += "Выберите типы торговли (можно выбрать несколько):"
         
-        # Создаем клавиатуру с исправленными callback_data
-        kb = [
-            [
-                InlineKeyboardButton(text="SPOT", callback_data="set_trading_type:spot"),
-                InlineKeyboardButton(text="FUTURES", callback_data="set_trading_type:futures")
-            ],
-            [InlineKeyboardButton(text="« Назад", callback_data="settings trading")]
-        ]
+        # Используем новую клавиатуру с множественным выбором
+        keyboard = trading_type_settings_inline(user_id)
         
         # Отправляем сообщение
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-        )
+        await callback.message.edit_text(text=text, reply_markup=keyboard)
+        
     except Exception as e:
         print(f"Ошибка в show_trading_types: {e}")
         await callback.answer("Произошла ошибка. Попробуйте снова.")
@@ -3267,6 +3267,54 @@ async def set_trading_type_by_button(callback: CallbackQuery):
             f"Ошибка при изменении типа торговли: {e}",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
         )
+
+@router.callback_query(F.data.startswith('toggle_trading_type:'))
+async def toggle_trading_type_handler(callback: CallbackQuery):
+    """Handle toggling of trading types for multiple selection"""
+    try:
+        from user_settings import toggle_trading_type, load_trading_types
+        
+        # Извлекаем тип торговли из callback_data
+        trading_type = callback.data.split(':')[1].lower()
+        user_id = callback.from_user.id
+        
+        print(f"Переключение типа торговли: {trading_type} для пользователя {user_id}")
+        
+        # Переключаем тип торговли
+        success = await toggle_trading_type(user_id, trading_type)
+        
+        if not success:
+            await callback.answer("❌ Нельзя убрать единственный тип торговли!", show_alert=True)
+            return
+        
+        # Получаем обновленные типы торговли
+        current_types = load_trading_types(user_id)
+        
+        # Формируем текст с текущими настройками
+        text = "📊 Настройки торговли\n\n"
+        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
+        
+        # Получаем настройки пользователя для отображения плеча
+        user = await get_user(user_id)
+        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
+        text += "Выберите типы торговли (можно выбрать несколько):"
+        
+        # Обновляем клавиатуру с новыми состояниями
+        from keyboard.inline import trading_type_settings_inline
+        keyboard = trading_type_settings_inline(user_id)
+        
+        # Обновляем сообщение
+        await callback.message.edit_text(text=text, reply_markup=keyboard)
+        
+        # Показываем уведомление
+        if trading_type in current_types:
+            await callback.answer(f"✅ {trading_type.upper()} добавлен")
+        else:
+            await callback.answer(f"❌ {trading_type.upper()} убран")
+            
+    except Exception as e:
+        print(f"Ошибка при переключении типа торговли: {e}")
+        await callback.answer("❌ Произошла ошибка при изменении настроек", show_alert=True)
 
 @router.callback_query(F.data == 'settings exchanges')
 async def show_exchanges_settings(callback: CallbackQuery):

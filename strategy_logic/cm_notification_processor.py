@@ -100,22 +100,14 @@ async def fetch_ohlcv(exchange, symbol, timeframe='1h', limit=500, retries=3, de
 
 async def safe_send_message(chat_id, text, max_retries=3):
     """Безопасная отправка сообщений с обработкой флуд-контроля и ошибок HTML парсинга"""
+    logger.info(f"Attempting to send message to chat {chat_id}")
+    # Try to send without HTML parsing by default
     for attempt in range(max_retries):
         try:
-            return await bot.send_message(chat_id, text)
+            # Always send without HTML parsing to avoid issues
+            return await bot.send_message(chat_id, text, parse_mode=None)
         except TelegramAPIError as e:
-            # Проверяем наличие ошибки парсинга HTML
-            if "can't parse entities" in str(e):
-                # Если проблема с HTML-тегами, пробуем отправить без HTML форматирования
-                try:
-                    # Заменяем HTML-теги и эмодзи, которые могут вызвать проблемы
-                    clean_text = text.replace("<b>", "").replace("</b>", "")
-                    clean_text = clean_text.replace("<i>", "").replace("</i>", "")
-                    clean_text = clean_text.replace("<code>", "").replace("</code>", "")
-                    logger.warning("HTML parsing issue detected. Trying to send clean message.")
-                    return await bot.send_message(chat_id, clean_text, parse_mode=None)
-                except Exception as clean_e:
-                    logger.error(f"Failed to send clean message: {clean_e}")
+            logger.error(f"Telegram API error when sending to {chat_id}: {e}")
             
             # Проверяем наличие флуд-ограничения
             if "Flood control" in str(e) or "Too Many Requests" in str(e) or "retry after" in str(e).lower():
@@ -145,9 +137,18 @@ async def safe_send_message(chat_id, text, max_retries=3):
                     if len(lines) > 10:
                         short_text = '\n'.join(lines[:6] + ["..."] + lines[-3:])
                         text = short_text
+            elif "chat not found" in str(e).lower():
+                logger.error(f"Chat {chat_id} not found. This could be because the bot was removed from the chat or the chat ID is incorrect.")
+                return None
+            elif "bot was blocked by the user" in str(e).lower():
+                logger.error(f"User {chat_id} blocked the bot.")
+                return None
+            elif "user is deactivated" in str(e).lower():
+                logger.error(f"User {chat_id} is deactivated.")
+                return None
             else:
                 # Если ошибка не связана с флуд-контролем, пробуем еще раз через 1 сек
-                logger.error(f"Telegram API error: {e}")
+                logger.error(f"Other Telegram API error: {e}")
                 await asyncio.sleep(1)
     
     # Если все попытки не удались, логируем ошибку
@@ -212,7 +213,7 @@ def get_signal_key(exchange_name: str, trading_type: str, symbol: str, timeframe
     return f"{exchange_name}_{trading_type}_{symbol}_{timeframe}"
 
 
-async def should_send_notification(exchange_name: str, trading_type: str, symbol: str, timeframe: str, signal: str) -> bool:
+async def should_send_notification(exchange_name: str, trading_type: str, symbol: str, timeframe: str, signal: str, price: float = None) -> bool:
     """Check if notification should be sent based on previous signal"""
     global last_signals
     
@@ -220,20 +221,27 @@ async def should_send_notification(exchange_name: str, trading_type: str, symbol
     
     # Check if we have a previous signal for this key
     last_signal = last_signals.get(key)
+    logger.info(f"Checking notification status: {key} - Current signal: {signal}, Previous signal: {last_signal}")
     
     # If no previous signal or signal has changed, we should send
     should_send = last_signal is None or last_signal != signal
     
     # Update last signal
     if should_send:
+        logger.info(f"Signal change detected for {key}: {last_signal} -> {signal} - Will send notification")
         last_signals[key] = signal
         
         # Also store the signal in the database
         try:
-            current_price = -1  # Placeholder, you might want to pass the actual price
-            await update_signal(symbol, timeframe, signal, current_price, current_price)
+            current_price = price if price is not None else 0.0
+            sale_price = 0.0  # Default value
+            logger.info(f"Updating signal in database: {symbol} {timeframe} {signal} {current_price}")
+            await update_signal(symbol, timeframe, signal, current_price, sale_price)
+            logger.info(f"Successfully updated signal in database")
         except Exception as e:
             logger.error(f"Error updating signal in database: {e}")
+    else:
+        logger.info(f"No signal change for {key}: still {signal} - Skipping notification")
     
     return should_send
 
@@ -242,8 +250,11 @@ async def process_cm_signal_notification(user_id: int, exchange_name: str, tradi
     """Process CM signal notification for a user"""
     
     # Check if we should send notification (based on last signal)
-    if not await should_send_notification(exchange_name, trading_type, symbol, timeframe, signal):
+    if not await should_send_notification(exchange_name, trading_type, symbol, timeframe, signal, price):
+        logger.debug(f"Skipping notification for {exchange_name} {trading_type} {symbol} {timeframe} {signal} - no change in signal")
         return
+    
+    logger.info(f"Preparing to send CM signal notification: {exchange_name} {trading_type} {symbol} {timeframe} {signal}")
     
     # Create message with signal info
     if signal == "long":
@@ -255,6 +266,7 @@ async def process_cm_signal_notification(user_id: int, exchange_name: str, tradi
         direction = "SHORT"
         action_text = "✅ Рекомендация: ПРОДАВАТЬ"
     else:
+        logger.warning(f"Invalid signal type: {signal} - skipping notification")
         return  # No valid signal
     
     # Create exchange type label
@@ -274,25 +286,43 @@ async def process_cm_signal_notification(user_id: int, exchange_name: str, tradi
     )
     
     # Send to user if they have enabled notifications
-    if user_id > 0 and await is_cm_notifications_enabled(user_id):
-        await safe_send_message(user_id, message)
+    if user_id > 0:
+        is_notifications_enabled = await is_cm_notifications_enabled(user_id)
+        logger.info(f"User {user_id} CM notifications enabled: {is_notifications_enabled}")
+        
+        if is_notifications_enabled:
+            logger.info(f"Sending CM signal notification to user {user_id}")
+            result = await safe_send_message(user_id, message)
+            if result:
+                logger.info(f"Successfully sent notification to user {user_id}")
+            else:
+                logger.error(f"Failed to send notification to user {user_id}")
     
     # Send to group if enabled (only once per signal)
-    if user_id == 0 and await is_cm_group_notifications_enabled():  # user_id=0 is our sentinel for group check
-        try:
-            group_message = (
-                f"🔔 CM СИГНАЛ {symbol} {timeframe}\n\n"
-                f"⚙️ Индикатор CM обнаружил сигнал\n"
-                f"📈 Текущая цена: {price:.4f} USDT\n"
-                f"📊 Сигнал: {direction} {emoji}\n"
-                f"{action_text}\n\n"
-                f"🏛 Биржа: {exchange_name.capitalize()} ({exchange_type_label})\n"
-                f"⏱ {current_time}\n\n"
-                f"#CM #{exchange_name} #{trading_type} #{symbol} #{timeframe}"
-            )
-            await safe_send_message(GROUP_ID, group_message)
-        except Exception as e:
-            logger.error(f"Error sending CM notification to group: {e}")
+    if user_id == 0:
+        is_group_enabled = await is_cm_group_notifications_enabled()
+        logger.info(f"Group CM notifications enabled: {is_group_enabled}")
+        
+        if is_group_enabled:
+            try:
+                group_message = (
+                    f"🔔 CM СИГНАЛ {symbol} {timeframe}\n\n"
+                    f"⚙️ Индикатор CM обнаружил сигнал\n"
+                    f"📈 Текущая цена: {price:.4f} USDT\n"
+                    f"📊 Сигнал: {direction} {emoji}\n"
+                    f"{action_text}\n\n"
+                    f"🏛 Биржа: {exchange_name.capitalize()} ({exchange_type_label})\n"
+                    f"⏱ {current_time}\n\n"
+                    f"#CM #{exchange_name} #{trading_type} #{symbol} #{timeframe}"
+                )
+                logger.info(f"Sending CM signal notification to group {GROUP_ID}")
+                result = await safe_send_message(GROUP_ID, group_message)
+                if result:
+                    logger.info(f"Successfully sent notification to group")
+                else:
+                    logger.error(f"Failed to send notification to group")
+            except Exception as e:
+                logger.error(f"Error sending CM notification to group: {e}")
 
 
 async def init_exchange(exchange_name: str, trading_type: str) -> Optional[ccxt.Exchange]:
@@ -432,6 +462,71 @@ def save_last_signals_cache():
         logger.error(f"Error saving last signals cache: {e}")
 
 
+async def verify_notification_settings():
+    """Verify that CM notification settings are correctly configured"""
+    # Check group notification settings
+    is_group_enabled = await is_cm_group_notifications_enabled()
+    logger.info(f"Group CM notifications status: {'ENABLED' if is_group_enabled else 'DISABLED'}")
+    
+    # If group notifications are not enabled, try to enable them for testing
+    if not is_group_enabled:
+        from user_settings import enable_cm_group_notifications
+        try:
+            logger.info("Attempting to enable group notifications for testing")
+            success = await enable_cm_group_notifications()
+            if success:
+                logger.info("Successfully enabled group notifications")
+                is_group_enabled = True
+            else:
+                logger.error("Failed to enable group notifications")
+        except Exception as e:
+            logger.error(f"Error enabling group notifications: {e}")
+    
+    # Check if we can access the group
+    try:
+        chat_info = await bot.get_chat(GROUP_ID)
+        logger.info(f"Successfully accessed group: {chat_info.title} (ID: {chat_info.id})")
+    except Exception as e:
+        logger.error(f"Failed to access group {GROUP_ID}: {e}")
+        logger.error("Please ensure the bot is added to the group and has permission to post messages")
+    
+    # Get subscribed users
+    users = await get_subscribed_users()
+    logger.info(f"Found {len(users)} users with CM notifications enabled")
+    
+    # If no users have notifications enabled, try to enable for at least the admin user
+    if len(users) == 0:
+        from config import config
+        from user_settings import enable_cm_notifications
+        try:
+            admin_id = config.admin_id
+            if admin_id:
+                logger.info(f"No users have notifications enabled. Attempting to enable for admin user {admin_id}")
+                success = await enable_cm_notifications(admin_id)
+                if success:
+                    logger.info(f"Successfully enabled notifications for admin user {admin_id}")
+                    users = [admin_id]
+                else:
+                    logger.error(f"Failed to enable notifications for admin user {admin_id}")
+        except Exception as e:
+            logger.error(f"Error enabling notifications for admin user: {e}")
+    
+    # Check each user's settings
+    for user_id in users:
+        try:
+            user_enabled = await is_cm_notifications_enabled(user_id)
+            logger.info(f"User {user_id} CM notifications status: {'ENABLED' if user_enabled else 'DISABLED'}")
+            
+            # Try to get basic user info to check if the bot can send messages
+            try:
+                user_info = await bot.get_chat(user_id)
+                logger.info(f"Successfully accessed user: {user_info.username or user_info.first_name} (ID: {user_id})")
+            except Exception as e:
+                logger.error(f"Failed to access user {user_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error checking settings for user {user_id}: {e}")
+
+
 async def cm_notification_processor():
     """Main processor function that runs continuously"""
     logger.info("Starting CM notification processor")
@@ -439,17 +534,33 @@ async def cm_notification_processor():
     # Load last signals cache from disk
     load_last_signals_cache()
     
+    # Verify notification settings
+    await verify_notification_settings()
+    
     last_save_time = datetime.now()
+    iteration = 0
     
     while True:
         try:
+            iteration += 1
+            logger.info(f"Starting CM notification processor iteration {iteration}")
+            
             # Process for group
-            if await is_cm_group_notifications_enabled():
+            is_group_enabled = await is_cm_group_notifications_enabled()
+            logger.info(f"Group CM notifications enabled: {is_group_enabled}")
+            
+            if is_group_enabled:
+                logger.info("Processing signals for group")
                 await process_for_group()
+            else:
+                logger.info("Skipping group processing - notifications not enabled")
             
             # Process for all subscribed users
             subscribed_users = await get_subscribed_users()
+            logger.info(f"Found {len(subscribed_users)} users with CM notifications enabled")
+            
             for user_id in subscribed_users:
+                logger.info(f"Processing signals for user {user_id}")
                 await process_for_user(user_id)
             
             # Save last signals cache to disk every hour
@@ -458,6 +569,7 @@ async def cm_notification_processor():
                 save_last_signals_cache()
                 last_save_time = now
             
+            logger.info(f"Completed CM notification processor iteration {iteration}, waiting 300 seconds before next check")
             # Wait before next cycle (check every 5 minutes)
             await asyncio.sleep(300)
             
@@ -466,7 +578,66 @@ async def cm_notification_processor():
             await asyncio.sleep(60)  # Shorter wait on error
 
 
+async def test_send_notification():
+    """Test function to send test notifications to verify if the system is working"""
+    logger.info("Starting test notification sending")
+    
+    # Test group notification
+    try:
+        is_group_enabled = await is_cm_group_notifications_enabled()
+        logger.info(f"Group notifications enabled: {is_group_enabled}")
+        
+        if is_group_enabled:
+            test_message = (
+                f"🧪 CM ТЕСТ УВЕДОМЛЕНИЙ\n\n"
+                f"Это тестовое уведомление для проверки работы системы оповещений.\n"
+                f"Если вы видите это сообщение, значит система работает корректно.\n\n"
+                f"⏱ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            logger.info(f"Sending test notification to group {GROUP_ID}")
+            result = await safe_send_message(GROUP_ID, test_message)
+            if result:
+                logger.info("Successfully sent test notification to group")
+            else:
+                logger.error("Failed to send test notification to group")
+    except Exception as e:
+        logger.error(f"Error sending test notification to group: {e}")
+    
+    # Test user notifications
+    subscribed_users = await get_subscribed_users()
+    logger.info(f"Found {len(subscribed_users)} users with CM notifications enabled")
+    
+    for user_id in subscribed_users:
+        try:
+            is_notifications_enabled = await is_cm_notifications_enabled(user_id)
+            logger.info(f"User {user_id} notifications enabled: {is_notifications_enabled}")
+            
+            if is_notifications_enabled:
+                test_message = (
+                    f"🧪 CM ТЕСТ УВЕДОМЛЕНИЙ\n\n"
+                    f"Это тестовое уведомление для проверки работы системы оповещений.\n"
+                    f"Если вы видите это сообщение, значит система работает корректно.\n\n"
+                    f"⏱ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                logger.info(f"Sending test notification to user {user_id}")
+                result = await safe_send_message(user_id, test_message)
+                if result:
+                    logger.info(f"Successfully sent test notification to user {user_id}")
+                else:
+                    logger.error(f"Failed to send test notification to user {user_id}")
+        except Exception as e:
+            logger.error(f"Error sending test notification to user {user_id}: {e}")
+
+
 def start_notification_processor():
     """Start the notification processor in a background task"""
-    asyncio.create_task(cm_notification_processor())
-    logger.info("CM notification processor started as background task") 
+    task = asyncio.create_task(cm_notification_processor())
+    # Add a test notification after a short delay
+    asyncio.create_task(async_test_notification())
+    logger.info("CM notification processor started as background task")
+
+
+async def async_test_notification():
+    """Run test notification after a delay"""
+    await asyncio.sleep(10)  # Wait 10 seconds before sending test notifications
+    await test_send_notification() 

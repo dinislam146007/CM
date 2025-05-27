@@ -62,8 +62,7 @@ async def update_signal(symbol, interval, status, buy_price, sale_price):
             WHERE symbol=$4 AND interval=$5
             """, status, buy_price, sale_price, symbol, interval)
 
-    await conn.close()  # Фиксируем изменения
-    # print("Данные успешно обновлены.")  # Отладочный вывод
+    await conn.close()
 
 async def minus_plus_user(price, user_id):
     conn = await connect()
