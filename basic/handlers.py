@@ -291,10 +291,19 @@ async def subscribe(callback: CallbackQuery, state: FSMContext):
 async def process_pair_input(message: Message, state: FSMContext, bot: Bot):
     pair = message.text.strip().upper()
     data = await state.get_data()
+    
+    # Удаляем временное сообщение с запросом ввода
     try:
         await bot.delete_message(message_id=data['last_msg'], chat_id=message.from_user.id)
     except Exception:
         pass
+    
+    # Удаляем сообщение пользователя с введенной парой
+    try:
+        await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
+    except Exception:
+        pass
+    
     if pair not in get_usdt_pairs():
         await message.answer("Такой пары нет в списке доступных. Попробуйте снова.")
         return
@@ -408,10 +417,19 @@ async def like_symbol(callback: CallbackQuery, state: FSMContext):
 @router.message(CryptoPairs.pairs)
 async def add_del_pairs(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
+    
+    # Удаляем временное сообщение с запросом ввода
     try:
         await bot.delete_message(message_id=data['last_msg'], chat_id=message.from_user.id)
     except Exception:
         pass
+    
+    # Удаляем сообщение пользователя с введенными парами
+    try:
+        await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
+    except Exception:
+        pass
+    
     valid_pairs = get_usdt_pairs()
 
     # Получаем список пар из сообщения
@@ -482,10 +500,19 @@ async def stat_period_start(callback: CallbackQuery, state: FSMContext):
 async def process_start_date(message: Message, state: FSMContext, bot: Bot):
     start_date = message.text
     data = await state.get_data()
+    
+    # Удаляем временное сообщение с запросом ввода
     try:
         await bot.delete_message(chat_id=message.from_user.id, message_id=data['last_msg'])
     except Exception:
         pass
+    
+    # Удаляем сообщение пользователя с введенной датой
+    try:
+        await bot.delete_message(chat_id=message.from_user.id, message_id=message.message_id)
+    except Exception:
+        pass
+    
     try:
         # Проверяем правильность формата даты
         new = dt.strptime(start_date, '%d-%m-%Y')
@@ -529,8 +556,16 @@ async def process_end_date(message: Message, state: FSMContext, bot: Bot):
     end_date = message.text.strip()  # Убираем лишние пробелы
     data = await state.get_data()
     user_id = message.from_user.id
+    
+    # Удаляем временное сообщение с запросом ввода
     try:
         await bot.delete_message(chat_id=user_id, message_id=data['last_msg'])
+    except Exception:
+        pass
+    
+    # Удаляем сообщение пользователя с введенной датой
+    try:
+        await bot.delete_message(chat_id=user_id, message_id=message.message_id)
     except Exception:
         pass
 
@@ -1621,13 +1656,14 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
             reply_markup=settings_inline()
         )
     elif action == 'set_balance': # New action handler
-        await callback.message.edit_text(
+        msg = await callback.message.edit_text(
             "Пожалуйста, введите новое значение баланса (например, 1000.50):",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Назад', callback_data='settings start')]
             ])
         )
         await state.set_state(SetBalanceStates.waiting_for_balance) # Use the existing state
+        await state.update_data(last_msg=msg.message_id)
     elif action == 'percent':
         msg = await callback.message.edit_text(
             f"Изменение процента для показа новых сделок и сигналов\n"
@@ -1870,6 +1906,12 @@ async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
         except Exception:
             pass
         
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
         # Convert input to proper type
         param_value = float(message.text.strip())
         
@@ -1935,6 +1977,12 @@ async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
         # Delete the previous message
         try:
             await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
         except Exception:
             pass
         
@@ -2150,13 +2198,14 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await state.set_state(CMParamStates.edit_param)
         
         # Запрашиваем новое значение
-        await callback.message.edit_text(
+        msg = await callback.message.edit_text(
             f"Текущее значение {action}: {current_value}\n\n"
             f"Введите новое значение для {action}:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Отмена', callback_data='settings cm')]
             ])
         )
+        await state.update_data(last_msg=msg.message_id)
 
 @router.message(CMParamStates.edit_param)
 async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
@@ -2167,6 +2216,12 @@ async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
         # Удаляем предыдущее сообщение
         try:
             await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
         except Exception:
             pass
         
@@ -2327,6 +2382,12 @@ async def process_divergence_param_edit(message: Message, state: FSMContext, bot
         except Exception:
             pass
         
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
         # Преобразуем входное значение в нужный тип
         param_value = float(message.text.strip())
         
@@ -2387,6 +2448,12 @@ async def process_divergence_stop_loss_type_edit(message: Message, state: FSMCon
         # Удаляем предыдущее сообщение
         try:
             await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
         except Exception:
             pass
         
@@ -2508,6 +2575,12 @@ async def process_rsi_param_edit(message: Message, state: FSMContext, bot: Bot):
         # Delete previous message
         try:
             await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
         except Exception:
             pass
         
@@ -2685,6 +2758,12 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
         # Delete previous message
         try:
             await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
         except Exception:
             pass
         
@@ -3170,6 +3249,12 @@ async def process_custom_leverage(message: Message, state: FSMContext, bot: Bot)
         except Exception:
             print("Не удалось удалить предыдущее сообщение")
         
+        # Удаляем сообщение пользователя с введенным значением
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+        except Exception:
+            print("Не удалось удалить сообщение пользователя")
+        
         # Очищаем состояние
         await state.clear()
         
@@ -3394,11 +3479,20 @@ class SetBalanceStates(StatesGroup):
 
 @router.message(Command("setbalance"))
 async def cmd_set_balance(message: Message, state: FSMContext):
-    await message.answer("Пожалуйста, введите новое значение баланса (например, 1000.50):")
+    msg = await message.answer("Пожалуйста, введите новое значение баланса (например, 1000.50):")
     await state.set_state(SetBalanceStates.waiting_for_balance)
+    await state.update_data(last_msg=msg.message_id)
 
 @router.message(SetBalanceStates.waiting_for_balance)
 async def process_balance_input(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    
+    # Удаляем временное сообщение с запросом ввода
+    try:
+        await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+    except Exception:
+        pass
+    
     try:
         new_balance = float(message.text)
         if new_balance < 0:
@@ -3421,4 +3515,54 @@ async def process_balance_input(message: Message, state: FSMContext, bot: Bot):
         await message.answer("Произошла непредвиденная ошибка. Попробуйте еще раз.")
         print(f"Непредвиденная ошибка в process_balance_input: {e}")
         await state.clear()
+
+@router.message(EditPercent.new)
+async def process_percent_edit(message: Message, state: FSMContext, bot: Bot):
+    from db.update import up_percent
+    
+    data = await state.get_data()
+    
+    # Удаляем временное сообщение с запросом ввода
+    try:
+        await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
+    except Exception:
+        pass
+    
+    try:
+        # Преобразуем входное значение в число
+        percent_value = float(message.text.strip())
+        
+        if percent_value < 0 or percent_value > 100:
+            await message.answer("Процент должен быть от 0 до 100. Попробуйте еще раз.")
+            return
+        
+        # Обновляем процент
+        await up_percent(message.from_user.id, percent_value)
+        await message.answer(f"Процент успешно обновлен на {percent_value}%")
+        
+        # Возвращаемся в меню настроек
+        await message.answer(
+            "Настройки\n\n"
+            "Выберите раздел:",
+            reply_markup=settings_inline()
+        )
+        
+    except ValueError:
+        await message.answer(
+            "Ошибка: значение должно быть числом.\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+            ])
+        )
+    except Exception as e:
+        await message.answer(
+            f"Ошибка при обновлении процента: {e}\n"
+            "Попробуйте еще раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+            ])
+        )
+    
+    await state.clear()
 
