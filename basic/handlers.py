@@ -1278,18 +1278,60 @@ async def orders(callback: CallbackQuery, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
     elif action == 'open' or action == 'close':
+        # Проверяем, есть ли фильтр по таймфрейму
+        parts = callback.data.split()
+        timeframe_filter = None
+        page = 0
+        
+        if len(parts) >= 3:
+            if parts[2].isdigit():
+                page = int(parts[2])
+            else:
+                timeframe_filter = parts[2]
+                if len(parts) >= 4 and parts[3].isdigit():
+                    page = int(parts[3])
+        
         forms = await get_all_orders(callback.from_user.id, action)
         
+        # Применяем фильтр по таймфрейму, если он указан
+        if timeframe_filter and timeframe_filter != 'all':
+            forms = [form for form in forms if form.get('interval', '') == timeframe_filter]
+        
         if not forms:
+            if timeframe_filter and timeframe_filter != 'all':
+                await callback.message.edit_text(
+                    text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок на таймфрейме {interval_conv(timeframe_filter)}',
+                    reply_markup=orders_filter_inline(action)
+                )
+            else:
+                await callback.message.edit_text(
+                    text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок',
+                    reply_markup=orders_inline(len(await get_all_orders(callback.from_user.id, 'open')), 
+                                              len(await get_all_orders(callback.from_user.id, 'close')))
+                )
+            return
+        
+        # Если нет фильтра, показываем меню фильтрации
+        if timeframe_filter is None:
+            # Получаем уникальные таймфреймы из сделок
+            timeframes = list(set(form.get('interval', '') for form in forms if form.get('interval')))
+            timeframes.sort(key=lambda x: interval_weight(x), reverse=True)
+            
+            msg = f"📋 {'Открытые' if action == 'open' else 'Закрытые'} сделки\n\n"
+            msg += f"Всего сделок: {len(forms)}\n\n"
+            msg += "Выберите фильтр по таймфрейму:"
+            
             await callback.message.edit_text(
-                text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок',
-                reply_markup=orders_inline(len(await get_all_orders(callback.from_user.id, 'open')), 
-                                          len(await get_all_orders(callback.from_user.id, 'close')))
+                text=msg,
+                reply_markup=orders_filter_inline(action, timeframes)
             )
             return
             
-        # Create a list of all orders of this type
-        msg = f"📋 Список {'открытых' if action == 'open' else 'закрытых'} сделок:\n\n"
+        # Создаем список сделок с улучшенным форматированием
+        msg = f"📋 {'Открытые' if action == 'open' else 'Закрытые'} сделки"
+        if timeframe_filter != 'all':
+            msg += f" | ТФ: {interval_conv(timeframe_filter)}"
+        msg += "\n\n"
         
         for i, form in enumerate(forms, 1):
             side = form.get('side', 'LONG')
@@ -1297,65 +1339,107 @@ async def orders(callback: CallbackQuery, bot: Bot):
             symbol = form.get('symbol', '')
             
             if action == 'open':
-                # Display open position information
+                # Отображение открытых позиций
                 buy_price = form.get('coin_buy_price', 0)
                 buy_time = form.get('buy_time', 'Неизвестно')
                 leverage = form.get('leverage', 1)
                 trading_type = form.get('trading_type', 'spot').upper()
                 
-                # Format display
-                lev_info = f" ({leverage}x)" if trading_type == 'FUTURES' and leverage > 1 else ""
-                msg += f"{i}. {symbol} | {interval_conv(interval)} | {side}{lev_info} | {round(buy_price, 2)}$ | {buy_time}\n"
+                # Форматируем время (только дата и время без миллисекунд)
+                if isinstance(buy_time, dt):
+                    buy_time_str = buy_time.strftime('%d.%m.%Y %H:%M')
+                elif isinstance(buy_time, str) and buy_time != 'Неизвестно':
+                    try:
+                        # Пытаемся распарсить строку времени
+                        parsed_time = dt.fromisoformat(buy_time.replace('Z', '+00:00'))
+                        buy_time_str = parsed_time.strftime('%d.%m.%Y %H:%M')
+                    except:
+                        buy_time_str = buy_time
+                else:
+                    buy_time_str = str(buy_time)
+                
+                # Форматируем отображение
+                side_emoji = "🟢" if side == "LONG" else "🔴"
+                lev_info = f" | x{leverage}" if trading_type == 'FUTURES' and leverage > 1 else ""
+                
+                msg += f"{i}. {side_emoji} {symbol} | {interval_conv(interval)}{lev_info}\n"
+                msg += f"   💰 {round(buy_price, 6)}$ | ⏰ {buy_time_str}\n\n"
             else:
-                # Display closed position with profit/loss
-                side = form.get('side', 'LONG')
+                # Отображение закрытых позиций с прибылью/убытком
                 buy_price = form.get('coin_buy_price', 0)
                 sale_price = form.get('coin_sale_price', 0)
+                sale_time = form.get('sale_time', 'Неизвестно')
                 
-                # Get profit/loss display
+                # Форматируем время закрытия
+                if isinstance(sale_time, dt):
+                    sale_time_str = sale_time.strftime('%d.%m.%Y %H:%M')
+                elif isinstance(sale_time, str) and sale_time != 'Неизвестно':
+                    try:
+                        parsed_time = dt.fromisoformat(sale_time.replace('Z', '+00:00'))
+                        sale_time_str = parsed_time.strftime('%d.%m.%Y %H:%M')
+                    except:
+                        sale_time_str = sale_time
+                else:
+                    sale_time_str = str(sale_time)
+                
+                # Получаем прибыль/убыток
                 pnl_usdt = form.get('pnl_usdt')
                 if pnl_usdt is not None:
                     if pnl_usdt > 0:
-                        profit_loss = f"(+{round(pnl_usdt, 2)}$💸)"
+                        profit_loss = f"💚 +{round(pnl_usdt, 2)}$"
                     else:
-                        profit_loss = f"({round(pnl_usdt, 2)}$🤕)"
+                        profit_loss = f"❤️ {round(pnl_usdt, 2)}$"
                 else:
-                    # Fallback calculation based on side
+                    # Fallback расчет
                     if (side == 'LONG' and sale_price > buy_price) or (side == 'SHORT' and sale_price < buy_price):
                         profit = abs(sale_price - buy_price)
-                        profit_loss = f"(+{round(profit, 2)}$💸)"
+                        profit_loss = f"💚 +{round(profit, 2)}$"
                     else:
                         loss = abs(sale_price - buy_price)
-                        profit_loss = f"(-{round(loss, 2)}$🤕)"
+                        profit_loss = f"❤️ -{round(loss, 2)}$"
                 
-                sale_time = form.get('sale_time', 'Неизвестно')
-                if isinstance(sale_time, dt):
-                    sale_time = sale_time.strftime('%d-%m-%Y %H:%M')
+                side_emoji = "🟢" if side == "LONG" else "🔴"
                 
-                msg += f"{i}. {symbol} | {interval_conv(interval)} | {side} | {profit_loss} | {sale_time}\n"
+                msg += f"{i}. {side_emoji} {symbol} | {interval_conv(interval)}\n"
+                msg += f"   {profit_loss} | ⏰ {sale_time_str}\n\n"
         
-        # Split message if too long
+        # Разбиваем сообщение, если оно слишком длинное
         chunks = split_text_to_chunks(msg)
-        n = int(callback.data.split()[2]) if len(callback.data.split()) > 2 else 0
         
-        if n >= len(chunks):
-            n = 0
+        if page >= len(chunks):
+            page = 0
         
-        # Create pagination buttons if needed
+        # Создаем кнопки пагинации
         kb = []
         if len(chunks) > 1:
             pagination = []
-            if n > 0:
-                pagination.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"orders {action} {n-1}"))
-            if n < len(chunks) - 1:
-                pagination.append(InlineKeyboardButton(text="Вперед ▶️", callback_data=f"orders {action} {n+1}"))
-            kb.append(pagination)
+            if page > 0:
+                if timeframe_filter:
+                    pagination.append(InlineKeyboardButton(text="◀️", callback_data=f"orders {action} {timeframe_filter} {page-1}"))
+                else:
+                    pagination.append(InlineKeyboardButton(text="◀️", callback_data=f"orders {action} {page-1}"))
             
-        # Add back button
+            pagination.append(InlineKeyboardButton(text=f"{page+1}/{len(chunks)}", callback_data="ignore"))
+            
+            if page < len(chunks) - 1:
+                if timeframe_filter:
+                    pagination.append(InlineKeyboardButton(text="▶️", callback_data=f"orders {action} {timeframe_filter} {page+1}"))
+                else:
+                    pagination.append(InlineKeyboardButton(text="▶️", callback_data=f"orders {action} {page+1}"))
+            kb.append(pagination)
+        
+        # Добавляем кнопки управления
+        control_buttons = []
+        if timeframe_filter and timeframe_filter != 'all':
+            control_buttons.append(InlineKeyboardButton(text="🔄 Все ТФ", callback_data=f"orders {action} all 0"))
+        control_buttons.append(InlineKeyboardButton(text="🔍 Фильтры", callback_data=f"orders {action}"))
+        kb.append(control_buttons)
+        
+        # Кнопка назад
         kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="orders start")])
         
         await callback.message.edit_text(
-            text=chunks[n],
+            text=chunks[page],
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
     else:
@@ -1392,7 +1476,21 @@ async def orders(callback: CallbackQuery, bot: Bot):
                 msg += f" (плечо: x{leverage})\n\n"
             else:
                 msg += "\n\n"
-            msg += f"<b>Дата и время открытия:</b>\n⏱️{form.get('buy_time', 'Неизвестно')}\n"
+            
+            # Форматируем время открытия
+            buy_time = form.get('buy_time', 'Неизвестно')
+            if isinstance(buy_time, dt):
+                buy_time_str = buy_time.strftime('%d.%m.%Y %H:%M')
+            elif isinstance(buy_time, str) and buy_time != 'Неизвестно':
+                try:
+                    parsed_time = dt.fromisoformat(buy_time.replace('Z', '+00:00'))
+                    buy_time_str = parsed_time.strftime('%d.%m.%Y %H:%M')
+                except:
+                    buy_time_str = buy_time
+            else:
+                buy_time_str = str(buy_time)
+            
+            msg += f"<b>Дата и время открытия:</b>\n⏱️ {buy_time_str}\n"
         else:
             # Display closed position details
             sale_price = form.get('coin_sale_price', 0)
@@ -1402,18 +1500,18 @@ async def orders(callback: CallbackQuery, bot: Bot):
             pnl = form.get('pnl_usdt')
             if pnl is not None:
                 if pnl > 0:
-                    msg += f"<b>Прибыль:</b> {round(abs(pnl), 2)}$💸🔋\n\n"
+                    msg += f"<b>Прибыль:</b> {round(abs(pnl), 2)}$ 💚\n\n"
                 else:
-                    msg += f"<b>Убыток:</b> {round(abs(pnl), 2)}$🤕🪫\n\n"
+                    msg += f"<b>Убыток:</b> {round(abs(pnl), 2)}$ ❤️\n\n"
             else:
                 # Fallback calculation
                 buy_price = form.get('coin_buy_price', 0)
                 if (side == 'LONG' and sale_price > buy_price) or (side == 'SHORT' and sale_price < buy_price):
                     profit = abs(sale_price - buy_price)
-                    msg += f"<b>Прибыль:</b> {round(profit, 2)}$💸🔋\n\n"
+                    msg += f"<b>Прибыль:</b> {round(profit, 2)}$ 💚\n\n"
                 else:
                     loss = abs(sale_price - buy_price)
-                    msg += f"<b>Убыток:</b> {round(loss, 2)}$🤕🪫\n\n"
+                    msg += f"<b>Убыток:</b> {round(loss, 2)}$ ❤️\n\n"
 
             # Add investment amount
             investment = form.get('investment_amount_usdt', 0)
@@ -1427,17 +1525,34 @@ async def orders(callback: CallbackQuery, bot: Bot):
             else:
                 msg += "\n\n"
                 
-            # Add timestamps
+            # Форматируем время закрытия
             sale_time = form.get('sale_time', 'Неизвестно')
             if isinstance(sale_time, dt):
-                sale_time = sale_time.strftime('%d-%m-%Y %H:%M')
+                sale_time_str = sale_time.strftime('%d.%m.%Y %H:%M')
+            elif isinstance(sale_time, str) and sale_time != 'Неизвестно':
+                try:
+                    parsed_time = dt.fromisoformat(sale_time.replace('Z', '+00:00'))
+                    sale_time_str = parsed_time.strftime('%d.%m.%Y %H:%M')
+                except:
+                    sale_time_str = sale_time
+            else:
+                sale_time_str = str(sale_time)
                 
+            # Форматируем время открытия
             buy_time = form.get('buy_time', 'Неизвестно')
             if isinstance(buy_time, dt):
-                buy_time = buy_time.strftime('%d-%m-%Y %H:%M')
+                buy_time_str = buy_time.strftime('%d.%m.%Y %H:%M')
+            elif isinstance(buy_time, str) and buy_time != 'Неизвестно':
+                try:
+                    parsed_time = dt.fromisoformat(buy_time.replace('Z', '+00:00'))
+                    buy_time_str = parsed_time.strftime('%d.%m.%Y %H:%M')
+                except:
+                    buy_time_str = buy_time
+            else:
+                buy_time_str = str(buy_time)
                 
-            msg += f"<b>Дата и время закрытия:</b>\n⏱️{sale_time}\n\n"
-            msg += f"<b>Сделка была открыта:</b>\n⏱️{buy_time}\n"
+            msg += f"<b>Дата и время закрытия:</b>\n⏱️ {sale_time_str}\n\n"
+            msg += f"<b>Сделка была открыта:</b>\n⏱️ {buy_time_str}\n"
             
         await callback.message.edit_text(
             text=msg,

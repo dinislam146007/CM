@@ -106,6 +106,40 @@ def orders_inline(open, close):
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
+def orders_filter_inline(action, timeframes=None):
+    """Создает клавиатуру с фильтрацией по таймфреймам для сделок"""
+    kb = []
+    
+    # Кнопка "Все таймфреймы"
+    kb.append([InlineKeyboardButton(text='📊 Все таймфреймы', callback_data=f'orders {action} all 0')])
+    
+    if timeframes:
+        # Группируем кнопки таймфреймов по 2 в ряд
+        timeframe_buttons = []
+        for i, tf in enumerate(timeframes):
+            if tf:  # Проверяем, что таймфрейм не пустой
+                # Конвертируем таймфрейм для отображения
+                from basic.handlers import interval_conv
+                tf_display = interval_conv(tf)
+                timeframe_buttons.append(InlineKeyboardButton(
+                    text=f'⏱️ {tf_display}', 
+                    callback_data=f'orders {action} {tf} 0'
+                ))
+                
+                # Добавляем ряд каждые 2 кнопки
+                if len(timeframe_buttons) == 2:
+                    kb.append(timeframe_buttons)
+                    timeframe_buttons = []
+        
+        # Добавляем оставшиеся кнопки
+        if timeframe_buttons:
+            kb.append(timeframe_buttons)
+    
+    # Кнопка назад
+    kb.append([InlineKeyboardButton(text='⬅️ Назад', callback_data='orders start')])
+    
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
 def settings_inline():
     kb = [
         [InlineKeyboardButton(text='Изменить процент', callback_data='settings percent')],
