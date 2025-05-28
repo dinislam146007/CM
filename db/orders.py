@@ -47,30 +47,29 @@ async def set_user_balance(user_id: int, new_balance: float):
     return new_balance
 
 async def create_order(user_id, exchange, symbol, interval, side, qty,
-                       buy_price, tp, sl, trading_type=None, leverage=None):
+                       buy_price, tp, sl, trading_type=None, leverage=None, 
+                       strategy_signals=None):
     """Создание ордера и списание средств с баланса пользователя"""
-    # Если trading_type и leverage не указаны, загружаем из настроек пользователя
-    if trading_type is None or leverage is None:
-        trading_settings = load_trading_settings(user_id)
-        trading_type = trading_settings["trading_type"] if trading_type is None else trading_type
-        leverage = trading_settings["leverage"] if leverage is None else leverage
     
-    print(f"DEBUG [create_order]: user_id={user_id}, exchange={exchange}, symbol={symbol}, trading_type={trading_type}, leverage={leverage}")
+    # Проверяем, что все обязательные параметры переданы
+    if not all([user_id, exchange, symbol, interval, side, qty, buy_price, tp, sl]):
+        raise ValueError("Все обязательные параметры должны быть переданы")
     
-    # Валидация параметров
-    if trading_type == "spot" and side.upper() == "SHORT":
-        print(f"ОШИБКА: SHORT позиции недоступны для spot торговли user_id={user_id}")
-        raise ValueError("SHORT позиции недоступны для spot торговли")
+    # Устанавливаем значения по умолчанию
+    if trading_type is None:
+        trading_type = "spot"
+    if leverage is None:
+        leverage = 1
+    if strategy_signals is None:
+        strategy_signals = {}
     
-    if trading_type == "spot" and leverage != 1:
-        print(f"ПРЕДУПРЕЖДЕНИЕ: Для spot торговли плечо всегда 1, исправлено с {leverage} для user_id={user_id}")
-        leverage = 1  # Для spot торговли плечо всегда 1
-    
-    # Проверка валидности плеча
-    if trading_type == "futures" and (leverage < 1 or leverage > 125):
-        original_leverage = leverage
-        leverage = max(1, min(125, leverage))
-        print(f"ПРЕДУПРЕЖДЕНИЕ: Некорректное плечо {original_leverage}, исправлено на {leverage} для user_id={user_id}")
+    # Проверяем корректность значений
+    if qty <= 0:
+        raise ValueError(f"Количество должно быть больше 0: {qty}")
+    if buy_price <= 0:
+        raise ValueError(f"Цена покупки должна быть больше 0: {buy_price}")
+    if leverage < 1:
+        raise ValueError(f"Плечо должно быть >= 1: {leverage}")
     
     # Рассчитываем сумму инвестиции с учетом плеча
     if trading_type == "futures":
@@ -89,20 +88,35 @@ async def create_order(user_id, exchange, symbol, interval, side, qty,
     # Списываем средства с баланса
     await update_user_balance(user_id, -investment_amount)
     
-    # Создаем запись о сделке с учетом типа торговли и плеча
+    # Извлекаем информацию о стратегиях
+    price_action_active = strategy_signals.get('price_action_active', False)
+    price_action_pattern = strategy_signals.get('price_action_pattern', '')
+    cm_active = strategy_signals.get('cm_active', False)
+    moonbot_active = strategy_signals.get('moonbot_active', False)
+    rsi_active = strategy_signals.get('rsi_active', False)
+    divergence_active = strategy_signals.get('divergence_active', False)
+    divergence_type = strategy_signals.get('divergence_type', '')
+    
+    # Создаем запись о сделке с учетом типа торговли, плеча и стратегий
     conn = await connect()
     try:
         order_id = await conn.fetchval("""
             INSERT INTO orders (user_id, exchange, symbol, interval, side, qty,
                                coin_buy_price, tp_price, sl_price, buy_time,
-                               investment_amount_usdt, trading_type, leverage)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                               investment_amount_usdt, trading_type, leverage,
+                               price_action_active, price_action_pattern,
+                               cm_active, moonbot_active, rsi_active,
+                               divergence_active, divergence_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17, $18, $19, $20)
             RETURNING id
         """, user_id, exchange, symbol, interval, side.upper(), qty,
             buy_price, tp, sl, dt.datetime.utcnow(), investment_amount,
-            trading_type, leverage)
+            trading_type, leverage, price_action_active, price_action_pattern,
+            cm_active, moonbot_active, rsi_active, divergence_active, divergence_type)
         
         print(f"УСПЕХ: Создан ордер id={order_id} для user_id={user_id}, exchange={exchange}, symbol={symbol}, side={side}, leverage={leverage}")
+        print(f"Стратегии: PA={price_action_active}, CM={cm_active}, Moon={moonbot_active}, RSI={rsi_active}, Div={divergence_active}")
         return order_id
     finally:
         await conn.close()
@@ -439,7 +453,14 @@ async def init_db():
                     return_amount_usdt REAL,
                     investment_amount_usdt REAL,
                     trading_type TEXT DEFAULT 'spot',
-                    leverage INTEGER DEFAULT 1
+                    leverage INTEGER DEFAULT 1,
+                    price_action_active BOOLEAN,
+                    price_action_pattern TEXT,
+                    cm_active BOOLEAN,
+                    moonbot_active BOOLEAN,
+                    rsi_active BOOLEAN,
+                    divergence_active BOOLEAN,
+                    divergence_type TEXT
                 )
             """)
         except asyncpg.exceptions.InsufficientPrivilegeError:
@@ -449,6 +470,42 @@ async def init_db():
     except Exception as e:
         print(f"Ошибка при инициализации базы данных: {e}")
         # Продолжаем работу даже при ошибках
+    finally:
+        await conn.close()
+
+async def migrate_strategy_fields():
+    """Добавляет поля стратегий в существующую таблицу orders"""
+    conn = await connect()
+    try:
+        # Проверяем, существуют ли уже поля стратегий
+        try:
+            await conn.fetchval("SELECT price_action_active FROM orders LIMIT 1")
+            print("Поля стратегий уже существуют в таблице orders")
+            return
+        except:
+            print("Добавляем поля стратегий в таблицу orders...")
+        
+        # Добавляем новые поля
+        strategy_fields = [
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS price_action_active BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS price_action_pattern TEXT DEFAULT ''",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS cm_active BOOLEAN DEFAULT FALSE", 
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS moonbot_active BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS rsi_active BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS divergence_active BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE orders ADD COLUMN IF NOT EXISTS divergence_type TEXT DEFAULT ''"
+        ]
+        
+        for field_sql in strategy_fields:
+            try:
+                await conn.execute(field_sql)
+                print(f"Добавлено поле: {field_sql.split('ADD COLUMN IF NOT EXISTS')[1].split()[0]}")
+            except Exception as e:
+                print(f"Ошибка при добавлении поля: {e}")
+        
+        print("Миграция полей стратегий завершена успешно")
+    except Exception as e:
+        print(f"Ошибка при миграции полей стратегий: {e}")
     finally:
         await conn.close()
 

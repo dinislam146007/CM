@@ -1019,7 +1019,14 @@ async def statistics(callback: CallbackQuery, state: FSMContext):
 @router.message(Command("start"))
 async def start_message(message: Message, bot: Bot):
     # Run migration at first start - don't await since it's not async
-    migrate_user_settings()
+    from db.orders import migrate_strategy_fields
+    try:
+        await migrate_strategy_fields()
+    except Exception as e:
+        print(f"Ошибка при миграции полей стратегий: {e}")
+    
+    # Остальная логика старта
+    user_id = message.from_user.id
     
     if not await get_user_db(message.from_user.id):
         await set_user_db(message.from_user.id, 5.0, 50000.0)
@@ -1584,6 +1591,42 @@ async def orders(callback: CallbackQuery, bot: Bot):
                 buy_time_str = str(buy_time)
             
             msg += f"<b>Дата и время открытия:</b>\n⏱️ {buy_time_str}\n"
+            
+            # Добавляем информацию о стратегиях для открытых сделок
+            strategies_info = []
+            
+            # Проверяем каждую стратегию
+            if form.get('price_action_active'):
+                pattern = form.get('price_action_pattern', '')
+                strategies_info.append(f"✅ Price Action {pattern}".strip())
+            else:
+                strategies_info.append("❌ Price Action")
+                
+            if form.get('cm_active'):
+                strategies_info.append("✅ CM")
+            else:
+                strategies_info.append("❌ CM")
+                
+            if form.get('moonbot_active'):
+                strategies_info.append("✅ MoonBot")
+            else:
+                strategies_info.append("❌ MoonBot")
+                
+            if form.get('rsi_active'):
+                strategies_info.append("✅ RSI")
+            else:
+                strategies_info.append("❌ RSI")
+                
+            if form.get('divergence_active'):
+                div_type = form.get('divergence_type', '')
+                strategies_info.append(f"✅ Divergence {div_type}".strip())
+            else:
+                strategies_info.append("❌ Divergence")
+            
+            # Добавляем блок со стратегиями
+            if any(strategies_info):
+                msg += f"\n<b>⚠️ Сделка открыта по сигналам с:</b>\n"
+                msg += "\n".join(strategies_info) + "\n"
         else:
             # Display closed position details
             sale_price = form.get('coin_sale_price', 0)
@@ -1647,6 +1690,42 @@ async def orders(callback: CallbackQuery, bot: Bot):
             msg += f"<b>Дата и время закрытия:</b>\n⏱️ {sale_time_str}\n\n"
             msg += f"<b>Сделка была открыта:</b>\n⏱️ {buy_time_str}\n"
             
+            # Добавляем информацию о стратегиях для закрытых сделок
+            strategies_info = []
+            
+            # Проверяем каждую стратегию
+            if form.get('price_action_active'):
+                pattern = form.get('price_action_pattern', '')
+                strategies_info.append(f"✅ Price Action {pattern}".strip())
+            else:
+                strategies_info.append("❌ Price Action")
+                
+            if form.get('cm_active'):
+                strategies_info.append("✅ CM")
+            else:
+                strategies_info.append("❌ CM")
+                
+            if form.get('moonbot_active'):
+                strategies_info.append("✅ MoonBot")
+            else:
+                strategies_info.append("❌ MoonBot")
+                
+            if form.get('rsi_active'):
+                strategies_info.append("✅ RSI")
+            else:
+                strategies_info.append("❌ RSI")
+                
+            if form.get('divergence_active'):
+                div_type = form.get('divergence_type', '')
+                strategies_info.append(f"✅ Divergence {div_type}".strip())
+            else:
+                strategies_info.append("❌ Divergence")
+            
+            # Добавляем блок со стратегиями
+            if any(strategies_info):
+                msg += f"\n<b>⚠️ Сделка была открыта по сигналам с:</b>\n"
+                msg += "\n".join(strategies_info) + "\n"
+
         await callback.message.edit_text(
             text=msg,
             reply_markup=orders_inline_n(n, action, len(forms), "orders"),

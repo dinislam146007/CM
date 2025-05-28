@@ -765,8 +765,19 @@ async def process_tf(tf: str):
                              continue
                         
                         try:
-                            # Create order with exchange info
-                            order_id = await create_order(uid, exchange.id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                            # Подготавливаем информацию о стратегиях
+                            strategy_signals = {
+                                'price_action_active': price_action_active,
+                                'price_action_pattern': pattern if price_action_active else '',
+                                'cm_active': cm_active,
+                                'moonbot_active': moonbot_active,
+                                'rsi_active': rsi_active,
+                                'divergence_active': divergence_active,
+                                'divergence_type': divergence_type.strip() if divergence_active else ''
+                            }
+                            
+                            # Create order with exchange info and strategy signals
+                            order_id = await create_order(uid, exchange.id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, strategy_signals)
                             
                             # Получаем обновленный баланс после списания средств
                             new_balance = await get_user_balance(uid)
@@ -1578,8 +1589,19 @@ async def internal_trade_logic(*args, **kwargs):
                  return
             
             try:
-                # Create order with exchange info
-                order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage)
+                # Подготавливаем информацию о стратегиях
+                strategy_signals = {
+                    'price_action_active': price_action_active,
+                    'price_action_pattern': pattern if price_action_active else '',
+                    'cm_active': cm_active,
+                    'moonbot_active': moonbot_active,
+                    'rsi_active': rsi_active,
+                    'divergence_active': divergence_active,
+                    'divergence_type': divergence_type.strip() if divergence_active else ''
+                }
+                
+                # Create order with exchange info and strategy signals
+                order_id = await create_order(user_id, exchange_name, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, strategy_signals)
                 
                 # Получаем обновленный баланс после списания средств
                 new_balance = await get_user_balance(user_id)
