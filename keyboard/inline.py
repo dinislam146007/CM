@@ -114,22 +114,28 @@ def orders_filter_inline(action, timeframes=None):
     kb.append([InlineKeyboardButton(text='📊 Все таймфреймы', callback_data=f'orders {action} all 0')])
     
     if timeframes:
+        # Импортируем функцию для сортировки
+        from basic.handlers import interval_weight
+        
+        # Сортируем таймфреймы по важности (от большего к меньшему)
+        sorted_timeframes = sorted([tf for tf in timeframes if tf], 
+                                 key=lambda x: interval_weight(x), reverse=True)
+        
         # Группируем кнопки таймфреймов по 2 в ряд
         timeframe_buttons = []
-        for i, tf in enumerate(timeframes):
-            if tf:  # Проверяем, что таймфрейм не пустой
-                # Конвертируем таймфрейм для отображения
-                from basic.handlers import interval_conv
-                tf_display = interval_conv(tf)
-                timeframe_buttons.append(InlineKeyboardButton(
-                    text=f'⏱️ {tf_display}', 
-                    callback_data=f'orders {action} {tf} 0'
-                ))
-                
-                # Добавляем ряд каждые 2 кнопки
-                if len(timeframe_buttons) == 2:
-                    kb.append(timeframe_buttons)
-                    timeframe_buttons = []
+        for tf in sorted_timeframes:
+            # Конвертируем таймфрейм для отображения
+            from basic.handlers import interval_conv
+            tf_display = interval_conv(tf)
+            timeframe_buttons.append(InlineKeyboardButton(
+                text=f'⏱️ {tf_display}', 
+                callback_data=f'orders {action} {tf} 0'
+            ))
+            
+            # Добавляем ряд каждые 2 кнопки
+            if len(timeframe_buttons) == 2:
+                kb.append(timeframe_buttons)
+                timeframe_buttons = []
         
         # Добавляем оставшиеся кнопки
         if timeframe_buttons:
@@ -374,4 +380,84 @@ def trading_type_settings_inline(user_id=None):
         [InlineKeyboardButton(text="Настроить плечо", callback_data="show_leverage_options")],
         [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings start")]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def orders_pairs_inline(action, pairs=None):
+    """Создает клавиатуру с фильтрацией по торговым парам для сделок"""
+    kb = []
+    
+    # Заголовок
+    if action == 'open':
+        title = "📋 Выберите торговую пару (открытые сделки):"
+    else:
+        title = "📋 Выберите торговую пару (закрытые сделки):"
+    
+    if pairs:
+        # Группируем кнопки пар по 2 в ряд
+        pair_buttons = []
+        for pair in pairs:
+            if pair:  # Проверяем, что пара не пустая
+                pair_buttons.append(InlineKeyboardButton(
+                    text=f'💱 {pair}', 
+                    callback_data=f'orders {action} pair {pair} 0'
+                ))
+                
+                # Добавляем ряд каждые 2 кнопки
+                if len(pair_buttons) == 2:
+                    kb.append(pair_buttons)
+                    pair_buttons = []
+        
+        # Добавляем оставшиеся кнопки
+        if pair_buttons:
+            kb.append(pair_buttons)
+    
+    # Кнопка "Все пары"
+    kb.append([InlineKeyboardButton(text='📊 Все пары', callback_data=f'orders {action} all_pairs 0')])
+    
+    # Кнопка назад
+    kb.append([InlineKeyboardButton(text='⬅️ Назад', callback_data='orders start')])
+    
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def orders_pair_timeframes_inline(action, pair, timeframes=None):
+    """Создает клавиатуру с фильтрацией по таймфреймам для конкретной торговой пары"""
+    kb = []
+    
+    # Кнопка "Все таймфреймы для этой пары"
+    kb.append([InlineKeyboardButton(text=f'📊 Все ТФ для {pair}', callback_data=f'orders {action} pair {pair} all 0')])
+    
+    if timeframes:
+        # Импортируем функцию для сортировки
+        from basic.handlers import interval_weight
+        
+        # Сортируем таймфреймы по важности (от большего к меньшему)
+        sorted_timeframes = sorted([tf for tf in timeframes if tf], 
+                                 key=lambda x: interval_weight(x), reverse=True)
+        
+        # Группируем кнопки таймфреймов по 2 в ряд
+        timeframe_buttons = []
+        for tf in sorted_timeframes:
+            # Конвертируем таймфрейм для отображения
+            from basic.handlers import interval_conv
+            tf_display = interval_conv(tf)
+            timeframe_buttons.append(InlineKeyboardButton(
+                text=f'⏱️ {tf_display}', 
+                callback_data=f'orders {action} pair {pair} {tf} 0'
+            ))
+            
+            # Добавляем ряд каждые 2 кнопки
+            if len(timeframe_buttons) == 2:
+                kb.append(timeframe_buttons)
+                timeframe_buttons = []
+        
+        # Добавляем оставшиеся кнопки
+        if timeframe_buttons:
+            kb.append(timeframe_buttons)
+    
+    # Кнопки навигации
+    kb.append([
+        InlineKeyboardButton(text='🔄 Все пары', callback_data=f'orders {action}'),
+        InlineKeyboardButton(text='⬅️ Назад', callback_data=f'orders {action}')
+    ])
+    
     return InlineKeyboardMarkup(inline_keyboard=kb)

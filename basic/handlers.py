@@ -1278,62 +1278,129 @@ async def orders(callback: CallbackQuery, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
         )
     elif action == 'open' or action == 'close':
-        # Проверяем, есть ли фильтр по таймфрейму
+        # Парсим callback данные для определения фильтров
         parts = callback.data.split()
+        pair_filter = None
         timeframe_filter = None
         page = 0
         
+        # Определяем тип фильтрации из callback данных
         if len(parts) >= 3:
-            if parts[2].isdigit():
+            if parts[2] == 'pair':
+                # Фильтрация по паре: orders open pair BTCUSDT [timeframe] [page]
+                if len(parts) >= 4:
+                    pair_filter = parts[3]
+                    if len(parts) >= 5:
+                        if parts[4] == 'all':
+                            timeframe_filter = 'all'
+                            if len(parts) >= 6 and parts[5].isdigit():
+                                page = int(parts[5])
+                        elif parts[4].isdigit():
+                            page = int(parts[4])
+                        else:
+                            timeframe_filter = parts[4]
+                            if len(parts) >= 6 and parts[5].isdigit():
+                                page = int(parts[5])
+            elif parts[2] == 'all_pairs':
+                # Показать все пары без фильтрации
+                timeframe_filter = 'all_pairs'
+                if len(parts) >= 4 and parts[3].isdigit():
+                    page = int(parts[3])
+            elif parts[2].isdigit():
+                # Старый формат: orders open 0
                 page = int(parts[2])
             else:
+                # Фильтрация по таймфрейму: orders open 1H 0
                 timeframe_filter = parts[2]
                 if len(parts) >= 4 and parts[3].isdigit():
                     page = int(parts[3])
         
         forms = await get_all_orders(callback.from_user.id, action)
         
-        # Применяем фильтр по таймфрейму, если он указан
-        if timeframe_filter and timeframe_filter != 'all':
-            forms = [form for form in forms if form.get('interval', '') == timeframe_filter]
-        
         if not forms:
-            if timeframe_filter and timeframe_filter != 'all':
-                await callback.message.edit_text(
-                    text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок на таймфрейме {interval_conv(timeframe_filter)}',
-                    reply_markup=orders_filter_inline(action)
-                )
-            else:
-                await callback.message.edit_text(
-                    text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок',
-                    reply_markup=orders_inline(len(await get_all_orders(callback.from_user.id, 'open')), 
-                                              len(await get_all_orders(callback.from_user.id, 'close')))
-                )
+            await callback.message.edit_text(
+                text=f'У вас пока нет {"открытых" if action == "open" else "закрытых"} сделок',
+                reply_markup=orders_inline(len(await get_all_orders(callback.from_user.id, 'open')), 
+                                          len(await get_all_orders(callback.from_user.id, 'close')))
+            )
             return
         
-        # Если нет фильтра, показываем меню фильтрации
-        if timeframe_filter is None:
-            # Получаем уникальные таймфреймы из сделок
-            timeframes = list(set(form.get('interval', '') for form in forms if form.get('interval')))
-            timeframes.sort(key=lambda x: interval_weight(x), reverse=True)
+        # Если нет фильтров, показываем список торговых пар
+        if pair_filter is None and timeframe_filter is None:
+            # Получаем уникальные торговые пары из сделок
+            pairs = list(set(form.get('symbol', '') for form in forms if form.get('symbol')))
+            pairs.sort()  # Сортируем пары по алфавиту
             
             msg = f"📋 {'Открытые' if action == 'open' else 'Закрытые'} сделки\n\n"
-            msg += f"Всего сделок: {len(forms)}\n\n"
-            msg += "Выберите фильтр по таймфрейму:"
+            msg += f"Всего сделок: {len(forms)}\n"
+            msg += f"Торговых пар: {len(pairs)}\n\n"
+            msg += "Выберите торговую пару для просмотра:"
             
             await callback.message.edit_text(
                 text=msg,
-                reply_markup=orders_filter_inline(action, timeframes)
+                reply_markup=orders_pairs_inline(action, pairs)
+            )
+            return
+        
+        # Если выбрана конкретная пара, но не выбран таймфрейм
+        if pair_filter and timeframe_filter is None:
+            # Фильтруем сделки по выбранной паре
+            pair_forms = [form for form in forms if form.get('symbol', '') == pair_filter]
+            
+            if not pair_forms:
+                await callback.message.edit_text(
+                    text=f'У вас нет {"открытых" if action == "open" else "закрытых"} сделок по паре {pair_filter}',
+                    reply_markup=orders_pairs_inline(action, [pair_filter])
+                )
+                return
+            
+            # Получаем уникальные таймфреймы для этой пары
+            timeframes = list(set(form.get('interval', '') for form in pair_forms if form.get('interval')))
+            
+            msg = f"📋 {'Открытые' if action == 'open' else 'Закрытые'} сделки | 💱 {pair_filter}\n\n"
+            msg += f"Сделок по паре: {len(pair_forms)}\n"
+            msg += f"Таймфреймов: {len(timeframes)}\n\n"
+            msg += "Выберите таймфрейм для фильтрации:"
+            
+            await callback.message.edit_text(
+                text=msg,
+                reply_markup=orders_pair_timeframes_inline(action, pair_filter, timeframes)
+            )
+            return
+        
+        # Применяем фильтры
+        filtered_forms = forms
+        
+        # Фильтр по паре
+        if pair_filter:
+            filtered_forms = [form for form in filtered_forms if form.get('symbol', '') == pair_filter]
+        
+        # Фильтр по таймфрейму
+        if timeframe_filter and timeframe_filter not in ['all', 'all_pairs']:
+            filtered_forms = [form for form in filtered_forms if form.get('interval', '') == timeframe_filter]
+        
+        if not filtered_forms:
+            filter_text = ""
+            if pair_filter:
+                filter_text += f" по паре {pair_filter}"
+            if timeframe_filter and timeframe_filter not in ['all', 'all_pairs']:
+                filter_text += f" на таймфрейме {interval_conv(timeframe_filter)}"
+            
+            await callback.message.edit_text(
+                text=f'У вас нет {"открытых" if action == "open" else "закрытых"} сделок{filter_text}',
+                reply_markup=orders_pairs_inline(action, [pair_filter] if pair_filter else None)
             )
             return
             
         # Создаем список сделок с улучшенным форматированием
         msg = f"📋 {'Открытые' if action == 'open' else 'Закрытые'} сделки"
-        if timeframe_filter != 'all':
+        if pair_filter:
+            msg += f" | 💱 {pair_filter}"
+        if timeframe_filter and timeframe_filter not in ['all', 'all_pairs']:
             msg += f" | ТФ: {interval_conv(timeframe_filter)}"
         msg += "\n\n"
         
-        for i, form in enumerate(forms, 1):
+        for i, form in enumerate(filtered_forms, 1):
             side = form.get('side', 'LONG')
             interval = form.get('interval', '')
             symbol = form.get('symbol', '')
@@ -1362,7 +1429,10 @@ async def orders(callback: CallbackQuery, bot: Bot):
                 side_emoji = "🟢" if side == "LONG" else "🔴"
                 lev_info = f" | x{leverage}" if trading_type == 'FUTURES' and leverage > 1 else ""
                 
-                msg += f"{i}. {side_emoji} {symbol} | {interval_conv(interval)}{lev_info}\n"
+                # Если фильтруем по паре, не показываем символ в каждой строке
+                symbol_display = "" if pair_filter else f"{symbol} | "
+                
+                msg += f"{i}. {side_emoji} {symbol_display}{interval_conv(interval)}{lev_info}\n"
                 msg += f"   💰 {round(buy_price, 6)}$ | ⏰ {buy_time_str}\n\n"
             else:
                 # Отображение закрытых позиций с прибылью/убытком
@@ -1400,7 +1470,10 @@ async def orders(callback: CallbackQuery, bot: Bot):
                 
                 side_emoji = "🟢" if side == "LONG" else "🔴"
                 
-                msg += f"{i}. {side_emoji} {symbol} | {interval_conv(interval)}\n"
+                # Если фильтруем по паре, не показываем символ в каждой строке
+                symbol_display = "" if pair_filter else f"{symbol} | "
+                
+                msg += f"{i}. {side_emoji} {symbol_display}{interval_conv(interval)}\n"
                 msg += f"   {profit_loss} | ⏰ {sale_time_str}\n\n"
         
         # Разбиваем сообщение, если оно слишком длинное
@@ -1414,7 +1487,11 @@ async def orders(callback: CallbackQuery, bot: Bot):
         if len(chunks) > 1:
             pagination = []
             if page > 0:
-                if timeframe_filter:
+                if pair_filter and timeframe_filter:
+                    pagination.append(InlineKeyboardButton(text="◀️", callback_data=f"orders {action} pair {pair_filter} {timeframe_filter} {page-1}"))
+                elif pair_filter:
+                    pagination.append(InlineKeyboardButton(text="◀️", callback_data=f"orders {action} pair {pair_filter} {page-1}"))
+                elif timeframe_filter:
                     pagination.append(InlineKeyboardButton(text="◀️", callback_data=f"orders {action} {timeframe_filter} {page-1}"))
                 else:
                     pagination.append(InlineKeyboardButton(text="◀️", callback_data=f"orders {action} {page-1}"))
@@ -1422,7 +1499,11 @@ async def orders(callback: CallbackQuery, bot: Bot):
             pagination.append(InlineKeyboardButton(text=f"{page+1}/{len(chunks)}", callback_data="ignore"))
             
             if page < len(chunks) - 1:
-                if timeframe_filter:
+                if pair_filter and timeframe_filter:
+                    pagination.append(InlineKeyboardButton(text="▶️", callback_data=f"orders {action} pair {pair_filter} {timeframe_filter} {page+1}"))
+                elif pair_filter:
+                    pagination.append(InlineKeyboardButton(text="▶️", callback_data=f"orders {action} pair {pair_filter} {page+1}"))
+                elif timeframe_filter:
                     pagination.append(InlineKeyboardButton(text="▶️", callback_data=f"orders {action} {timeframe_filter} {page+1}"))
                 else:
                     pagination.append(InlineKeyboardButton(text="▶️", callback_data=f"orders {action} {page+1}"))
@@ -1430,13 +1511,25 @@ async def orders(callback: CallbackQuery, bot: Bot):
         
         # Добавляем кнопки управления
         control_buttons = []
-        if timeframe_filter and timeframe_filter != 'all':
-            control_buttons.append(InlineKeyboardButton(text="🔄 Все ТФ", callback_data=f"orders {action} all 0"))
-        control_buttons.append(InlineKeyboardButton(text="🔍 Фильтры", callback_data=f"orders {action}"))
-        kb.append(control_buttons)
+        if pair_filter:
+            if timeframe_filter and timeframe_filter not in ['all', 'all_pairs']:
+                # Показываем кнопку для всех ТФ этой пары
+                control_buttons.append(InlineKeyboardButton(text="🔄 Все ТФ", callback_data=f"orders {action} pair {pair_filter} all 0"))
+            # Показываем кнопку для всех пар
+            control_buttons.append(InlineKeyboardButton(text="🔄 Все пары", callback_data=f"orders {action}"))
+        else:
+            if timeframe_filter and timeframe_filter not in ['all', 'all_pairs']:
+                control_buttons.append(InlineKeyboardButton(text="🔄 Все ТФ", callback_data=f"orders {action} all_pairs 0"))
+            control_buttons.append(InlineKeyboardButton(text="🔍 Фильтры", callback_data=f"orders {action}"))
+        
+        if control_buttons:
+            kb.append(control_buttons)
         
         # Кнопка назад
-        kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="orders start")])
+        if pair_filter:
+            kb.append([InlineKeyboardButton(text="⬅️ Назад к парам", callback_data=f"orders {action}")])
+        else:
+            kb.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="orders start")])
         
         await callback.message.edit_text(
             text=chunks[page],
