@@ -1972,11 +1972,13 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         text += f"💰 Объем ордера: {user_params['OrderSize']} USDT\n"
         text += f"📈 Take Profit: {user_params['TakeProfit']}%\n"
         text += f"📉 Stop Loss: {user_params['StopLoss']}%\n"
-        text += f"📊 Мин. объем торгов: {user_params['MinVolume']}\n"
-        text += f"📊 Макс. объем торгов: {user_params['MaxVolume']}\n"
-        text += f"🕒 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
-        text += f"🕒 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
-        text += f"🕒 Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
+        text += f"📊 Мин. объем торгов (24ч): {user_params['MinVolume']}\n"
+        text += f"📊 Макс. объем торгов (24ч): {user_params['MaxVolume']}\n"
+        text += f"🕐 Мин. часовой объем: {user_params['MinHourlyVolume']}\n"
+        text += f"🕐 Макс. часовой объем: {user_params['MaxHourlyVolume']}\n"
+        text += f"📈 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
+        text += f"📈 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
+        text += f"⚡ Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
         text += f"₿ BTC мин. движение: {user_params['Delta_BTC_Min']}%\n"
         text += f"₿ BTC макс. движение: {user_params['Delta_BTC_Max']}%\n"
         
@@ -2120,7 +2122,7 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
 async def strategy_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
     action = callback.data.split()[1]
     if action == 'reset':
-        reset_user_params(callback.from_user.id)
+        await reset_user_params(callback.from_user.id)
         await callback.answer("Настройки стратегии сброшены к стандартным значениям")
         
         # Get the default parameters
@@ -2134,11 +2136,13 @@ async def strategy_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         text += f"💰 Объем ордера: {default_params['OrderSize']} USDT\n"
         text += f"📈 Take Profit: {default_params['TakeProfit']}%\n"
         text += f"📉 Stop Loss: {default_params['StopLoss']}%\n"
-        text += f"📊 Мин. объем торгов: {default_params['MinVolume']}\n"
-        text += f"📊 Макс. объем торгов: {default_params['MaxVolume']}\n"
-        text += f"🕒 Макс. движение за 3ч: {default_params['Delta_3h_Max']}%\n"
-        text += f"🕒 Макс. движение за 24ч: {default_params['Delta_24h_Max']}%\n"
-        text += f"🕒 Макс. движение за 5м: {default_params['Delta2_Max']}%\n"
+        text += f"📊 Мин. объем торгов (24ч): {default_params['MinVolume']}\n"
+        text += f"📊 Макс. объем торгов (24ч): {default_params['MaxVolume']}\n"
+        text += f"🕐 Мин. часовой объем: {default_params['MinHourlyVolume']}\n"
+        text += f"🕐 Макс. часовой объем: {default_params['MaxHourlyVolume']}\n"
+        text += f"📈 Макс. движение за 3ч: {default_params['Delta_3h_Max']}%\n"
+        text += f"📈 Макс. движение за 24ч: {default_params['Delta_24h_Max']}%\n"
+        text += f"⚡ Макс. движение за 5м: {default_params['Delta2_Max']}%\n"
         text += f"₿ BTC мин. движение: {default_params['Delta_BTC_Min']}%\n"
         text += f"₿ BTC макс. движение: {default_params['Delta_BTC_Max']}%\n"
         
@@ -2205,7 +2209,7 @@ async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
         param_value = float(message.text.strip())
         
         # Update parameter
-        success = update_user_param(message.from_user.id, param_name, param_value)
+        success = await update_user_param(message.from_user.id, param_name, param_value)
         
         if success:
             # Отправляем сообщение об успехе
@@ -2221,11 +2225,13 @@ async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
             text += f"💰 Объем ордера: {user_params['OrderSize']} USDT\n"
             text += f"📈 Take Profit: {user_params['TakeProfit']}%\n"
             text += f"📉 Stop Loss: {user_params['StopLoss']}%\n"
-            text += f"📊 Мин. объем торгов: {user_params['MinVolume']}\n"
-            text += f"📊 Макс. объем торгов: {user_params['MaxVolume']}\n"
-            text += f"🕒 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
-            text += f"🕒 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
-            text += f"🕒 Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
+            text += f"📊 Мин. объем торгов (24ч): {user_params['MinVolume']}\n"
+            text += f"📊 Макс. объем торгов (24ч): {user_params['MaxVolume']}\n"
+            text += f"🕐 Мин. часовой объем: {user_params['MinHourlyVolume']}\n"
+            text += f"🕐 Макс. часовой объем: {user_params['MaxHourlyVolume']}\n"
+            text += f"📈 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
+            text += f"📈 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
+            text += f"⚡ Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
             text += f"₿ BTC мин. движение: {user_params['Delta_BTC_Min']}%\n"
             text += f"₿ BTC макс. движение: {user_params['Delta_BTC_Max']}%\n"
             
@@ -2287,7 +2293,7 @@ async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
         blacklist_str = message.text.strip().upper()
         
         # Update parameter
-        success = update_user_param(message.from_user.id, 'CoinsBlackList', blacklist_str)
+        success = await update_user_param(message.from_user.id, 'CoinsBlackList', blacklist_str)
         
         if success:
             success_msg = await message.answer("Черный список монет успешно обновлен")
@@ -2302,11 +2308,13 @@ async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
             text += f"💰 Объем ордера: {user_params['OrderSize']} USDT\n"
             text += f"📈 Take Profit: {user_params['TakeProfit']}%\n"
             text += f"📉 Stop Loss: {user_params['StopLoss']}%\n"
-            text += f"📊 Мин. объем торгов: {user_params['MinVolume']}\n"
-            text += f"📊 Макс. объем торгов: {user_params['MaxVolume']}\n"
-            text += f"🕒 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
-            text += f"🕒 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
-            text += f"🕒 Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
+            text += f"📊 Мин. объем торгов (24ч): {user_params['MinVolume']}\n"
+            text += f"📊 Макс. объем торгов (24ч): {user_params['MaxVolume']}\n"
+            text += f"🕐 Мин. часовой объем: {user_params['MinHourlyVolume']}\n"
+            text += f"🕐 Макс. часовой объем: {user_params['MaxHourlyVolume']}\n"
+            text += f"📈 Макс. движение за 3ч: {user_params['Delta_3h_Max']}%\n"
+            text += f"📈 Макс. движение за 24ч: {user_params['Delta_24h_Max']}%\n"
+            text += f"⚡ Макс. движение за 5м: {user_params['Delta2_Max']}%\n"
             text += f"₿ BTC мин. движение: {user_params['Delta_BTC_Min']}%\n"
             text += f"₿ BTC макс. движение: {user_params['Delta_BTC_Max']}%\n"
             

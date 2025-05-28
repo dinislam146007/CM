@@ -162,14 +162,21 @@ def settings_inline():
 
 def strategy_params_inline():
     kb = [
-        [InlineKeyboardButton(text='Объем ордера (USDT)', callback_data='strategy OrderSize')],
-        [InlineKeyboardButton(text='Take Profit (%)', callback_data='strategy TakeProfit')],
-        [InlineKeyboardButton(text='Stop Loss (%)', callback_data='strategy StopLoss')],
-        [InlineKeyboardButton(text='Черный список монет', callback_data='strategy CoinsBlackList')],
-        [InlineKeyboardButton(text='Мин. объем торгов', callback_data='strategy MinVolume')],
-        [InlineKeyboardButton(text='Макс. объем торгов', callback_data='strategy MaxVolume')],
-        [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='strategy reset')],
-        [InlineKeyboardButton(text='Назад', callback_data='settings start')]
+        [InlineKeyboardButton(text='💰 Объем ордера (USDT)', callback_data='strategy OrderSize')],
+        [InlineKeyboardButton(text='📈 Take Profit (%)', callback_data='strategy TakeProfit')],
+        [InlineKeyboardButton(text='📉 Stop Loss (%)', callback_data='strategy StopLoss')],
+        [InlineKeyboardButton(text='⛔ Черный список монет', callback_data='strategy CoinsBlackList')],
+        [InlineKeyboardButton(text='📊 Мин. объем торгов (24ч)', callback_data='strategy MinVolume')],
+        [InlineKeyboardButton(text='📊 Макс. объем торгов (24ч)', callback_data='strategy MaxVolume')],
+        [InlineKeyboardButton(text='🕐 Мин. часовой объем', callback_data='strategy MinHourlyVolume')],
+        [InlineKeyboardButton(text='🕐 Макс. часовой объем', callback_data='strategy MaxHourlyVolume')],
+        [InlineKeyboardButton(text='📈 Макс. движение за 3ч (%)', callback_data='strategy Delta_3h_Max')],
+        [InlineKeyboardButton(text='📈 Макс. движение за 24ч (%)', callback_data='strategy Delta_24h_Max')],
+        [InlineKeyboardButton(text='⚡ Макс. движение за 5м (%)', callback_data='strategy Delta2_Max')],
+        [InlineKeyboardButton(text='₿ BTC мин. движение (%)', callback_data='strategy Delta_BTC_Min')],
+        [InlineKeyboardButton(text='₿ BTC макс. движение (%)', callback_data='strategy Delta_BTC_Max')],
+        [InlineKeyboardButton(text='🔄 Сбросить к стандартным', callback_data='strategy reset')],
+        [InlineKeyboardButton(text='🔙 Назад', callback_data='settings start')]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
 

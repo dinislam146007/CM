@@ -119,8 +119,11 @@ def save_user_settings(user_id: int, settings: Dict[str, Any]) -> bool:
     settings_path = get_settings_path(user_id)
     
     try:
+        # Create a copy of settings to avoid modifying the original
+        settings_copy = json.loads(json.dumps(settings, default=lambda x: list(x) if isinstance(x, set) else x))
+        
         with open(settings_path, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, ensure_ascii=False, indent=4)
+            json.dump(settings_copy, f, ensure_ascii=False, indent=4)
         return True
     except Exception as e:
         print(f"Error saving settings for user {user_id}: {e}")
@@ -191,7 +194,7 @@ async def update_user_param(user_id: int, param_name: str, param_value: Any) -> 
 
 async def reset_user_params(user_id: int) -> bool:
     """Reset strategy parameters to default"""
-    return reset_user_settings(user_id, "strategy")
+    return await reset_user_settings(user_id, "strategy")
 
 # === CM Settings Functions ===
 
@@ -205,7 +208,7 @@ async def update_cm_setting(user_id: int, param_name: str, param_value: Any) -> 
 
 async def reset_cm_settings(user_id: int) -> bool:
     """Reset CM indicator settings to default"""
-    return reset_user_settings(user_id, "cm")
+    return await reset_user_settings(user_id, "cm")
 
 # === CM Notification Functions ===
 
@@ -279,7 +282,7 @@ async def update_divergence_setting(user_id: int, param_name: str, param_value: 
 
 async def reset_divergence_settings(user_id: int) -> bool:
     """Reset divergence indicator settings to default"""
-    return reset_user_settings(user_id, "divergence")
+    return await reset_user_settings(user_id, "divergence")
 
 # === RSI Settings Functions ===
 
@@ -293,7 +296,7 @@ async def update_rsi_setting(user_id: int, param_name: str, param_value: Any) ->
 
 async def reset_rsi_settings(user_id: int) -> bool:
     """Reset RSI indicator settings to default"""
-    return reset_user_settings(user_id, "rsi")
+    return await reset_user_settings(user_id, "rsi")
 
 # === Pump/Dump Settings Functions ===
 
@@ -307,7 +310,7 @@ async def update_pump_dump_setting(user_id: int, param_name: str, param_value: A
 
 async def reset_pump_dump_settings(user_id: int) -> bool:
     """Reset pump/dump detector settings to default"""
-    return reset_user_settings(user_id, "pump_dump")
+    return await reset_user_settings(user_id, "pump_dump")
 
 # === Trading Settings Functions ===
 
@@ -321,7 +324,7 @@ async def update_trading_setting(user_id: int, param_name: str, param_value: Any
 
 async def reset_trading_settings(user_id: int) -> bool:
     """Reset trading settings to default"""
-    return reset_user_settings(user_id, "trading")
+    return await reset_user_settings(user_id, "trading")
 
 # === Trading Type Settings Functions ===
 
