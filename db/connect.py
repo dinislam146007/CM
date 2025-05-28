@@ -67,8 +67,7 @@ async def _connect_sqlite():
         
         async def execute(self, query, *args):
             # Replace $1, $2, etc. with ? for SQLite
-            query = query.replace('$1', '?').replace('$2', '?').replace('$3', '?')
-            query = query.replace('$4', '?').replace('$5', '?').replace('$6', '?')
+            query = self._replace_placeholders(query)
             
             # Replace SERIAL PRIMARY KEY with INTEGER PRIMARY KEY
             query = query.replace('SERIAL PRIMARY KEY', 'INTEGER PRIMARY KEY')
@@ -81,7 +80,11 @@ async def _connect_sqlite():
         
         async def fetch(self, query, *args):
             await self.execute(query, *args)
-            return self.cursor.fetchall()
+            rows = self.cursor.fetchall()
+            if rows:
+                columns = [description[0] for description in self.cursor.description]
+                return [dict(zip(columns, row)) for row in rows]
+            return []
         
         async def fetchrow(self, query, *args):
             await self.execute(query, *args)
@@ -90,6 +93,24 @@ async def _connect_sqlite():
                 columns = [description[0] for description in self.cursor.description]
                 return dict(zip(columns, row))
             return None
+        
+        async def fetchval(self, query, *args):
+            """Fetch a single value from the first row of the result"""
+            await self.execute(query, *args)
+            row = self.cursor.fetchone()
+            if row:
+                return row[0]
+            return None
+        
+        def _replace_placeholders(self, query):
+            """Replace PostgreSQL-style placeholders with SQLite-style"""
+            # Replace $1, $2, etc. with ? for SQLite
+            import re
+            # Find all $n placeholders and replace them with ?
+            placeholders = re.findall(r'\$\d+', query)
+            for placeholder in sorted(set(placeholders), key=lambda x: int(x[1:]), reverse=True):
+                query = query.replace(placeholder, '?')
+            return query
         
         async def close(self):
             self.conn.commit()
