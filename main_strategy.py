@@ -805,7 +805,7 @@ async def process_tf(tf: str):
                             
                         except Exception as e:
                             print(f"Ошибка при создании ордера для {exchange.id} {symbol}: {e}")
-                            await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
+                            # await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
                 
                     # ---------- выход ----------
                     elif open_order_for_type is not None:
@@ -1629,7 +1629,7 @@ async def internal_trade_logic(*args, **kwargs):
                 
             except Exception as e:
                 print(f"Ошибка при создании ордера для {exchange_name} {symbol}: {e}")
-                await safe_send_message(user_id, f"Ошибка при создании ордера: {e}")
+                # await safe_send_message(user_id, f"Ошибка при создании ордера: {e}")
         
         # EXIT LOGIC (with open order)
         elif open_order is not None:
