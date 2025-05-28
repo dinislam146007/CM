@@ -18,7 +18,7 @@ from datetime import datetime as dt
 
 from basic.state import *
 from config import config
-from states import SubscriptionStates, EditPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates, PumpDumpParamStates
+from states import SubscriptionStates, EditDepositPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates, PumpDumpParamStates
 import re
 from db import get_user as get_user_db
 from db import set_user as set_user_db
@@ -1781,13 +1781,15 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await state.update_data(last_msg=msg.message_id)
     elif action == 'percent':
         msg = await callback.message.edit_text(
-            f"Изменение процента для показа новых сделок и сигналов\n"
-            f"Введите новое значение:",
+            f"Настройка процента списания от депозита\n\n"
+            f"Укажите процент от вашего депозита, который будет использоваться для каждой сделки.\n"
+            f"Например: 5 означает, что на каждую сделку будет тратиться 5% от депозита.\n\n"
+            f"Введите новое значение (от 0 до 100):",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Назад', callback_data='settings start')]
             ])
         )
-        await state.set_state(EditPercent.new)
+        await state.set_state(EditDepositPercent.new)
         await state.update_data(last_msg=msg.message_id)
     elif action == 'strategy':
         user_params = load_user_params(callback.from_user.id)
@@ -3698,8 +3700,8 @@ async def process_balance_input(message: Message, state: FSMContext, bot: Bot):
         print(f"Непредвиденная ошибка в process_balance_input: {e}")
         await state.clear()
 
-@router.message(EditPercent.new)
-async def process_percent_edit(message: Message, state: FSMContext, bot: Bot):
+@router.message(EditDepositPercent.new)
+async def process_deposit_percent_edit(message: Message, state: FSMContext, bot: Bot):
     from db.update import up_percent
     
     data = await state.get_data()
@@ -3723,7 +3725,7 @@ async def process_percent_edit(message: Message, state: FSMContext, bot: Bot):
         await up_percent(message.from_user.id, percent_value)
         
         # Отправляем сообщение об успехе
-        success_msg = await message.answer(f"Процент успешно обновлен на {percent_value}%")
+        success_msg = await message.answer(f"Процент списания от депозита успешно обновлен на {percent_value}%")
         
         # Сразу показываем меню настроек
         await message.answer(
@@ -3749,7 +3751,7 @@ async def process_percent_edit(message: Message, state: FSMContext, bot: Bot):
         )
     except Exception as e:
         await message.answer(
-            f"Ошибка при обновлении процента: {e}\n"
+            f"Ошибка при обновлении процента списания: {e}\n"
             "Попробуйте еще раз:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Назад', callback_data='settings start')]

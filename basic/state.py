@@ -1,7 +1,7 @@
 from aiogram.filters.state import State, StatesGroup
 
 
-class EditPercent(StatesGroup):
+class EditDepositPercent(StatesGroup):
     new = State()
 
 class CryptoPairs(StatesGroup):

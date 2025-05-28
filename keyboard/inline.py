@@ -142,7 +142,7 @@ def orders_filter_inline(action, timeframes=None):
 
 def settings_inline():
     kb = [
-        [InlineKeyboardButton(text='Изменить процент', callback_data='settings percent')],
+        [InlineKeyboardButton(text='📊 Процент списания от депозита', callback_data='settings percent')],
         [InlineKeyboardButton(text='Типы торговли и плечо', callback_data='trading_settings')],
         [InlineKeyboardButton(text='Параметры торговой стратегии', callback_data='settings strategy')],
         [InlineKeyboardButton(text='Настройки CM индикатора', callback_data='settings cm')],

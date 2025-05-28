@@ -144,6 +144,12 @@ async def add_monitor_pair_to_db(user_id: int, pair: str):
         await conn.close()
 
 async def up_percent(user_id: int, percent: float):
+    """
+    Обновляет процент списания от депозита для пользователя.
+    
+    :param user_id: ID пользователя
+    :param percent: Процент от депозита, который будет использоваться для каждой сделки (0-100)
+    """
     conn = await connect()
     try:
         await conn.execute("""
