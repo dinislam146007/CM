@@ -2,91 +2,83 @@ import asyncio
 import queue
 import threading
 import time
+
 import aiohttp
+from aiogram import Bot, types
 from pybit.unified_trading import WebSocket
-from config import config
-from aiogram import Bot
-from aiogram.client.default import DefaultBotProperties
-from strategy_logic.get_all_coins import get_usdt_pairs  # Добавляем импорт функции
 
-# Инициализация бота
-bot = Bot(token=config.tg_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
+from src.configuration import config, logger
+from src.db import Database, PumpDumpSettings
+from src.screeners.schemas import TickerInfo
+from src.screeners.tasks import ExchangesInfo
+from .schemas import Candle, Changes, Signal
+from ...utils import generate_chart_bytes
 
-# Определение классов данных для работы скринера
-class Candle:
-    def __init__(self, timestamp, close, high, low, open, volume):
-        self.timestamp = timestamp
-        self.close = close
-        self.high = high
-        self.low = low
-        self.open = open
-        self.volume = volume
-
-class Changes:
-    def __init__(self, growth, decay):
-        self.growth = growth
-        self.decay = decay
-
-class Signal:
-    def __init__(self, symbol, price_change, timeframe):
-        self.symbol = symbol
-        self.price_change = price_change
-        self.timeframe = timeframe
 
 class BybitPumpDumpScreener:
-    def __init__(self, max_history_len=60):
+
+    def __init__(self,
+                 bot: Bot,
+                 database: Database,
+                 exchanges_info: ExchangesInfo,
+                 max_history_len: int = config.PD_MAX_HISTORY_LEN,
+                 ) -> None:
         """
-        :param max_history_len: Максимальная длина данных в минутах
+
+        :param bot: Обьект телеграм бота.
+        :param database: Обьект для работы с базой данных.
+        :param max_history_len: Максимальная длинная данных в минутах, которые бот должен помнить.
         """
+        self._bot = bot
+        self._database = database
         self._max_history_len = max_history_len
-        
-        # Игнорируемые символы
-        self._ignored_symbols = ["BTCUSDT3L", "BTCUSDT3S"]
-        
-        self._ws = None
-        
-        # Таймфреймы для поиска памп/дамп сигналов
-        self.TIMEFRAMES = [5, 10, 15, 30]
-        
-        # ID канала для отправки сигналов
-        self.CHANNEL_ID = config.public_channel_id
-        
-        # Минимальные проценты изменения для сигнала
-        self.PUMP_SIZE = 3.0  # % роста для сигнала
-        self.DUMP_SIZE = 3.0  # % падения для сигнала
-        
-        # Таймаут между сигналами одной монеты в минутах
-        self.TIMEOUT_MINUTES = 60
-        
-        # Направления торговли
-        self.LONG_DIRECTION = True
-        self.SHORT_DIRECTION = True
+        self._ignored_symbols = config.BYBIT_IGNORED_SYMBOLS
 
-        # Главный словарь с данными
-        self._data = {}
-        
-        # Словарь с задержками для каждой монеты
-        self._delays = {}
+        self._ws: WebSocket | None = None
 
-        # Словарь с объемами за последние 24 часа
-        self._volume_per_minute = {}
+        '''Тут хранится информация из базы данных по настройкам юзеров.'''
+        self._active_users_id: list[int] = []
+        self._settings: list[PumpDumpSettings] = []
 
-        # Реализация очереди для обработки сигналов
+        '''Главный словарь с данными. Имеет формат:
+        {ticker: [[time, volume], [time, volume], [time, volume] ...]}
+        Данные по oi хранятся только за последние 60 минут.'''
+        self._data: dict[str, list[Candle]] = {}  # Главный словарь со всеми собранными данными.
+
+        '''Словарь с задержками для каждого юзера'''
+        self._user_delays: dict[int, dict[str, list]] = {}
+
+        '''Словарь с обьемами за последние 24 часа'''
+        self._volume_per_minute: dict[str, float] = {}
+
+        '''Реализация очереди, потому что сервер не успевает быстро обрабатывать сообщения с вебсокета, из-за
+        чего возникает ошибка: Queue overflow. Message not filled'''
         self._queue = queue.Queue()
 
-        # Таймштампы сообщений которые приходят с вебсокета
-        self._runtime_data = {}
+        '''Таймштампы сообщений которые приходят с вебсокета. Байбит не информирует о том, что свеча закрылась
+        в сообщении, поэтому приходится хранить свечи в словаре, и когда свеча приходит с новым таймштампом - 
+        мы добавим ее в словарь с данными'''
+        self._runtime_data: dict[str, Candle] = {}
 
         self._loop = asyncio.get_event_loop()
+
+        self._exchanges_info = exchanges_info
 
     def handle_ws_msg(self, msg: dict) -> None:
         """
         Функция получает и обрабатывает сообщение с вебсокета.
+        :param msg:
+        :return:
         """
+
+        # e = {'topic': 'kline.1.10000LADYSUSDT', 'data': [
+        #     {'start': 1708538580000, 'end': 1708538639999, 'interval': '1', 'open': '0.0006523', 'close': '0.0006523',
+        #      'high': '0.0006523', 'low': '0.0006523', 'volume': '0', 'turnover': '0', 'confirm': False,
+        #      'timestamp': 1708538584618}], 'ts': 1708538584618, 'type': 'snapshot'}
         def _add_candle(s: str, c: Candle) -> None:
             try:
                 self._data[s].append(c)
-                self._data[s] = self._data[s][-self._max_history_len:]  # Убираем лишние данные
+                self._data[s] = self._data[symbol][-self._max_history_len:]  # Убираем лишние данные
             except KeyError:
                 self._data[s] = [c]
 
@@ -94,7 +86,7 @@ class BybitPumpDumpScreener:
             try:
                 self._data[s][-1] = c
             except KeyError:
-                self._data[s] = [c]
+                self._data[s] = [candle]
 
         try:
             if msg["topic"].startswith("tickers"):
@@ -114,7 +106,7 @@ class BybitPumpDumpScreener:
 
                 # Добавляем предыдушую свечу в словарь, если ее там еще нет
                 try:
-                    prev_candle = self._runtime_data[symbol]
+                    prev_candle: Candle = self._runtime_data[symbol]
                 except KeyError:
                     self._runtime_data[symbol] = candle
                     return
@@ -127,64 +119,40 @@ class BybitPumpDumpScreener:
                 self._queue.put(symbol)
 
         except Exception as e:
-            print(f"Error in handle_ws_msg: {e}")
+            logger.exception(e)
 
     def init_websocket(self) -> None:
         """
         Инициализирует вебсокет клиент.
+        :return:
         """
-        # Используем testnet для тестирования
-        self._ws = WebSocket(
-            channel_type="linear", 
-            testnet=True,  # Тестовая сеть для избежания лимитов
-            ping_interval=20,
-            ping_timeout=10,
-            trace_logging=False,  # Отключаем трассировочное логирование
-            restart_on_error=True
-        )
+        self._ws = WebSocket(channel_type="linear", testnet=False)
 
     def start_streams(self, symbols: list[str]) -> None:
         """
         Запускает вебсокет стримы.
+        :param symbols:
+        :return:
         """
-        # Ограничиваем количество символов для тестирования
-        test_symbols = symbols[:5] if len(symbols) > 5 else symbols
-        print(f"Подписываемся на {len(test_symbols)} символов: {test_symbols}")
-        
-        try:
-            self._ws.kline_stream(interval=1, symbol=test_symbols, callback=self.handle_ws_msg)
-        except Exception as e:
-            print(f"Ошибка при подписке на стримы: {e}")
+        self._ws.kline_stream(interval=1, symbol=symbols, callback=self.handle_ws_msg)
 
     async def start_service(self) -> None:
-        """Запуск сервиса по поиску объемов."""
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                print(f"Попытка подключения {attempt+1}/{max_retries}")
-                # Инициализируем вебсокет
-                self.init_websocket()
-                
-                # Получаем список тикеров и запускаем нужные стримы с ними
-                symbols = await self._get_tickers()
-                self.start_streams(symbols)
-                
-                # Запуск обработчиков для закрытых свечей
-                for i in range(2):  # Уменьшаем количество потоков для тестирования
-                    threading.Thread(target=self._worker, daemon=True).start()
-                
-                print("Подключение успешно установлено")
-                break
-                
-            except Exception as e:
-                print(f"Ошибка подключения: {e}")
-                if attempt < max_retries - 1:
-                    wait_time = 30 * (attempt + 1)
-                    print(f"Повторная попытка через {wait_time} секунд")
-                    await asyncio.sleep(wait_time)
-                else:
-                    print("Достигнуто максимальное количество попыток")
-                    raise
+        """Запуск сервиса по поиску обьемов."""
+        logger.success("Start binance pd screener")
+
+        # Инициалдизируем вебсокет клиент
+        self.init_websocket()
+
+        # Получаем список тикеров и запускаем нужные стримы с ними
+        symbols: list[str] = await self._get_tickers()
+        self.start_streams(symbols)
+
+        # Запускаем сбор информации из базы данных в потоке
+        asyncio.create_task(self._update_settings_cycle())
+
+        # Запуск воркеров для обработки закрытых свечей
+        for i in range(4):
+            threading.Thread(target=self._worker).start()
 
     def _worker(self):
         while True:
@@ -195,41 +163,34 @@ class BybitPumpDumpScreener:
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"Error in worker: {e}")
+                logger.exception(e)
                 self._queue.task_done()
 
     def _process_symbol(self, symbol: str) -> None:
         """
-        Функция обрабатывает сообщения с вебсокета.
+        Функция обрабатывает сообщения с вебсокета, которые берет из очереди.
+        :return:
         """
-        try:
-            # Проверяем, есть ли данные для этого символа
-            if symbol not in self._data:
-                return
-                
-            candles = self._data[symbol]
-            
-            # Проверка на достаточное количество свечей
-            if len(candles) < max(self.TIMEFRAMES):
-                return
-                
-            # Собираем словарь из данных
-            changes = self._get_changes(candles)
+        # Единожды получаем данные для формирования сигнала
+        candles: list[Candle] = self._data[symbol]
 
-            # Генерируем сигналы
-            signals = self._generate_signals(symbol, changes)
+        # Собираем словарь из данных
+        changes: dict[int, Changes] = self._get_changes(candles)
 
-            # Отправляем сигналы
-            if signals:
-                asyncio.run_coroutine_threadsafe(self._send_signals(signals), self._loop)
-        except Exception as e:
-            print(f"Error processing symbol {symbol}: {e}")
+        # Генерируем сигналы
+        signals: list[Signal] = self._generate_signals(symbol, changes)
 
-    async def _send_signals(self, signals: list[Signal]) -> None:
+        # Отправляем сигналы
+        asyncio.run_coroutine_threadsafe(self._send_signals(signals, candles), self._loop)
+
+    async def _send_signals(self, signals: list[Signal], candles: list[Candle]) -> None:
         """
         Функция готовит сообщение и отправляет его.
+        :param signals:
+        :return:
         """
         for signal in signals:
+            logger.info(f"Detected bybit signal for {signal.user_id}: {signal}")
             try:
                 if signal.price_change > 0:
                     signal_title = "🟢🔥 #Pump рост"
@@ -240,96 +201,173 @@ class BybitPumpDumpScreener:
                 tw_link = f"<a href='https://www.tradingview.com/chart/?symbol=BYBIT:{signal.symbol}.P'>TradingView</a>"
 
                 signal_text = (f"#{signal.symbol} (#{signal.timeframe}min) #Bybit #Futures\n"
-                                f"{signal_title} {round(signal.price_change, 2)}%\n\n"
-                                f"{bybit_link} {tw_link}")
+                               f"{signal_title} {round(signal.price_change, 2)}%\n\n"
+                               f"{bybit_link} {tw_link}")
 
-                # Отправляем сообщение в публичный канал
-                await bot.send_message(
-                    chat_id=self.CHANNEL_ID,
-                    text=signal_text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
-                print(f"Signal sent: {signal.symbol} {signal.price_change}% to channel {self.CHANNEL_ID}")
+                if not signal.preview:
+                    await self._bot.send_message(
+                        chat_id=signal.user_id,
+                        text=signal_text,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
+                    )
+                else:
+                    klines = [[c.timestamp, c.open, c.high, c.low, c.close, c.volume] for c in candles]
+                    chart = generate_chart_bytes(klines)
+                    chart.seek(0)
+                    await self._bot.send_photo(
+                        chat_id=signal.user_id,
+                        caption=signal_text,
+                        parse_mode="HTML",
+                        photo=types.BufferedInputFile(chart.read(), f"Chart")
+                    )
 
             except Exception as e:
-                print(f"Error sending signal: {e}")
+                logger.error(f"Error while send message for {signal.user_id}: {e}")
+                if "bot was blocked" in str(e):
+                    try:
+                        await self._database.user_repo.update(signal.user_id, {"status": False})
+                        logger.debug(f"Turn off bot for user {signal.user_id}")
+                    except Exception as e:
+                        logger.error(f"Cant turn off bot for user {signal.user_id}: {e}")
+
+    def _make_humanreadable_volume(self, volume: float) -> str:
+        """
+        Функция превращает большое числа в человеческий вид.
+        :param volume:
+        :return:
+        """
+        suffixes = {
+            1_000: "тыс.",
+            1_000_000: "млн.",
+            1_000_000_000: "млрд.",
+            1_000_000_000_000: "трлн.",
+            1_000_000_000_000_000: "квдрлн.",
+            1_000_000_000_000_000_000: "квнтлн."
+            # Добавлять сюда дополнительные суффиксы по мере необходимости
+        }
+        for divisor in sorted(suffixes.keys(), reverse=True):
+            if volume >= divisor:
+                return f"{volume / divisor:.2f} {suffixes[divisor]}"
+        return str(volume)
 
     def _generate_signals(self, symbol: str, changes_dict: dict[int, Changes]) -> list[Signal]:
         """
-        Функция проверяет изменения цены для определения сигналов.
+        Функция собирает данные из базы данных, и сравнивает значения для определения, нужно ли
+        высылать пользователю сигнал.
+        :return:
         """
         signals = []
-        
-        # Проверка на таймаут последнего сигнала для этого символа
-        symbol_signals_time = self._get_symbol_signals_time(symbol)
-        if symbol_signals_time and symbol_signals_time[-1] + self.TIMEOUT_MINUTES * 60 > time.time():
-            return signals
-            
-        # Перебираем все таймфреймы
-        for minutes in self.TIMEFRAMES:
-            try:
-                # Проверка на процент изменения (Рост)
-                if self.LONG_DIRECTION:
-                    growth_changes = changes_dict[minutes]
-                    growth_percent = growth_changes.growth
-                    if growth_percent > self.PUMP_SIZE:
-                        self._delays[symbol].append(time.time())
-                        signals.append(
-                            Signal(
-                                symbol=symbol,
-                                price_change=growth_percent,
-                                timeframe=minutes
-                            )
-                        )
-                        
-                # Проверка на процент изменения (Падение)
-                if self.SHORT_DIRECTION:
-                    decay_changes = changes_dict[minutes]
-                    decay_percent = decay_changes.decay
-                    if decay_percent < -self.DUMP_SIZE:
-                        self._delays[symbol].append(time.time())
-                        signals.append(
-                            Signal(
-                                symbol=symbol,
-                                price_change=decay_percent,
-                                timeframe=minutes
-                            )
-                        )
-            except KeyError:
+
+        symbol_info: TickerInfo = self._exchanges_info.get_ticker_info(
+            exchange="bybit", market_type="futures", symbol=symbol)
+
+        for user_settings in self._settings:
+            # Проверка на состояние настроек юзера
+            if not user_settings.status:
                 continue
+
+            if not user_settings.is_bybit:
+                continue
+
+            # Проверка на подписку пользователя
+            user_id = user_settings.user_id
+            if user_id not in self._active_users_id:
+                continue
+
+            if user_settings.funding_restrict and symbol_info.is_high_fr:
+                continue
+
+            if user_settings.futures_ignore_new_symbols and symbol_info.is_new_ticker:
+                continue
+
+            # Проверка на таймаут последнего сигнала
+            user_signals_time: list[int] = self._get_user_day_signals_time(user_id, symbol)
+            if user_signals_time and \
+                    user_signals_time[-1] + config.PD_TIMEOUT_MINUTES * 60 > time.time():
+                continue
+
+            # Проверка на процент изменения (Рост)
+            try:
+                growth_changes: Changes = changes_dict[user_settings.pump_interval]
+                growth_percent: float = growth_changes.growth
+                if growth_percent > user_settings.pump_size and user_settings.long_direction:
+                    self._user_delays[user_id][symbol].append(time.time())
+                    signals.append(
+                        Signal(
+                            user_id=user_id,
+                            symbol=symbol,
+                            price_change=growth_percent,
+                            timeframe=user_settings.pump_interval,
+                            preview=user_settings.chart_preview
+                        )
+                    )
+            except KeyError:
+                pass
+
+            # Проверка на процент изменения (Падение)
+            try:
+                decay_changes: Changes = changes_dict[user_settings.dump_interval]
+                decay_percent: float = decay_changes.decay
+                if decay_percent < -user_settings.dump_size and user_settings.short_direction:
+                    self._user_delays[user_id][symbol].append(time.time())
+                    signals.append(
+                        Signal(
+                            user_id=user_id,
+                            symbol=symbol,
+                            price_change=decay_percent,
+                            timeframe=user_settings.dump_interval,
+                            preview=user_settings.chart_preview
+                        )
+                    )
+            except KeyError:
+                pass
 
         return signals
 
-    def _get_symbol_signals_time(self, symbol: str) -> list[int]:
+    def _get_user_day_signals_time(self, user_id: int, symbol: str) -> list[int]:
         """
-        Возвращает время последних сигналов по монете.
+        Функция возвращает количество сигналов отосланных пользователю по конкретной монете за последние
+        сутки.
+        :param user_id:
+        :param symbol:
+        :return:
         """
-        current_time = time.time()
+        current_time = time.time()  # Текущее время в миллисекундах
         threshold_time = current_time - (60 * 60 * 24)  # Время, старше которого данные не нужны
 
-        # Если символа нет в словаре с задержками
-        if symbol not in self._delays:
-            self._delays[symbol] = []
-        else:
-            # Очищаем ненужную историю
-            self._delays[symbol] = [t for t in self._delays[symbol] if t > threshold_time]
+        # Если пользователя нет в словаре с задержками
+        if user_id not in self._user_delays:
+            self._user_delays[user_id] = {}
+            self._user_delays[user_id][symbol] = []
 
-        return self._delays[symbol]
+        else:
+            # Если тикера нет в словаре с тикерами
+            if symbol not in self._user_delays[user_id]:
+                self._user_delays[user_id][symbol] = []
+            # Очищаем ненужную историю
+            else:
+                self._user_delays[user_id][symbol] = [
+                    t for t in self._user_delays[user_id][symbol] if t > threshold_time]
+
+        return self._user_delays[user_id][symbol]
 
     def _get_changes(self, data: list[Candle]) -> dict[int, Changes]:
         """
-        Считает изменения для каждого тикера за каждый таймфрейм.
+        Функция считает изменения для каждого тикера за каждый промежуток времени до self._max_history_len минут.
+        :return:
         """
         changes = {}
 
-        for minutes in self.TIMEFRAMES:
-            if len(data) < minutes:
-                continue
-                
+        # for minutes in SequentialValues.PUMP_DUMP_TIMEFRAMES:
+        for minutes in config.PD_TIMEFRAMES:
             relevant_data = data[-minutes:]
+            relevant_data_len = len(relevant_data)
 
-            # Определение изменения цены
+            if relevant_data_len != minutes:
+                continue
+
+            # Определение изменения price
             close_price = data[-1].close
             lowest_price = min([candle.low for candle in relevant_data])
             highest_price = max([candle.high for candle in relevant_data])
@@ -346,64 +384,29 @@ class BybitPumpDumpScreener:
 
     async def _get_tickers(self, category="linear") -> list[str]:
         """
-        Получает и возвращает список тикеров с Bybit.
+        Функция получает и возвращает список тикеров.
+        :param category:
+        :return:
         """
-        # Для тестовой сети используем функцию get_usdt_pairs
-        if self._ws and getattr(self._ws, 'testnet', False):
-            print("Получаем список торговых пар через get_usdt_pairs для testnet")
-            try:
-                pairs = get_usdt_pairs()
-                # Для тестовой сети ограничиваем количество пар до 5-10
-                test_pairs = pairs[:10] if len(pairs) > 10 else pairs
-                print(f"Получено {len(test_pairs)} пар: {test_pairs}")
-                return test_pairs
-            except Exception as e:
-                print(f"Ошибка при получении списка пар: {e}")
-                return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
-            
-        # Для основной сети используем API
         url = 'https://api.bybit.com/v5/market/tickers'
         params = {'category': category}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as response:
-                    if response.status != 200:
-                        print(f"Ошибка API: статус {response.status}")
-                        return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
-                        
-                    result = await response.json()
-                    if 'result' not in result or 'list' not in result['result']:
-                        print(f"Неверный формат ответа: {result}")
-                        return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
-                        
-                    tickers = [s["symbol"] for s in result["result"]["list"] 
-                              if s["symbol"] not in self._ignored_symbols and
-                              s["symbol"].endswith("USDT")]
-                    return tickers[:10]  # Ограничиваем количество тикеров для тестирования
-        except Exception as e:
-            print(f"Ошибка при получении тикеров: {e}")
-            return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                result = await response.json()
+                return [s["symbol"] for s in result["result"]["list"] if s["symbol"] not in self._ignored_symbols and
+                        s["symbol"].endswith("USDT")]
 
-async def main():
-    try:
-        screener = BybitPumpDumpScreener()
-        
-        await screener.start_service()
-        
-        print("Скринер запущен и отслеживает изменения цен...")
-        print("Нажмите Ctrl+C для остановки")
-        
-        # Держим программу запущенной
+    async def _update_settings_cycle(self, timeout: float = 5) -> None:
+        """
+        В бесконечном цикле обновляет информацию из базы данных.
+        :param timeout:
+        :return:
+        """
         while True:
-            await asyncio.sleep(60)
-            
-    except KeyboardInterrupt:
-        print("\nПрограмма остановлена пользователем")
-    except Exception as e:
-        print(f"Ошибка при запуске: {e}")
-    finally:
-        print("Программа завершена")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            try:
+                self._active_users_id = await self._database.user_repo.get_subscribers_id()
+                self._settings = await self._database.pd_repo.get_all()
+            except Exception as e:
+                logger.exception(e)
+            finally:
+                await asyncio.sleep(timeout)

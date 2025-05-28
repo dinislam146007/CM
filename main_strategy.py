@@ -270,11 +270,6 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
                 pnl_percent = ((current_price - entry_price) / entry_price) * 100
                 pnl = (current_price - entry_price) * qty
 
-            # Если используется плечо, умножаем PnL на плечо
-            if trading_type == 'futures':
-                pnl_percent = pnl_percent * leverage
-                pnl = pnl * leverage
-                
             # Дополнительный лог для отладки расчетов
             print(f"[PNL_DEBUG] {symbol} {position_side}: entry={entry_price}, exit={current_price}, " 
                   f"change={price_change_percent if position_side == 'SHORT' else ((current_price - entry_price) / entry_price) * 100:.4f}%, "

@@ -34,10 +34,12 @@ class Changes:
         self.decay = decay
 
 class Signal:
-    def __init__(self, symbol, price_change, timeframe):
+    def __init__(self, symbol, price_change, timeframe, user_id: int, preview: bool = False):
         self.symbol = symbol
         self.price_change = price_change
         self.timeframe = timeframe
+        self.user_id = user_id
+        self.preview = preview
 
 class BybitPumpDumpScreener:
     def __init__(self, max_history_len=60):
@@ -51,14 +53,14 @@ class BybitPumpDumpScreener:
         
         self._ws = None
         
-        # ID канала для отправки сигналов
-        self.CHANNEL_ID = config.public_channel_id
+        # ID канала для отправки сигналов (может использоваться для общих уведомлений, если потребуется)
+        self.PUBLIC_CHANNEL_ID = config.public_channel_id
         
         # Главный словарь с данными
         self._data = {}
         
-        # Словарь с задержками для каждой монеты
-        self._delays = {}
+        # Словарь с задержками для каждой монеты каждого пользователя
+        self._user_delays: dict[int, dict[str, list[float]]] = {}
 
         # Словарь с объемами за последние 24 часа
         self._volume_per_minute = {}
@@ -71,39 +73,18 @@ class BybitPumpDumpScreener:
 
         self._loop = asyncio.get_event_loop()
         
-        # Загружаем настройки для бота (используем ID 0 для общих настроек)
-        self._load_settings()
-
-    def _load_settings(self):
-        """
-        Загружает настройки для детектора из файла настроек
-        """
-        settings = load_pump_dump_settings(0)  # Используем ID 0 для общих настроек
+        # Загружаем глобальные/дефолтные настройки, которые не зависят от пользователя
+        # Например, все таймфреймы, для которых нужно считать изменения
+        default_settings = load_pump_dump_settings(0)
+        self.GLOBAL_TIMEFRAMES = []
+        if "MONITOR_INTERVALS" in default_settings:
+            for tf_str in default_settings["MONITOR_INTERVALS"]:
+                if tf_str.endswith('m'):
+                    self.GLOBAL_TIMEFRAMES.append(int(tf_str[:-1]))
+                elif tf_str.endswith('h'):
+                    self.GLOBAL_TIMEFRAMES.append(int(tf_str[:-1]) * 60)
         
-        # Таймфреймы для поиска памп/дамп сигналов (преобразуем строки в минуты)
-        self.TIMEFRAMES = []
-        for tf in settings["MONITOR_INTERVALS"]:
-            if tf.endswith('m'):
-                self.TIMEFRAMES.append(int(tf[:-1]))
-            elif tf.endswith('h'):
-                self.TIMEFRAMES.append(int(tf[:-1]) * 60)
-        
-        # Минимальные проценты изменения для сигнала
-        self.PUMP_SIZE = settings["PRICE_CHANGE_THRESHOLD"]  # % роста для сигнала
-        self.DUMP_SIZE = settings["PRICE_CHANGE_THRESHOLD"]  # % падения для сигнала
-        
-        # Таймаут между сигналами одной монеты в минутах
-        self.TIMEOUT_MINUTES = settings["TIME_WINDOW"]
-        
-        # Минимальный объем
-        self.VOLUME_THRESHOLD = settings["VOLUME_THRESHOLD"]
-        
-        # Включен ли детектор
-        self.ENABLED = settings["ENABLED"]
-        
-        # Направления торговли (всегда включены для памп/дамп детектора)
-        self.LONG_DIRECTION = True
-        self.SHORT_DIRECTION = True
+        self.GLOBAL_VOLUME_THRESHOLD = default_settings.get("VOLUME_THRESHOLD", 0) # Default to 0 if not set
 
     def handle_ws_msg(self, msg: dict) -> None:
         """
@@ -228,16 +209,14 @@ class BybitPumpDumpScreener:
         """
         Обрабатывает данные для одного символа.
         """
-        # Проверяем, включен ли детектор
-        if not self.ENABLED:
-            return
+        # Проверка на ENABLED теперь делается для каждого пользователя в _generate_signals
             
         try:
             # Проверяем объем
             if symbol in self._volume_per_minute:
                 volume = self._volume_per_minute[symbol]
-                # Пропускаем монеты с малым объемом
-                if volume < self.VOLUME_THRESHOLD:
+                # Пропускаем монеты с малым объемом (используем глобальный порог)
+                if volume < self.GLOBAL_VOLUME_THRESHOLD:
                     return
                     
             if symbol in self._ignored_symbols:
@@ -264,114 +243,155 @@ class BybitPumpDumpScreener:
 
     async def _send_signals(self, signals: list[Signal]) -> None:
         """
-        Функция отправляет уведомления в Telegram канал.
+        Функция отправляет уведомления в Telegram пользователям.
         """
-        if not signals or not self.ENABLED:
+        if not signals:
             return
             
         try:
-            # Получаем список подписчиков
-            subscribers = load_subscribers()
-            
-            for signal in signals:
-                # Определение типа сигнала (памп или дамп)
-                signal_type = "🟢 PUMP" if signal.price_change > 0 else "🔴 DUMP"
-                price_change = abs(signal.price_change)
+            for signal_obj in signals: # Переименовано во избежание конфликта имен
+                # Настройки пользователя (включая ENABLED) проверяются в _generate_signals
                 
-                # Формируем текст сообщения
+                signal_type = "🟢 PUMP" if signal_obj.price_change > 0 else "🔴 DUMP"
+                price_change_abs = abs(signal_obj.price_change) # Используем abs для отображения
+                
                 message_text = (
-                    f"{signal_type} {signal.symbol}\n\n"
-                    f"💰 Изменение цены: {price_change:.2f}%\n"
-                    f"⏱ Таймфрейм: {signal.timeframe} минут\n\n"
+                    f"{signal_type} {signal_obj.symbol}\\n\\n"
+                    f"💰 Изменение цены: {price_change_abs:.2f}%\\n"
+                    f"⏱ Таймфрейм: {signal_obj.timeframe} минут\\n\\n"
                     f"📊 Биржа: Bybit"
                 )
                 
-                # Отправляем сообщение в публичный канал, если он настроен
-                if self.CHANNEL_ID:
-                    try:
-                        await bot.send_message(chat_id=self.CHANNEL_ID, text=message_text)
-                    except Exception as e:
-                        print(f"Ошибка при отправке в канал: {e}")
-                
-                # Отправляем сообщение каждому подписчику
-                for user_id in subscribers:
-                    try:
-                        await bot.send_message(chat_id=user_id, text=message_text)
-                    except Exception as e:
-                        print(f"Ошибка при отправке пользователю {user_id}: {e}")
+                # Отправляем сообщение конкретному пользователю
+                try:
+                    if signal_obj.preview:
+                        # Логика для генерации и отправки графика (если включено)
+                        # chart_data = self._data.get(signal_obj.symbol, [])
+                        # relevant_klines = chart_data[-signal_obj.timeframe:] # Пример
+                        # if relevant_klines and 'generate_chart_bytes' in globals():
+                        #     klines_for_chart = [[c.timestamp, c.open, c.high, c.low, c.close, c.volume] for c in relevant_klines]
+                        #     chart_bytes = generate_chart_bytes(klines_for_chart)
+                        #     chart_bytes.seek(0)
+                        #     await bot.send_photo(
+                        #         chat_id=signal_obj.user_id,
+                        #         caption=message_text,
+                        #         photo=types.BufferedInputFile(chart_bytes.read(), f"Chart_{signal_obj.symbol}.png"),
+                        #         parse_mode="HTML" # Убедитесь, что parse_mode поддерживается и настроен в bot
+                        #     )
+                        # else:
+                        #     # Отправка текстового сообщения, если график не может быть сгенерирован
+                        message_text_with_preview_note = message_text + "\\n\\n🖼️ (Предпросмотр графика включен, но функция генерации не реализована)"
+                        await bot.send_message(chat_id=signal_obj.user_id, text=message_text_with_preview_note)
+                    else:
+                        await bot.send_message(chat_id=signal_obj.user_id, text=message_text)
+                except Exception as e:
+                    print(f"Ошибка при отправке пользователю {signal_obj.user_id}: {e}")
+                    # Здесь можно добавить логику обработки блокировки бота пользователем,
+                    # если у вас есть доступ к базе данных для обновления статуса пользователя,
+                    # аналогично for_test.py.
 
         except Exception as e:
             print(f"Ошибка при отправке сигналов: {e}")
 
     def _generate_signals(self, symbol: str, changes_dict: dict[int, Changes]) -> list[Signal]:
         """
-        Функция проверяет изменения цены для определения сигналов.
+        Функция проверяет изменения цены для определения сигналов для каждого пользователя.
         """
         signals = []
-        
-        # Проверка на таймаут последнего сигнала для этого символа
-        symbol_signals_time = self._get_symbol_signals_time(symbol)
-        if symbol_signals_time and symbol_signals_time[-1] + self.TIMEOUT_MINUTES * 60 > time.time():
-            return signals
-            
-        # Перебираем все таймфреймы
-        for minutes in self.TIMEFRAMES:
-            try:
-                # Проверка на процент изменения (Рост)
-                if self.LONG_DIRECTION:
-                    growth_changes = changes_dict[minutes]
-                    growth_percent = growth_changes.growth
-                    if growth_percent > self.PUMP_SIZE:
-                        self._delays[symbol].append(time.time())
-                        signals.append(
-                            Signal(
-                                symbol=symbol,
-                                price_change=growth_percent,
-                                timeframe=minutes
-                            )
-                        )
-                        
-                # Проверка на процент изменения (Падение)
-                if self.SHORT_DIRECTION:
-                    decay_changes = changes_dict[minutes]
-                    decay_percent = decay_changes.decay
-                    if decay_percent < -self.DUMP_SIZE:
-                        self._delays[symbol].append(time.time())
-                        signals.append(
-                            Signal(
-                                symbol=symbol,
-                                price_change=decay_percent,
-                                timeframe=minutes
-                            )
-                        )
-            except KeyError:
+        subscribers = load_subscribers() # Загружаем ID всех подписчиков
+
+        for user_id in subscribers:
+            user_settings = load_pump_dump_settings(user_id) # Загружаем настройки для конкретного пользователя
+
+            if not user_settings.get("ENABLED", False): # Проверяем, включен ли детектор для этого пользователя
                 continue
 
+            # Пользовательские настройки
+            user_monitor_intervals_str = user_settings.get("MONITOR_INTERVALS", [])
+            user_timeframes_minutes = []
+            for tf_str in user_monitor_intervals_str:
+                if tf_str.endswith('m'):
+                    user_timeframes_minutes.append(int(tf_str[:-1]))
+                elif tf_str.endswith('h'):
+                    user_timeframes_minutes.append(int(tf_str[:-1]) * 60)
+            
+            user_pump_size = user_settings.get("PRICE_CHANGE_THRESHOLD", 3.0)  # % роста для сигнала
+            user_dump_size = user_settings.get("PRICE_CHANGE_THRESHOLD", 3.0)  # % падения для сигнала
+            user_timeout_minutes = user_settings.get("TIME_WINDOW", 15) # Таймаут между сигналами
+            user_long_direction = user_settings.get("LONG_DIRECTION", True)
+            user_short_direction = user_settings.get("SHORT_DIRECTION", True)
+            user_chart_preview = user_settings.get("CHART_PREVIEW", False) # Настройка для превью графика
+
+            # Проверка на таймаут последнего сигнала для этого пользователя и символа
+            user_symbol_signals_time = self._get_user_day_signals_time(user_id, symbol)
+            if user_symbol_signals_time and \
+               user_symbol_signals_time[-1] + user_timeout_minutes * 60 > time.time():
+                continue
+            
+            for minutes in user_timeframes_minutes:
+                if minutes not in changes_dict: # Если для этого ТФ нет рассчитанных изменений
+                    continue
+                
+                change_data = changes_dict[minutes]
+                
+                # Проверка на процент изменения (Рост)
+                if user_long_direction and change_data.growth > user_pump_size:
+                    if user_id not in self._user_delays: self._user_delays[user_id] = {}
+                    if symbol not in self._user_delays[user_id]: self._user_delays[user_id][symbol] = []
+                    self._user_delays[user_id][symbol].append(time.time())
+                    signals.append(
+                        Signal(
+                            symbol=symbol,
+                            price_change=change_data.growth,
+                            timeframe=minutes,
+                            user_id=user_id,
+                            preview=user_chart_preview
+                        )
+                    )
+                        
+                # Проверка на процент изменения (Падение)
+                if user_short_direction and change_data.decay < -user_dump_size: # Падение - отрицательное значение
+                    if user_id not in self._user_delays: self._user_delays[user_id] = {}
+                    if symbol not in self._user_delays[user_id]: self._user_delays[user_id][symbol] = []
+                    self._user_delays[user_id][symbol].append(time.time())
+                    signals.append(
+                        Signal(
+                            symbol=symbol,
+                            price_change=change_data.decay,
+                            timeframe=minutes,
+                            user_id=user_id,
+                            preview=user_chart_preview
+                        )
+                    )
         return signals
 
-    def _get_symbol_signals_time(self, symbol: str) -> list[int]:
+    def _get_user_day_signals_time(self, user_id: int, symbol: str) -> list[float]:
         """
-        Возвращает время последних сигналов по монете.
+        Возвращает время последних сигналов по монете для конкретного пользователя.
+        Очищает историю старше 24 часов.
         """
         current_time = time.time()
         threshold_time = current_time - (60 * 60 * 24)  # Время, старше которого данные не нужны
 
-        # Если символа нет в словаре с задержками
-        if symbol not in self._delays:
-            self._delays[symbol] = []
+        if user_id not in self._user_delays:
+            self._user_delays[user_id] = {}
+        
+        if symbol not in self._user_delays[user_id]:
+            self._user_delays[user_id][symbol] = []
         else:
             # Очищаем ненужную историю
-            self._delays[symbol] = [t for t in self._delays[symbol] if t > threshold_time]
-
-        return self._delays[symbol]
+            self._user_delays[user_id][symbol] = [
+                t for t in self._user_delays[user_id][symbol] if t > threshold_time
+            ]
+        return self._user_delays[user_id][symbol]
 
     def _get_changes(self, data: list[Candle]) -> dict[int, Changes]:
         """
-        Считает изменения для каждого тикера за каждый таймфрейм.
+        Считает изменения для каждого тикера за каждый таймфрейм из GLOBAL_TIMEFRAMES.
         """
         changes = {}
 
-        for minutes in self.TIMEFRAMES:
+        for minutes in self.GLOBAL_TIMEFRAMES: # Используем GLOBAL_TIMEFRAMES
             if len(data) < minutes:
                 continue
                 
@@ -396,7 +416,6 @@ class BybitPumpDumpScreener:
         """
         Получает и возвращает список тикеров с Bybit.
         """
-        # Для тестовой сети используем функцию get_usdt_pairs
         if self._ws and getattr(self._ws, 'testnet', False):
             print("Получаем список торговых пар через get_usdt_pairs для testnet")
             try:
@@ -409,7 +428,6 @@ class BybitPumpDumpScreener:
                 print(f"Ошибка при получении списка пар: {e}")
                 return ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]
             
-        # Для основной сети используем API
         url = 'https://api.bybit.com/v5/market/tickers'
         params = {'category': category}
         
@@ -428,10 +446,10 @@ class BybitPumpDumpScreener:
                     tickers = [s["symbol"] for s in result["result"]["list"] 
                               if s["symbol"] not in self._ignored_symbols and
                               s["symbol"].endswith("USDT")]
-                    return tickers[:10]  # Ограничиваем количество тикеров для тестирования
+                    return tickers  # Ограничиваем количество тикеров для тестирования
         except Exception as e:
             print(f"Ошибка при получении тикеров: {e}")
-            return get_usdt_pairs()[:20]  # Используем get_usdt_pairs с ограничением
+            return get_usdt_pairs()  # Используем get_usdt_pairs с ограничением
 
 async def pump_dump_main():
     try:
@@ -440,9 +458,11 @@ async def pump_dump_main():
         await screener.start_service()
                 
         while True:
-            # Периодически перезагружаем настройки
-            screener._load_settings()
-            await asyncio.sleep(60)
+            # Периодически перезагружаем настройки - теперь не нужно,
+            # так как настройки пользователя загружаются в _generate_signals,
+            # а список подписчиков - там же.
+            # screener._load_settings() # Этот метод удален
+            await asyncio.sleep(60) # Оставляем sleep для основного цикла
             
     except KeyboardInterrupt:
         print("\nПрограмма остановлена пользователем")
