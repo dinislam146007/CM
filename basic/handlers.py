@@ -1919,7 +1919,8 @@ async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
         success = update_user_param(message.from_user.id, param_name, param_value)
         
         if success:
-            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            # Отправляем сообщение об успехе
+            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
             
             # Get updated parameters
             user_params = load_user_params(message.from_user.id)
@@ -1951,6 +1952,13 @@ async def process_param_edit(message: Message, state: FSMContext, bot: Bot):
                 text=text,
                 reply_markup=strategy_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer(f"Не удалось обновить параметр {param_name}")
             await message.answer(
@@ -1993,7 +2001,7 @@ async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
         success = update_user_param(message.from_user.id, 'CoinsBlackList', blacklist_str)
         
         if success:
-            await message.answer("Черный список монет успешно обновлен")
+            success_msg = await message.answer("Черный список монет успешно обновлен")
             
             # Get updated parameters
             user_params = load_user_params(message.from_user.id)
@@ -2025,6 +2033,13 @@ async def process_blacklist_edit(message: Message, state: FSMContext, bot: Bot):
                 text=text,
                 reply_markup=strategy_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer("Не удалось обновить черный список монет")
             await message.answer(
@@ -2232,7 +2247,7 @@ async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
         success = update_cm_setting(message.from_user.id, param_name, param_value)
         
         if success:
-            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
             
             # Получаем обновленные настройки
             cm_settings = load_cm_settings(message.from_user.id)
@@ -2254,6 +2269,13 @@ async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
                 text=text,
                 reply_markup=cm_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer(f"Не удалось обновить параметр {param_name}")
             await message.answer(
@@ -2395,7 +2417,7 @@ async def process_divergence_param_edit(message: Message, state: FSMContext, bot
         success = update_divergence_setting(message.from_user.id, param_name, param_value)
         
         if success:
-            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
             
             # Получаем обновленные настройки
             divergence_settings = load_divergence_settings(message.from_user.id)
@@ -2422,6 +2444,13 @@ async def process_divergence_param_edit(message: Message, state: FSMContext, bot
                 text=text,
                 reply_markup=divergence_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer(f"Не удалось обновить параметр {param_name}")
             await message.answer(
@@ -2473,7 +2502,7 @@ async def process_divergence_stop_loss_type_edit(message: Message, state: FSMCon
         success = update_divergence_setting(message.from_user.id, 'STOP_LOSS_TYPE', stop_loss_type)
         
         if success:
-            await message.answer(f"Тип стоп-лосса успешно обновлен на {stop_loss_type}")
+            success_msg = await message.answer(f"Тип стоп-лосса успешно обновлен на {stop_loss_type}")
             
             # Получаем обновленные настройки
             divergence_settings = load_divergence_settings(message.from_user.id)
@@ -2500,6 +2529,13 @@ async def process_divergence_stop_loss_type_edit(message: Message, state: FSMCon
                 text=text,
                 reply_markup=divergence_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer("Не удалось обновить тип стоп-лосса")
             await message.answer(
@@ -2591,7 +2627,7 @@ async def process_rsi_param_edit(message: Message, state: FSMContext, bot: Bot):
         success = update_rsi_setting(message.from_user.id, param_name, param_value)
         
         if success:
-            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
             
             # Get updated settings
             rsi_settings = load_rsi_settings(message.from_user.id)
@@ -2613,6 +2649,13 @@ async def process_rsi_param_edit(message: Message, state: FSMContext, bot: Bot):
                 text=text,
                 reply_markup=rsi_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer(f"Не удалось обновить параметр {param_name}")
             await message.answer(
@@ -2774,7 +2817,7 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
         success = update_pump_dump_setting(message.from_user.id, param_name, param_value)
         
         if success:
-            await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
+            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
             
             # Get updated settings
             pump_dump_settings = load_pump_dump_settings(message.from_user.id)
@@ -2791,6 +2834,13 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
                 text=text,
                 reply_markup=pump_dump_params_inline()
             )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
         else:
             await message.answer(f"Не удалось обновить параметр {param_name}")
             await message.answer(
@@ -3502,7 +3552,24 @@ async def process_balance_input(message: Message, state: FSMContext, bot: Bot):
         user_id = message.from_user.id
         try:
             await set_user_balance(user_id, new_balance)
-            await message.answer(f"Ваш баланс успешно обновлен на {new_balance:.2f} USDT.")
+            
+            # Отправляем сообщение об успехе
+            success_msg = await message.answer(f"Ваш баланс успешно обновлен на {new_balance:.2f} USDT.")
+            
+            # Сразу показываем меню настроек
+            await message.answer(
+                "Настройки\n\n"
+                "Выберите раздел:",
+                reply_markup=settings_inline()
+            )
+            
+            # Удаляем сообщение об успехе через 5 секунд
+            await asyncio.sleep(5)
+            try:
+                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+            except Exception:
+                pass
+                
         except Exception as e:
             await message.answer(f"Произошла ошибка при обновлении баланса: {e}")
             print(f"Ошибка при вызове set_user_balance для user_id {user_id}: {e}")
@@ -3528,6 +3595,7 @@ async def process_percent_edit(message: Message, state: FSMContext, bot: Bot):
     except Exception:
         pass
     
+    
     try:
         # Преобразуем входное значение в число
         percent_value = float(message.text.strip())
@@ -3538,14 +3606,23 @@ async def process_percent_edit(message: Message, state: FSMContext, bot: Bot):
         
         # Обновляем процент
         await up_percent(message.from_user.id, percent_value)
-        await message.answer(f"Процент успешно обновлен на {percent_value}%")
         
-        # Возвращаемся в меню настроек
+        # Отправляем сообщение об успехе
+        success_msg = await message.answer(f"Процент успешно обновлен на {percent_value}%")
+        
+        # Сразу показываем меню настроек
         await message.answer(
             "Настройки\n\n"
             "Выберите раздел:",
             reply_markup=settings_inline()
         )
+        
+        # Удаляем сообщение об успехе через 5 секунд
+        await asyncio.sleep(5)
+        try:
+            await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
+        except Exception:
+            pass
         
     except ValueError:
         await message.answer(
