@@ -45,7 +45,22 @@ import requests
 import time
 import sqlite3
 from aiogram.exceptions import TelegramAPIError
+import builtins as _bltin
 
+_original_print = _bltin.print
+
+def _error_only_print(*args, **kwargs):
+    """Фильтрует вывод, оставляя только сообщения об ошибках и предупреждениях."""
+    message = " ".join(str(arg) for arg in args)
+    # Ключевые слова, указывающие на ошибку или предупреждение
+    error_keywords = (
+        "[ERROR", "[WARNING", "[WARN", "Ошибка", "Error", "Failed", "[PNL_DEBUG", "[CLOSE]", "[fetch_ohlcv_ccxt]"
+    )
+    if any(kw in message for kw in error_keywords):
+        _original_print(*args, **kwargs)
+
+# Переназначаем встроенный print
+_bltin.print = _error_only_print
 
 async def get_user_favorite_pairs(user_id: int) -> list:
     """Get user's favorite cryptocurrency pairs from database."""
