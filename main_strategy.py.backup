@@ -730,132 +730,133 @@ async def process_tf(tf: str):
                         
                         min_trade_usdt = 1.0  # Уменьшаем минимальную сумму с 5.0 до 1.0 USDT
 
-                        # Проверяем баланс только для ограничения новых позиций
                         if user_balance < min_trade_usdt:
                             print(f"[INFO] Пользователь {uid}: баланс {user_balance:.2f} USDT < {min_trade_usdt} USDT. Новые позиции не открываются.")
-                            # Пропускаем создание новых ордеров, но позволяем закрытие существующих
-                            can_create_new_orders = False
+                            # Не используем continue здесь, чтобы позволить закрытие существующих позиций
                         else:
-                            can_create_new_orders = True
-                        
-                        # Создаем новые ордера только если баланс достаточный
-                        if can_create_new_orders:
-                            # Validate leverage for futures
-                            if trading_type == "futures" and leverage < 1:
-                                leverage = 1
-                        
-                            # Calculate position size
-                            if trading_type == "futures":
-                                # Для малых балансов используем больший процент
-                                if user_balance < 10:
-                                    desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
-                                elif user_balance < 50:
-                                    desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
-                                else:
-                                    desired_investment = user_balance * 0.05  # 5% для больших балансов
-                                    
-                                investment_amount = max(min_trade_usdt, desired_investment)
-                                # Ensure we don't invest more than available balance (leaving small buffer if possible)
-                                buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
-                                investment_amount = min(investment_amount, user_balance - buffer)
-
-                                if investment_amount < min_trade_usdt:
-                                    print(f"[WARNING] Недостаточно средств для открытия фьючерсной позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
-                                    continue
-                                
-                                if leverage <= 0:
-                                    leverage = 1
-                                    
-                                qty = (investment_amount * leverage) / entry
+                            if user_balance < min_trade_usdt:
+                                print(f"[WARNING] Пользователь {uid}: баланс {user_balance:.2f} USDT < {min_trade_usdt} USDT. Торговля приостановлена.")
+                                # Заменяем continue чтобы позволить закрытие существующих позиций - пропускаем только создание новых ордеров
                             else:
-                                # For spot trading
-                                # Для малых балансов используем больший процент
-                                if user_balance < 10:
-                                    desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
-                                elif user_balance < 50:
-                                    desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
-                                else:
-                                    desired_investment = user_balance * 0.05  # 5% для больших балансов
-                                    
-                                investment_amount = max(min_trade_usdt, desired_investment)
-                                # Ensure we don't invest more than available balance (leaving small buffer if possible)
-                                buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
-                                investment_amount = min(investment_amount, user_balance - buffer)
+                                print(f"[WARNING] Пользователь {uid}: баланс {user_balance:.2f} USDT < {min_trade_usdt} USDT. Торговля приостановлена.")
+                                # continue - убираем continue чтобы позволить закрытие существующих позиций
 
-                                if investment_amount < min_trade_usdt:
-                                    print(f"[WARNING] Недостаточно средств для открытия спотовой позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
-                                    continue
+                        # Validate leverage for futures
+                        if trading_type == "futures" and leverage < 1:
+                            leverage = 1
+                        
+                        # Calculate position size
+                        if trading_type == "futures":
+                            # Для малых балансов используем больший процент
+                            if user_balance < 10:
+                                desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
+                            elif user_balance < 50:
+                                desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
+                            else:
+                                desired_investment = user_balance * 0.05  # 5% для больших балансов
                                 
-                                qty = investment_amount / entry
-                        
-                            # Validate quantity (already rounded later, but good to check early)
-                            if qty <= 0:
-                                print(f"Error: Invalid quantity {qty} for {symbol} before final formatting.")
-                                continue # Changed from return to continue
-                        
-                            # Format quantity
-                            qty = round(qty, 6)
-                        
-                            # Ensure minimum order size in USDT (this check might be redundant now but safe to keep)
-                            if qty * entry < min_trade_usdt:
-                                print(f"[INFO] Расчетное кол-во {qty} для {symbol} ({qty*entry:.2f} USDT) < {min_trade_usdt} USDT. Корректировка до минимального размера ордера.")
-                                qty = min_trade_usdt / entry
-                                qty = round(qty, 6)
-                                # Recalculate investment_amount based on adjusted qty for accurate message
-                                investment_amount = qty * entry
+                            investment_amount = max(min_trade_usdt, desired_investment)
+                            # Ensure we don't invest more than available balance (leaving small buffer if possible)
+                            buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
+                            investment_amount = min(investment_amount, user_balance - buffer)
 
-                            # Final check if recalculated investment amount exceeds balance significantly
-                            if investment_amount > user_balance:
-                                print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} превышает баланс {user_balance:.2f}. Пропуск ордера.")
+                            if investment_amount < min_trade_usdt:
+                                print(f"[WARNING] Недостаточно средств для открытия фьючерсной позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
                                 continue
+                            
+                            if leverage <= 0:
+                                leverage = 1
+                                
+                            qty = (investment_amount * leverage) / entry
+                        else:
+                            # For spot trading
+                            # Для малых балансов используем больший процент
+                            if user_balance < 10:
+                                desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
+                            elif user_balance < 50:
+                                desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
+                            else:
+                                desired_investment = user_balance * 0.05  # 5% для больших балансов
+                                
+                            investment_amount = max(min_trade_usdt, desired_investment)
+                            # Ensure we don't invest more than available balance (leaving small buffer if possible)
+                            buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
+                            investment_amount = min(investment_amount, user_balance - buffer)
+
+                            if investment_amount < min_trade_usdt:
+                                print(f"[WARNING] Недостаточно средств для открытия спотовой позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
+                                continue
+                            
+                            qty = investment_amount / entry
                         
-                            try:
-                                # Подготавливаем информацию о стратегиях
-                                strategy_signals = {
-                                    'price_action_active': price_action_active,
-                                    'price_action_pattern': pattern if price_action_active else '',
-                                    'cm_active': cm_active,
-                                    'moonbot_active': moonbot_active,
-                                    'rsi_active': rsi_active,
-                                    'divergence_active': divergence_active,
-                                    'divergence_type': divergence_type.strip() if divergence_active else ''
-                                }
-                                
-                                # Create order with exchange info and strategy signals
-                                order_id = await create_order(uid, exchange.id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, strategy_signals)
-                                
-                                # Получаем обновленный баланс после списания средств
-                                new_balance = await get_user_balance(uid)
-                                
-                                # Определяем эмодзи для типа позиции
-                                position_emoji = "🔰" if position_side == "LONG" else "🔻"
-                                transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
-                                
-                                # Формируем сообщение по новому шаблону
-                                message = (
-                                    f"{transaction_emoji} ОТКРЫТИЕ ОРДЕРА {symbol} {tf}\n\n"
-                                    f"Биржа: {exchange.id.capitalize()}\n"
-                                    f"Тип торговли: {trading_type.upper()}"
-                                    f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
-                                    f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
-                                    f"♻️Точка входа: {entry:.2f}$\n"
-                                    f"Направление: {position_side} {position_emoji}\n\n"
-                                    f"🎯TP: {tp:.4f}$\n"
-                                    f"📛SL: {sl:.4f}$\n\n"
-                                    f"⚠️Сделка открыта по сигналам с:\n"
-                                    f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
-                                    f"{cm_active and '✅' or '❌'} CM\n"
-                                    f"{moonbot_active and '✅' or '❌'} MoonBot\n"
-                                    f"{rsi_active and '✅' or '❌'} RSI\n"
-                                    f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
-                                    f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
-                                )
-                                
-                                await safe_send_message(uid, message)
-                                
-                            except Exception as e:
-                                print(f"Ошибка при создании ордера для {exchange.id} {symbol}: {e}")
-                                # await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
+                        # Validate quantity (already rounded later, but good to check early)
+                        if qty <= 0:
+                            print(f"Error: Invalid quantity {qty} for {symbol} before final formatting.")
+                            continue # Changed from return to continue
+                        
+                        # Format quantity
+                        qty = round(qty, 6)
+                        
+                        # Ensure minimum order size in USDT (this check might be redundant now but safe to keep)
+                        if qty * entry < min_trade_usdt:
+                             print(f"[INFO] Расчетное кол-во {qty} для {symbol} ({qty*entry:.2f} USDT) < {min_trade_usdt} USDT. Корректировка до минимального размера ордера.")
+                             qty = min_trade_usdt / entry
+                             qty = round(qty, 6)
+                             # Recalculate investment_amount based on adjusted qty for accurate message
+                             investment_amount = qty * entry
+
+                        # Final check if recalculated investment amount exceeds balance significantly
+                        if investment_amount > user_balance:
+                             print(f"[ERROR] Финальная сумма инвестиции {investment_amount:.2f} USDT для {symbol} превышает баланс {user_balance:.2f}. Пропуск ордера.")
+                             continue
+                        
+                        try:
+                            # Подготавливаем информацию о стратегиях
+                            strategy_signals = {
+                                'price_action_active': price_action_active,
+                                'price_action_pattern': pattern if price_action_active else '',
+                                'cm_active': cm_active,
+                                'moonbot_active': moonbot_active,
+                                'rsi_active': rsi_active,
+                                'divergence_active': divergence_active,
+                                'divergence_type': divergence_type.strip() if divergence_active else ''
+                            }
+                            
+                            # Create order with exchange info and strategy signals
+                            order_id = await create_order(uid, exchange.id, symbol, tf, position_side, qty, entry, tp, sl, trading_type, leverage, strategy_signals)
+                            
+                            # Получаем обновленный баланс после списания средств
+                            new_balance = await get_user_balance(uid)
+                            
+                            # Определяем эмодзи для типа позиции
+                            position_emoji = "🔰" if position_side == "LONG" else "🔻"
+                            transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                            
+                            # Формируем сообщение по новому шаблону
+                            message = (
+                                f"{transaction_emoji} ОТКРЫТИЕ ОРДЕРА {symbol} {tf}\n\n"
+                                f"Биржа: {exchange.id.capitalize()}\n"
+                                f"Тип торговли: {trading_type.upper()}"
+                                f"{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
+                                f"💸Объем: {qty:.6f} {symbol.replace('USDT', '')} ({(qty * entry):.2f} USDT)\n\n"
+                                f"♻️Точка входа: {entry:.2f}$\n"
+                                f"Направление: {position_side} {position_emoji}\n\n"
+                                f"🎯TP: {tp:.4f}$\n"
+                                f"📛SL: {sl:.4f}$\n\n"
+                                f"⚠️Сделка открыта по сигналам с:\n"
+                                f"{price_action_active and '✅' or '❌'} Price Action {pattern if price_action_active else ''}\n"
+                                f"{cm_active and '✅' or '❌'} CM\n"
+                                f"{moonbot_active and '✅' or '❌'} MoonBot\n"
+                                f"{rsi_active and '✅' or '❌'} RSI\n"
+                                f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
+                                f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
+                            )
+                            
+                            await safe_send_message(uid, message)
+                            
+                        except Exception as e:
+                            print(f"Ошибка при создании ордера для {exchange.id} {symbol}: {e}")
+                            # await safe_send_message(uid, f"Ошибка при создании ордера: {e}")
                 
                     # ---------- выход ----------
                     elif open_order_for_type is not None:
