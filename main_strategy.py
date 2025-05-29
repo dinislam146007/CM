@@ -487,9 +487,22 @@ async def process_tf(tf: str):
         if settings_path.exists():
             for json_file in settings_path.glob("*.json"):
                 try:
+                    # Проверяем, что имя файла является чистым числом (user_id)
+                    filename_stem = json_file.stem
+                    
+                    # Пропускаем служебные файлы
+                    if filename_stem in ['global_settings'] or filename_stem.startswith('pump_dump_settings_'):
+                        continue
+                    
+                    # Проверяем, что имя файла - это число
+                    if not filename_stem.isdigit():
+                        continue
+                        
+                    user_id = int(filename_stem)
+                    
                     with json_file.open("r", encoding="utf-8") as fh:
                         settings = json.load(fh)
-                    user_id = int(json_file.stem)
+                    
                     if settings.get("bybit", False):
                         active_users.append(user_id)
                         print(f"[INFO] Пользователь {user_id} использует Bybit")
@@ -715,10 +728,10 @@ async def process_tf(tf: str):
                         # Get user balance
                         user_balance = await get_user_balance(uid)
                         
-                        min_trade_usdt = 5.0
+                        min_trade_usdt = 1.0  # Уменьшаем минимальную сумму с 5.0 до 1.0 USDT
 
                         if user_balance < min_trade_usdt:
-                            print(f"[WARNING] Баланс пользователя {uid} ({user_balance:.2f} USDT) меньше минимально требуемой суммы для торговли ({min_trade_usdt} USDT).")
+                            print(f"[WARNING] Пользователь {uid}: баланс {user_balance:.2f} USDT < {min_trade_usdt} USDT. Торговля приостановлена.")
                             continue
 
                         # Validate leverage for futures
@@ -727,10 +740,18 @@ async def process_tf(tf: str):
                         
                         # Calculate position size
                         if trading_type == "futures":
-                            desired_investment = user_balance * 0.05 
+                            # Для малых балансов используем больший процент
+                            if user_balance < 10:
+                                desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
+                            elif user_balance < 50:
+                                desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
+                            else:
+                                desired_investment = user_balance * 0.05  # 5% для больших балансов
+                                
                             investment_amount = max(min_trade_usdt, desired_investment)
-                            # Ensure we don't invest more than available balance (leaving 1 USDT if possible)
-                            investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+                            # Ensure we don't invest more than available balance (leaving small buffer if possible)
+                            buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
+                            investment_amount = min(investment_amount, user_balance - buffer)
 
                             if investment_amount < min_trade_usdt:
                                 print(f"[WARNING] Недостаточно средств для открытия фьючерсной позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
@@ -742,10 +763,18 @@ async def process_tf(tf: str):
                             qty = (investment_amount * leverage) / entry
                         else:
                             # For spot trading
-                            desired_investment = user_balance * 0.05
+                            # Для малых балансов используем больший процент
+                            if user_balance < 10:
+                                desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
+                            elif user_balance < 50:
+                                desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
+                            else:
+                                desired_investment = user_balance * 0.05  # 5% для больших балансов
+                                
                             investment_amount = max(min_trade_usdt, desired_investment)
-                            # Ensure we don't invest more than available balance (leaving 1 USDT if possible)
-                            investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+                            # Ensure we don't invest more than available balance (leaving small buffer if possible)
+                            buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
+                            investment_amount = min(investment_amount, user_balance - buffer)
 
                             if investment_amount < min_trade_usdt:
                                 print(f"[WARNING] Недостаточно средств для открытия спотовой позиции {symbol} для {uid} после всех расчетов. Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
@@ -1322,9 +1351,22 @@ async def run_all_users_settings():
         tasks = []
         for json_file in settings_path.glob("*.json"):
             try:
+                # Проверяем, что имя файла является чистым числом (user_id)
+                filename_stem = json_file.stem
+                
+                # Пропускаем служебные файлы
+                if filename_stem in ['global_settings'] or filename_stem.startswith('pump_dump_settings_'):
+                    continue
+                
+                # Проверяем, что имя файла - это число
+                if not filename_stem.isdigit():
+                    continue
+                    
+                user_id = int(filename_stem)
+                
                 with json_file.open("r", encoding="utf-8") as fh:
                     settings = json.load(fh)
-                user_id = int(json_file.stem)  # This line can cause ValueError
+                
                 tasks.append(asyncio.create_task(_dispatch_for_user(user_id, settings)))
             except ValueError:
                 print(f"[run_all_users_settings] Failed to parse user_id from filename {json_file.name} - skipping.")
@@ -1389,7 +1431,7 @@ async def internal_trade_logic(*args, **kwargs):
             
         print(f"Processing {exchange_name} {symbol}/{tf} for user {user_id}")
         
-        min_trade_usdt = 5.0 # Standardizing to 5 USDT as in process_tf
+        min_trade_usdt = 1.0 # Уменьшаем с 5.0 до 1.0 USDT для пользователей с малым балансом
             
         # Check for existing open order
         open_order = await get_open_order(user_id, exchange_name, symbol, tf)
@@ -1554,9 +1596,18 @@ async def internal_trade_logic(*args, **kwargs):
             
             # Calculate position size
             if trading_type == "futures":
-                desired_investment = user_balance * 0.05 
+                # Для малых балансов используем больший процент
+                if user_balance < 10:
+                    desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
+                elif user_balance < 50:
+                    desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
+                else:
+                    desired_investment = user_balance * 0.05  # 5% для больших балансов
+                    
                 investment_amount = max(min_trade_usdt, desired_investment)
-                investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+                # Ensure we don't invest more than available balance (leaving small buffer if possible)
+                buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
+                investment_amount = min(investment_amount, user_balance - buffer)
 
                 if investment_amount < min_trade_usdt:
                     print(f"[WARNING] Недостаточно средств для открытия фьючерсной позиции {symbol} для {user_id} после всех расчетов (internal_trade_logic). Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
@@ -1568,9 +1619,18 @@ async def internal_trade_logic(*args, **kwargs):
                 qty = (investment_amount * leverage) / entry
             else:
                 # For spot trading
-                desired_investment = user_balance * 0.05
+                # Для малых балансов используем больший процент
+                if user_balance < 10:
+                    desired_investment = user_balance * 0.8  # 80% для балансов менее 10 USDT
+                elif user_balance < 50:
+                    desired_investment = user_balance * 0.2  # 20% для балансов менее 50 USDT
+                else:
+                    desired_investment = user_balance * 0.05  # 5% для больших балансов
+                    
                 investment_amount = max(min_trade_usdt, desired_investment)
-                investment_amount = min(investment_amount, user_balance - 1 if user_balance > min_trade_usdt + 1 else user_balance)
+                # Ensure we don't invest more than available balance (leaving small buffer if possible)
+                buffer = 0.1 if user_balance > min_trade_usdt + 0.1 else 0
+                investment_amount = min(investment_amount, user_balance - buffer)
 
                 if investment_amount < min_trade_usdt:
                     print(f"[WARNING] Недостаточно средств для открытия спотовой позиции {symbol} для {user_id} после всех расчетов (internal_trade_logic). Расчетная сумма: {investment_amount:.2f}, Баланс: {user_balance:.2f}")
