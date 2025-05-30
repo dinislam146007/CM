@@ -877,31 +877,48 @@ async def process_tf(tf: str):
                         # Определяем, является ли позиция длинной
                         is_long = position_direction.upper() == "LONG"
                         
-                        if is_long:
-                            hit_tp = last_price >= open_order_for_type["tp_price"]
-                            hit_sl = last_price <= open_order_for_type["sl_price"]
-                        else:  # SHORT
-                            hit_tp = last_price <= open_order_for_type["tp_price"]  # Для SHORT TP ниже цены входа
-                            hit_sl = last_price >= open_order_for_type["sl_price"]  # Для SHORT SL выше цены входа
+                        # Проверка TP/SL по high/low свечи
+                        high = dft["high"].iloc[-1]
+                        low = dft["low"].iloc[-1]
+                        last_price = dft["close"].iloc[-1]
+                        tp = open_order_for_type["tp_price"]
+                        sl = open_order_for_type["sl_price"]
 
+                        if is_long:
+                            hit_tp = high >= tp
+                            hit_sl = low <= sl
+                        else:  # SHORT
+                            hit_tp = low <= tp  # Для SHORT TP ниже цены входа
+                            hit_sl = high >= sl  # Для SHORT SL выше цены входа
+
+                        # если оба уровня пробиты — определяем по итоговой цене свечи
+                        if hit_tp and hit_sl:
+                            entry_price = open_order.get("coin_buy_price", open_order.get("entry_price", last_price))
+                            hit_tp = (last_price > entry_price) if is_long else (last_price < entry_price)
+                            hit_sl = not hit_tp
+
+                        # Close if TP/SL hit
                         if hit_tp or hit_sl:
                             try:
-                                # Проверяем статус ордера еще раз непосредственно перед закрытием
+                                # Double-check order status
                                 current_order = await get_order_by_id(open_order_for_type["id"])
                                 if current_order and current_order.get('status') == 'CLOSED':
-                                    print(f"Пропускаем закрытие - ордер {open_order_for_type['id']} уже закрыт")
-                                    continue
+                                    return
                                 
-                                print(f"Закрываем ордер {open_order_for_type['id']} по {'TP' if hit_tp else 'SL'}")
-                                # Закрываем ордер и получаем информацию о P&L
-                                close_result = await close_order_with_notification(
+                                # Get trading type and leverage before closing the order
+                                trading_type = open_order_for_type.get('trading_type', 'spot')
+                                leverage = open_order_for_type.get('leverage', 1)
+                                
+                                # Print debug info
+                                print(f"[CLOSE] {exchange.id} {symbol} {position_direction} with leverage {leverage} (trading_type={trading_type})")
+                                
+                                # Close with notification
+                                await close_order_with_notification(
                                     uid, open_order_for_type["id"], last_price, "TP" if hit_tp else "SL"
                                 )
                                 
-                                if not close_result:
-                                    print(f"Ордер {open_order_for_type['id']} не был закрыт (возможно, уже закрыт)")
                             except Exception as e:
-                                print(f"Ошибка при закрытии ордера: {e}")
+                                print(f"Error closing order: {e}")
                                 await safe_send_message(uid, f"Ошибка при закрытии ордера: {e}")
             await asyncio.sleep(0.05)   # не душим API
         # await wait_for_next_candle(tf)
@@ -1731,14 +1748,25 @@ async def internal_trade_logic(*args, **kwargs):
             # Check if long position
             is_long = position_direction.upper() == "LONG"
             
-            # Check TP/SL conditions based on position direction
+            # Проверка TP/SL по high/low свечи
+            high = dft["high"].iloc[-1]
+            low = dft["low"].iloc[-1]
+            tp = open_order["tp_price"]
+            sl = open_order["sl_price"]
+
             if is_long:
-                hit_tp = last_price >= open_order["tp_price"]
-                hit_sl = last_price <= open_order["sl_price"]
+                hit_tp = high >= tp
+                hit_sl = low <= sl
             else:  # SHORT
-                hit_tp = last_price <= open_order["tp_price"]
-                hit_sl = last_price >= open_order["sl_price"]
-            
+                hit_tp = low <= tp  # Для SHORT TP ниже цены входа
+                hit_sl = high >= sl  # Для SHORT SL выше цены входа
+
+            # если оба уровня пробиты — определяем по итоговой цене свечи
+            if hit_tp and hit_sl:
+                entry_price = open_order.get("coin_buy_price", open_order.get("entry_price", last_price))
+                hit_tp = (last_price > entry_price) if is_long else (last_price < entry_price)
+                hit_sl = not hit_tp
+
             # Close if TP/SL hit
             if hit_tp or hit_sl:
                 try:
