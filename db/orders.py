@@ -9,11 +9,24 @@ async def get_user_balance(user_id):
     row = await conn.fetchrow("""
         SELECT balance FROM users WHERE user_id=$1
     """, user_id)
-    await conn.close()
     
     if row:
+        await conn.close()
         return row['balance']
-    return 0.0  # Если пользователь не найден, возвращаем 0
+    
+    # Если пользователь не найден, создаем его с начальным балансом
+    try:
+        await conn.execute("""
+            INSERT INTO users (user_id, balance) VALUES ($1, $2)
+            ON CONFLICT (user_id) DO NOTHING
+        """, user_id, 1000.0)
+        print(f"[DB] Создан новый пользователь {user_id} с начальным балансом 1000.0 USDT")
+        await conn.close()
+        return 1000.0
+    except Exception as e:
+        print(f"[DB_ERROR] Ошибка при создании пользователя {user_id}: {e}")
+        await conn.close()
+        return 0.0  # Возвращаем 0 если создание не удалось
 
 
 
@@ -21,13 +34,46 @@ async def get_user_balance(user_id):
 async def update_user_balance(user_id, amount):
     """Обновление баланса пользователя"""
     conn = await connect()
-    await conn.execute("""
-        UPDATE users SET balance = balance + $2 WHERE user_id=$1
-    """, user_id, amount)
-    await conn.close()
     
-    # Возвращаем новый баланс
-    return await get_user_balance(user_id)
+    try:
+        # Используем транзакцию для атомарности операции
+        tr = conn.transaction()
+        await tr.start()
+        
+        # Получаем текущий баланс с блокировкой строки
+        current_balance = await conn.fetchval("""
+            SELECT balance FROM users WHERE user_id=$1 FOR UPDATE
+        """, user_id)
+        
+        if current_balance is None:
+            # Пользователь не существует, создаем его
+            await conn.execute("""
+                INSERT INTO users (user_id, balance) VALUES ($1, $2)
+            """, user_id, max(1000.0 + amount, 0))
+            await tr.commit()
+            return max(1000.0 + amount, 0)
+        
+        # Проверяем, что операция не приведет к отрицательному балансу
+        new_balance = current_balance + amount
+        if new_balance < 0:
+            await tr.rollback()
+            print(f"[BALANCE_ERROR] Попытка создать отрицательный баланс для user_id={user_id}: {current_balance} + {amount} = {new_balance}")
+            raise ValueError(f"Операция приведет к отрицательному балансу: {current_balance} + {amount} = {new_balance}")
+        
+        # Обновляем баланс
+        await conn.execute("""
+            UPDATE users SET balance = $2 WHERE user_id=$1
+        """, user_id, new_balance)
+        
+        await tr.commit()
+        return new_balance
+        
+    except Exception as e:
+        await tr.rollback()
+        print(f"[BALANCE_ERROR] Ошибка при обновлении баланса пользователя {user_id}: {e}")
+        raise
+    finally:
+        await conn.close()
 
 async def set_user_balance(user_id: int, new_balance: float):
     """Устанавливает новое значение баланса для пользователя."""
@@ -79,14 +125,12 @@ async def create_order(user_id, exchange, symbol, interval, side, qty,
         investment_amount = qty * buy_price
         print(f"Расчет spot: qty={qty}, price={buy_price}, investment={investment_amount}")
     
-    # Проверяем, достаточно ли средств у пользователя
-    user_balance = await get_user_balance(user_id)
-    if user_balance < investment_amount:
-        print(f"ОШИБКА: Недостаточно средств: баланс={user_balance}, требуется={investment_amount} для user_id={user_id}")
-        raise ValueError(f"Недостаточно средств: {user_balance} < {investment_amount}")
-    
-    # Списываем средства с баланса
-    await update_user_balance(user_id, -investment_amount)
+    # Списываем средства с баланса (update_user_balance проверит достаточность средств)
+    try:
+        await update_user_balance(user_id, -investment_amount)
+    except ValueError as e:
+        print(f"ОШИБКА: Недостаточно средств для user_id={user_id}: {e}")
+        raise
     
     # Извлекаем информацию о стратегиях
     price_action_active = strategy_signals.get('price_action_active', False)
@@ -96,6 +140,13 @@ async def create_order(user_id, exchange, symbol, interval, side, qty,
     rsi_active = strategy_signals.get('rsi_active', False)
     divergence_active = strategy_signals.get('divergence_active', False)
     divergence_type = strategy_signals.get('divergence_type', '')
+    
+    # Преобразуем numpy booleans в Python booleans для избежания ошибок БД
+    price_action_active = bool(price_action_active)
+    cm_active = bool(cm_active)
+    moonbot_active = bool(moonbot_active)
+    rsi_active = bool(rsi_active)
+    divergence_active = bool(divergence_active)
     
     # Создаем запись о сделке с учетом типа торговли, плеча и стратегий
     conn = await connect()
@@ -191,14 +242,14 @@ async def close_order(order_id, sale_price):
         pnl_usdt = float(pnl_usdt)
         return_amount = invested + pnl_usdt
         
-        # Проверка на ликвидацию (для futures с плечом)
-        # Если потери превышают вложенную сумму, возвращаем 0
-        if trading_type == 'futures' and return_amount < 0:
+        # Проверка на ликвидацию (для всех типов торговли)
+        # Если потери превышают вложенную сумму, возвращаем 0 чтобы избежать отрицательного баланса
+        if return_amount < 0:
+            print(f"[LIQUIDATION] Убытки превысили вложенную сумму для ордера {order_id}. Ликвидация: {return_amount} -> 0")
             return_amount = 0
             pnl_percent = -100
             pnl_usdt = -invested
-          
-          
+        
         # Обновляем баланс пользователя (в озвращаем средства с учетом P&L)
         await conn.execute("""
             UPDATE users SET balance = balance + $2 WHERE user_id=$1
