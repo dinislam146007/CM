@@ -3,6 +3,9 @@ from db.connect import connect
 import aiosqlite
 from strategy_logic.trading_settings import load_trading_settings
 
+COMMISSION_RATE_SPOT = 0.001      # 0.10% для спота
+COMMISSION_RATE_FUTURES = 0.00075  # 0.075% для фьючерсов
+
 async def get_user_balance(user_id):
     """Получение баланса пользователя из таблицы users"""
     conn = await connect()
@@ -127,7 +130,9 @@ async def create_order(user_id, exchange, symbol, interval, side, qty,
     
     # Списываем средства с баланса (update_user_balance проверит достаточность средств)
     try:
-        await update_user_balance(user_id, -investment_amount)
+        commission_rate = COMMISSION_RATE_FUTURES if trading_type == "futures" else COMMISSION_RATE_SPOT
+        open_fee = qty * buy_price * commission_rate
+        await update_user_balance(user_id, -(investment_amount + open_fee))
     except ValueError as e:
         print(f"ОШИБКА: Недостаточно средств для user_id={user_id}: {e}")
         raise
@@ -183,7 +188,7 @@ async def get_open_order(user_id, exchange, symbol, interval):
     return row
 
 async def close_order(order_id, sale_price):
-    """Закрытие ордера с расчетом прибыли/убытка и возвратом средств на баланс"""
+    """Закрытие ордера с расчетом прибыли/убытка, комиссиями и возвратом средств на баланс"""
     # Убедимся, что sale_price - число
     sale_price = float(sale_price)
     
@@ -218,7 +223,7 @@ async def close_order(order_id, sale_price):
         # Рассчитываем прибыль/убыток с учетом типа позиции
         if side == 'LONG':
             # Базовый PnL в USDT и процентах
-            pnl_usdt = (sale_price - entry_price) * qty
+            gross_pnl = (sale_price - entry_price) * qty
             price_change_percent = ((sale_price - entry_price) / entry_price) * 100
             
             # Плечо уже учтено при расчете qty в create_order: qty = (investment_amount * leverage) / entry
@@ -228,13 +233,17 @@ async def close_order(order_id, sale_price):
             print(f"[PNL_DEBUG] LONG: pnl={pnl_usdt:.2f}USDT ({price_change_percent:.2f}%), leverage={leverage}x already in qty")
         else:  # SHORT
             # Базовый PnL в USDT и процентах
-            pnl_usdt = (entry_price - sale_price) * qty
+            gross_pnl = (entry_price - sale_price) * qty
             price_change_percent = ((entry_price - sale_price) / entry_price) * 100
             
             # Плечо уже учтено при расчете qty в create_order
-            pnl_percent = price_change_percent
-            
-            print(f"[PNL_DEBUG] SHORT: pnl={pnl_usdt:.2f}USDT ({price_change_percent:.2f}%), leverage={leverage}x already in qty")
+            commission_rate = COMMISSION_RATE_FUTURES if trading_type == 'futures' else COMMISSION_RATE_SPOT
+            open_fee = entry_price * qty * commission_rate
+            close_fee = sale_price * qty * commission_rate
+            total_fee = open_fee + close_fee
+            pnl_usdt = gross_pnl - total_fee
+            pnl_percent = (pnl_usdt / (entry_price * qty)) * 100  # Процент от полного объема сделки
+            print(f"[PNL_DEBUG] {side}: gross_pnl={gross_pnl:.2f} USDT, fees={total_fee:.2f} USDT, net_pnl={pnl_usdt:.2f} USDT ({pnl_percent:.2f}%)")
         
         # Сумма к возврату: вложенные средства + прибыль (или - убыток)
         # Преобразуем Decimal в float
@@ -247,8 +256,9 @@ async def close_order(order_id, sale_price):
         if return_amount < 0:
             print(f"[LIQUIDATION] Убытки превысили вложенную сумму для ордера {order_id}. Ликвидация: {return_amount} -> 0")
             return_amount = 0
-            pnl_percent = -100
+            pnl_percent = -100.0
             pnl_usdt = -invested
+            close_reason = "LIQUIDATION"
         
         # Обновляем баланс пользователя (в озвращаем средства с учетом P&L)
         await conn.execute("""
@@ -256,6 +266,9 @@ async def close_order(order_id, sale_price):
         """, user_id, return_amount)
         
         # Обновляем статус ордера
+        if close_reason is None:
+            close_reason = "MANUAL"
+        close_trigger = "price" if close_reason in ("TP", "SL") else ("liquidation" if close_reason == "LIQUIDATION" else "manual")
         result = await conn.fetchrow("""
             UPDATE orders
             SET coin_sale_price=$2::real,
@@ -264,10 +277,12 @@ async def close_order(order_id, sale_price):
                 pnl_percent=$4::numeric,
                 pnl_usdt=$5::real,
                 return_amount_usdt=$6::real
+                close_reason=$7,
+                close_trigger=$8
             WHERE id=$1 AND status='OPEN'
             RETURNING id, user_id, qty, coin_buy_price, CAST($2 AS real) as coin_sale_price, 
                       CAST($4 AS numeric) as pnl_percent, CAST($5 AS real) as pnl_usdt, 
-                      CAST($6 AS real) as return_amount_usdt, side, trading_type, leverage
+                      CAST($6 AS real) as return_amount_usdt, side, trading_type, leverage, close_reason, close_trigger
         """, order_id, sale_price, dt.datetime.utcnow(), 
             pnl_percent, pnl_usdt, return_amount)
         

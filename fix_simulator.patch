@@ -1,0 +1,82 @@
+diff --git a/main_strategy.py b/main_strategy.py
+index abcdef1..1234567 100644
+--- a/main_strategy.py
++++ b/main_strategy.py
+@@ -60,7 +60,17 @@ def create_order(symbol, side, qty, price, tp_price, sl_price, leverage, typ
+     # расчёт инвестиции
+     if trading_type == "futures":
+-        investment_amount = qty * price
++        # на фьючерсах инвестируется только маржа = (qty*price)/leverage
++        investment_amount = (qty * price) / leverage
+     else:
+         investment_amount = qty * price
++
++    # снимем сумму с баланса
++    balances[symbol] -= investment_amount
++
++    order = {
++        "symbol": symbol,
++        "side": side.upper(),  # "LONG" или "SHORT"
++        "qty": qty,
++        "entry_price": price,
++        "tp_price": tp_price,
++        "sl_price": sl_price,
++        "leverage": leverage,
++        "investment": investment_amount,
++        "trading_type": trading_type,
++    }
+     save_order(order)
+     return order
+@@ -250,7 +260,35 @@ def close_order(order, last_candle, balances):
+     """
+     # Определим направление
+     side = order["side"].upper()
+-    is_long = (side == "BUY")
++    # приводим к нашему формату
++    is_long = (side == "LONG")
++
++    # проверка TP/SL по high/low свечи
++    high = last_candle["high"]
++    low = last_candle["low"]
++    tp = order["tp_price"]
++    sl = order["sl_price"]
++
++    if is_long:
++        hit_tp = high >= tp
++        hit_sl = low <= sl
++    else:
++        hit_tp = low <= tp
++        hit_sl = high >= sl
++
++    # если оба сработали — определяем по итоговой цене свечи
++    exit_price = last_candle["close"]
++    if hit_tp and hit_sl:
++        # если итоговая цена выше входа — считаем TP, иначе SL
++        hit_tp = (exit_price > order["entry_price"])
++        hit_sl = not hit_tp
++
++    # если ни один не сработал — выходим по close
++    if not (hit_tp or hit_sl):
++        exit_price = exit_price
++
++    # расчёт PnL
+     if is_long:
+-        pnl = (last_price - order["entry_price"]) * order["qty"]
++        pnl = (exit_price - order["entry_price"]) * order["qty"]
+     else:
+-        pnl = (order["entry_price"] - last_price) * order["qty"]
++        pnl = (order["entry_price"] - exit_price) * order["qty"]
++
++    ret = order["investment"] + pnl
++    # в фьючерсах при убытке > вложения — ликвидация
++    if order["trading_type"] == "futures" and ret < 0:
++        ret = 0
++
++    # возвращаем на баланс
++    balances[order["symbol"]] += ret
++
++    order["exit_price"] = exit_price
++    order["pnl"] = pnl
++    order["closed"] = True
+     update_order(order)
+     return order

@@ -13,7 +13,7 @@ DEFAULT_SETTINGS = {
     "strategy": {
         "OrderSize": 10.0,
         "TakeProfit": 3.0,
-        "StopLoss": 1.5,
+        "StopLoss": -1.5,
         "MinVolume": 5000000,
         "MaxVolume": 100000000,
         "MinHourlyVolume": 500000,
@@ -23,7 +23,7 @@ DEFAULT_SETTINGS = {
         "Delta2_Max": 1.0,
         "Delta_BTC_Min": -0.5,
         "Delta_BTC_Max": 0.5,
-        "CoinsBlackList": []
+        "CoinsBlackList": ["LUNA", "AVAX", "1INCH", "REN", "SRM", "UFI", "BZRX", "NEAR", "XTZ", "ANKR"]
     },
     "cm": {
         "SHORT_GAMMA": 0.4,

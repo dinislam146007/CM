@@ -40,6 +40,7 @@ from strategy_logic.cm_notifications import process_cm_signal  # Импорти�
 from user_settings import is_cm_notifications_enabled, is_cm_group_notifications_enabled  # Импортируем функции проверки настроек CM уведомлений
 from pathlib import Path
 import json
+import user_settings  # Для загрузки пользовательских параметров стратегии
 from typing import Callable, Awaitable, Dict, Tuple, Any
 import requests
 import time
@@ -240,7 +241,7 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             direction = f"{position_side} {'🔰' if position_side == 'LONG' else '🔻'}"
                 
             # Закрываем ордер и обновляем данные
-            result = await close_order(order_id, current_price)
+            result = await close_order(order_id, current_price, close_reason)
             
             # Если закрытие не удалось (ордер уже закрыт), выходим
             if not result:
@@ -294,7 +295,24 @@ async def close_order_with_notification(user_id, order_id, current_price, close_
             # Обратите внимание, что теперь мы проверяем pnl_percent, а не просто причину закрытия
             is_profitable = pnl > 0
 
-            if close_reason == "TP" and is_profitable:
+            if close_reason == "LIQUIDATION":
+                message = (
+                    f"🔴 ЗАКРЫТИЕ ОРДЕРА {symbol} {timeframe}\n\n"
+                    f"Биржа: {order.get('exchange', 'Bybit')}\n"
+                    f"Тип торговли: {trading_type.upper()}{' | Плечо: x' + str(leverage) if trading_type == 'futures' else ''}\n\n"
+                    f"📛Ликвидация позиции\n"
+                    f"🤕🪫Убыток по сделке: -{abs(pnl_percent):.2f}% (-{abs(pnl):.2f} USDT)\n\n"
+                    f"♻️Точка входа: {entry_price:.2f}$\n"
+                    f"📈Цена {'продажи' if position_side == 'LONG' else 'закрытия'}: {current_price:.4f}$\n"
+                    f"🛑{'Продано' if position_side == 'LONG' else 'Закрыто'}: {qty:.6f} {symbol_base} ({(qty * current_price):.2f} USDT)\n\n"
+                    f"📆Сделка была открыта: {buy_date}\n"
+                    f"🕐Время открытия: {buy_time} Мск\n"
+                    f"📉ТФ открытия сделки: {timeframe}\n"
+                    f"Направление: {direction}\n\n"
+                    f"Общий профит за день: {'+' if daily_profit > 0 else ''}{daily_profit:.2f} USDT {'💸🔋' if daily_profit > 0 else '🤕'}\n"
+                    f"💰 Текущий баланс: {new_balance:.2f} USDT"
+                )
+            elif close_reason == "TP" and is_profitable:
                 message = (
                     f"🔴 ЗАКРЫТИЕ ОРДЕРА {symbol} {timeframe}\n\n"
                     f"Биржа: {order.get('exchange', 'Bybit')}\n"
@@ -534,7 +552,12 @@ async def process_tf(tf: str):
             
             print(f"[INFO] Пользователь {uid} торгует следующими парами: {trading_symbols}")
             
+            user_params = user_settings.load_user_params(uid)
             for symbol in trading_symbols:
+                base_coin = symbol.replace('USDT', '')
+                if "CoinsBlackList" in user_params and base_coin in user_params["CoinsBlackList"]:
+                    print(f"[INFO] {symbol} в черном списке, пропускаем эту пару.")
+                    continue  # Пропускаем монеты из чёрного списка
                 df5 = await fetch_ohlcv(symbol, "5m", 300)
                 dft = await fetch_ohlcv(symbol, tf, 200)
                 if df5 is None or dft is None: continue
@@ -549,7 +572,7 @@ async def process_tf(tf: str):
                 open_order = await get_open_order(uid, "bybit", symbol, tf)
 
                 # Get user-specific strategy parameters
-                user_moon = StrategyMoonBot(load_strategy_params(uid))
+                user_moon = StrategyMoonBot(user_settings.load_user_params(uid))
                 
                 # Загружаем индивидуальные настройки CM для пользователя
                 cm_settings = load_cm_settings(uid)
@@ -577,7 +600,9 @@ async def process_tf(tf: str):
                 
                 # Обрабатываем каждый тип торговли отдельно
                 for trading_type in trading_types:
-                    leverage = trading_settings["leverage"]
+                    leverage = trading_settings.get("leverage", 1)
+                    if trading_type.lower() == "spot":
+                        leverage = 1
                     
                     # Initialize signal flags here
                     price_action_active = False
@@ -696,11 +721,13 @@ async def process_tf(tf: str):
                                 divergence_active = True
                                 divergence_type += "Hidden Bearish "
                     
-                    # Debug output of signal flags
+                    base_coin = symbol.replace('USDT', '')
+                    allowed_coin = base_coin not in user_params.get("CoinsBlackList", [])
                     print(f"[DEBUG] {exchange.id.upper()} {symbol} {tf} flags => PA={price_action_active} CM={cm_active} Moon={moonbot_active} RSI={rsi_active} Div={divergence_active}")
-                    
-                    # Общий флаг для проверки наличия хотя бы одного сигнала на покупку/продажу
-                    any_signal = price_action_active or cm_active or moonbot_active or rsi_active or divergence_active
+                    # Учитываем черный список при проверке сигналов
+                    any_signal = allowed_coin and (price_action_active or cm_active or moonbot_active or rsi_active or divergence_active)
+                    if not allowed_coin and (price_action_active or cm_active or moonbot_active or rsi_active or divergence_active):
+                        print(f"[INFO] Сигнал на {symbol}, но монета в черном списке – новая сделка не открывается.")
                     
                     # Get current price
                     current_price = dft["close"].iloc[-1]
@@ -1701,6 +1728,8 @@ async def internal_trade_logic(*args, **kwargs):
                 # Определяем эмодзи для типа позиции
                 position_emoji = "🔰" if position_side == "LONG" else "🔻"
                 transaction_emoji = "🟢" if position_side == "LONG" else "🔴"
+                old_balance = user_balance
+                drop_amount = old_balance - new_balance
                 
                 # Формируем сообщение по новому шаблону
                 message = (
@@ -1719,7 +1748,7 @@ async def internal_trade_logic(*args, **kwargs):
                     f"{moonbot_active and '✅' or '❌'} MoonBot\n"
                     f"{rsi_active and '✅' or '❌'} RSI\n"
                     f"{divergence_active and '✅' or '❌'} Divergence {divergence_type if divergence_active else ''}\n\n"
-                    f"💰 Баланс: {new_balance:.2f} USDT (-{(investment_amount):.2f} USDT)"
+                    f"💰 Баланс: {new_balance:.2f} USDT (-{drop_amount:.2f} USDT)"
                 )
                 
                 await safe_send_message(user_id, message)
