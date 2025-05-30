@@ -187,138 +187,159 @@ async def get_open_order(user_id, exchange, symbol, interval):
     await conn.close()
     return row
 
-async def close_order(order_id: int, sale_price: float, close_reason: str | None = None):
-    """Закрытие ордера с расчетом прибыли/убытка, комиссиями и возвратом средств на баланс"""
-    # Убедимся, что sale_price - число
+async def close_order(
+    order_id: int,
+    sale_price: float,
+    close_reason: str | None = None,
+):
+    """
+    Закрывает ордер, рассчитывает PnL с учётом комиссий и возвращает средства на баланс.
+    Работает для SPOT и FUTURES, LONG и SHORT.
+    """
+
+    # убеждаемся, что sale_price – число
     sale_price = float(sale_price)
-    
+
+    # --- значения по умолчанию, чтобы переменные существовали в любой ветке ---
+    gross_pnl: float = 0.0
+    total_fee: float = 0.0
+    pnl_usdt: float = 0.0
+    pnl_percent: float = 0.0
+    return_amount: float = 0.0
+
     conn = await connect()
+    tr = conn.transaction()
+    await tr.start()
     try:
-        # Начинаем транзакцию
-        tr = conn.transaction()
-        await tr.start()
-        
-        # Получаем данные ордера перед закрытием
-        order_data = await conn.fetchrow("""
-            SELECT user_id, qty, coin_buy_price, investment_amount_usdt, side, trading_type, leverage, status
-            FROM orders WHERE id=$1
-        """, order_id)
-        
-        if not order_data:
-            raise Exception(f"Ордер с ID {order_id} не найден")
-            
-        # Проверка на статус ордера
-        if order_data['status'] == 'CLOSED':
-            print(f"Предупреждение: Ордер {order_id} уже закрыт. Пропускаем закрытие.")
+        # берём ордер под FOR UPDATE
+        order = await conn.fetchrow(
+            """
+            SELECT id, user_id, qty, coin_buy_price, investment_amount_usdt,
+                   side, trading_type, leverage, status
+              FROM orders
+             WHERE id = $1
+            FOR UPDATE
+            """,
+            order_id,
+        )
+        if not order:
+            raise ValueError(f"Ордер {order_id} не найден")
+        if order["status"] == "CLOSED":
+            print(f"[WARN] Ордер {order_id} уже закрыт — пропуск")
             await tr.rollback()
             return None
-        
-        user_id = order_data['user_id']
-        qty = float(order_data['qty'])
-        entry_price = float(order_data['coin_buy_price'])
-        side = order_data['side']
-        trading_type = order_data['trading_type']
-        leverage = int(order_data['leverage'])
-        
-        # Рассчитываем прибыль/убыток с учетом типа позиции
-        if side == 'LONG':
-            # Базовый PnL в USDT и процентах
+
+        # --- поля ордера ---
+        user_id: int = order["user_id"]
+        qty: float = float(order["qty"])
+        entry_price: float = float(order["coin_buy_price"])
+        invested: float = float(order["investment_amount_usdt"])
+        side: str = order["side"]         # LONG / SHORT
+        trading_type: str = order["trading_type"]  # spot / futures
+
+        # --- комиссия ---
+        commission_rate = (
+            COMMISSION_RATE_FUTURES if trading_type == "futures" else COMMISSION_RATE_SPOT
+        )
+        open_fee = entry_price * qty * commission_rate
+        close_fee = sale_price * qty * commission_rate
+        total_fee = open_fee + close_fee
+
+        # --- расчёт PnL до комиссии (gross) ---
+        if side == "LONG":
             gross_pnl = (sale_price - entry_price) * qty
-            price_change_percent = ((sale_price - entry_price) / entry_price) * 100
-            
-            # Плечо уже учтено при расчете qty в create_order: qty = (investment_amount * leverage) / entry
-            # Поэтому дополнительно умножать на плечо НЕ НУЖНО
-            pnl_percent = price_change_percent
-            
-            print(f"[PNL_DEBUG] LONG: pnl={pnl_usdt:.2f}USDT ({price_change_percent:.2f}%), leverage={leverage}x already in qty")
-        else:  # SHORT
-            # Базовый PnL в USDT и процентах
+        elif side == "SHORT":
             gross_pnl = (entry_price - sale_price) * qty
-            price_change_percent = ((entry_price - sale_price) / entry_price) * 100
-            
-            # Плечо уже учтено при расчете qty в create_order
-            commission_rate = COMMISSION_RATE_FUTURES if trading_type == 'futures' else COMMISSION_RATE_SPOT
-            open_fee = entry_price * qty * commission_rate
-            close_fee = sale_price * qty * commission_rate
-            total_fee = open_fee + close_fee
-            pnl_usdt = gross_pnl - total_fee
-            pnl_percent = (pnl_usdt / (entry_price * qty)) * 100  # Процент от полного объема сделки
-            print(f"[PNL_DEBUG] {side}: gross_pnl={gross_pnl:.2f} USDT, fees={total_fee:.2f} USDT, net_pnl={pnl_usdt:.2f} USDT ({pnl_percent:.2f}%)")
-        
-        # Сумма к возврату: вложенные средства + прибыль (или - убыток)
-        # Преобразуем Decimal в float
-        invested = float(order_data['investment_amount_usdt'])
-        pnl_usdt = float(pnl_usdt)
+        else:
+            raise ValueError(f"Неизвестный side='{side}' у ордера {order_id}")
+
+        # --- net-PnL и проценты ---
+        pnl_usdt = gross_pnl - total_fee
+        pnl_percent = (pnl_usdt / (entry_price * qty)) * 100
+
+        print(
+            f"[PNL_DEBUG] {side}: gross={gross_pnl:.4f} USDT, "
+            f"fee={total_fee:.4f} USDT, net={pnl_usdt:.4f} USDT "
+            f"({pnl_percent:.4f} %)"
+        )
+
+        # --- сумма к возврату на баланс ---
         return_amount = invested + pnl_usdt
-        
-        # Проверка на ликвидацию (для всех типов торговли)
-        # Если потери превышают вложенную сумму, возвращаем 0 чтобы избежать отрицательного баланса
+
+        # ликвидация, если убыток > маржи
         if return_amount < 0:
-            print(f"[LIQUIDATION] Убытки превысили вложенную сумму для ордера {order_id}. Ликвидация: {return_amount} -> 0")
-            return_amount = 0
-            pnl_percent = -100.0
+            print(
+                f"[LIQUIDATION] Убыток превысил маржу по ордеру {order_id} "
+                f"({return_amount:.4f} USDT). Возврат 0."
+            )
             pnl_usdt = -invested
+            pnl_percent = -100.0
+            return_amount = 0.0
             close_reason = "LIQUIDATION"
-        
-        # Обновляем баланс пользователя (в озвращаем средства с учетом P&L)
-        await conn.execute("""
-            UPDATE users SET balance = balance + $2 WHERE user_id=$1
-        """, user_id, return_amount)
-        
-        # Обновляем статус ордера
+
+        # --- обновляем баланс пользователя ---
+        await conn.execute(
+            "UPDATE users SET balance = balance + $2 WHERE user_id = $1",
+            user_id,
+            return_amount,
+        )
+
+        # --- сохраняем закрытие ордера ---
         if close_reason is None:
             close_reason = "MANUAL"
-        close_trigger = "price" if close_reason in ("TP", "SL") else ("liquidation" if close_reason == "LIQUIDATION" else "manual")
-        result = await conn.fetchrow("""
+        close_trigger = (
+            "price"
+            if close_reason in ("TP", "SL")
+            else ("liquidation" if close_reason == "LIQUIDATION" else "manual")
+        )
+
+        result = await conn.fetchrow(
+            """
             UPDATE orders
-               SET coin_sale_price       = $2::real,
-                   sale_time            = $3,
-                   status               = 'CLOSED',
-                   pnl_percent          = $4::numeric,
-                   pnl_usdt             = $5::real,
-                   return_amount_usdt   = $6::real,
-                   close_reason         = $7,
-                   close_trigger        = $8
+               SET coin_sale_price     = $2,
+                   sale_time          = $3,
+                   status             = 'CLOSED',
+                   pnl_percent        = $4,
+                   pnl_usdt           = $5,
+                   return_amount_usdt = $6,
+                   close_reason       = $7,
+                   close_trigger      = $8
              WHERE id = $1
                AND status = 'OPEN'
-         RETURNING id,
-                   user_id,
-                   qty,
-                   coin_buy_price,
-                   CAST($2 AS real)  AS coin_sale_price,
-                   CAST($4 AS numeric) AS pnl_percent,
-                   CAST($5 AS real)  AS pnl_usdt,
-                   CAST($6 AS real)  AS return_amount_usdt,
-                   side,
-                   trading_type,
-                   leverage,
-                   close_reason,
-                   close_trigger
-        """, order_id, sale_price, dt.datetime.utcnow(),
-             pnl_percent, pnl_usdt, return_amount,
-             close_reason, close_trigger)
-        # Проверяем, был ли обновлен ордер (если ордер уже был закрыт, result будет None)
+         RETURNING *
+            """,
+            order_id,
+            sale_price,
+            dt.datetime.utcnow(),
+            pnl_percent,
+            pnl_usdt,
+            return_amount,
+            close_reason,
+            close_trigger,
+        )
+
         if not result:
-            print(f"Предупреждение: Ордер {order_id} не был обновлен (возможно уже закрыт). Отменяем транзакцию.")
+            print(f"[WARN] Ордер {order_id} не был обновлён — откат")
             await tr.rollback()
             return None
-            
-        # Получаем новый баланс пользователя для логирования
-        new_balance = await get_user_balance(user_id)
-        print(f"Новый баланс пользователя {user_id} после закрытия ордера: {new_balance} (+{return_amount})")
-        
-        # Завершаем транзакцию
+
         await tr.commit()
-        
+
+        new_balance = await get_user_balance(user_id)
+        print(
+            f"[BALANCE] user={user_id}: +{return_amount:.4f} USDT → "
+            f"{new_balance:.4f} USDT"
+        )
+
         return result
-    except Exception as e:
-        # В случае ошибки отменяем все изменения
+
+    except Exception as exc:
         await tr.rollback()
-        print(f"Ошибка при закрытии ордера: {e}")
+        print(f"[ERROR] close_order({order_id}): {exc}")
         raise
+
     finally:
         await conn.close()
-
 # Add the missing functions
 async def get_user_open_orders(user_id):
     """Получение списка открытых ордеров пользователя"""
@@ -607,7 +628,7 @@ async def calculate_max_position_size(user_id, symbol, leverage=1):
     # С учетом плеча
     max_position_value = safe_balance * leverage
     
-    # Конвертируем в количество базовой валюты
+    # Конвертируем в количество базовой валютыа
     max_qty = max_position_value / current_price
     
     return max_qty
