@@ -793,7 +793,6 @@ async def process_tf(tf: str):
                                 print(f"Error: Invalid quantity {qty} for {symbol} before final formatting.")
                                 continue # Changed from return to continue
                         
-                            # Format quantity
                             qty = round(qty, 6)
                         
                             # Ensure minimum order size in USDT (this check might be redundant now but safe to keep)
@@ -1569,8 +1568,8 @@ async def internal_trade_logic(*args, **kwargs):
         # Get current price
         current_price = dft["close"].iloc[-1]
         
-        # Open position if any signal is active
-        if any_signal:
+        # Open position only if there is no current open order and at least one signal is active
+        if open_order is None and any_signal:
             # Use MoonBot strategy or basic order
             if moonbot_active:
                 order_dict = user_moon.build_order(dft)
@@ -1712,8 +1711,8 @@ async def internal_trade_logic(*args, **kwargs):
                 print(f"Ошибка при создании ордера для {exchange_name} {symbol}: {e}")
                 # await safe_send_message(user_id, f"Ошибка при создании ордера: {e}")
         
-        # EXIT LOGIC (with open order)
-        elif open_order is not None:
+        # EXIT LOGIC (with open order) — always evaluated, independent of entry logic above
+        if open_order is not None:
             last_price = dft["close"].iloc[-1]
             
             # Skip if already closed
