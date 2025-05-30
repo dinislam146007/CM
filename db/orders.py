@@ -271,21 +271,32 @@ async def close_order(order_id: int, sale_price: float, close_reason: str | None
         close_trigger = "price" if close_reason in ("TP", "SL") else ("liquidation" if close_reason == "LIQUIDATION" else "manual")
         result = await conn.fetchrow("""
             UPDATE orders
-            SET coin_sale_price=$2::real,
-                sale_time=$3,
-                status='CLOSED',
-                pnl_percent=$4::numeric,
-                pnl_usdt=$5::real,
-                return_amount_usdt=$6::real
-                close_reason=$7,
-                close_trigger=$8
-            WHERE id=$1 AND status='OPEN'
-            RETURNING id, user_id, qty, coin_buy_price, CAST($2 AS real) as coin_sale_price, 
-                      CAST($4 AS numeric) as pnl_percent, CAST($5 AS real) as pnl_usdt, 
-                      CAST($6 AS real) as return_amount_usdt, side, trading_type, leverage, close_reason, close_trigger
-        """, order_id, sale_price, dt.datetime.utcnow(), 
-            pnl_percent, pnl_usdt, return_amount)
-        
+               SET coin_sale_price       = $2::real,
+                   sale_time            = $3,
+                   status               = 'CLOSED',
+                   pnl_percent          = $4::numeric,
+                   pnl_usdt             = $5::real,
+                   return_amount_usdt   = $6::real,
+                   close_reason         = $7,
+                   close_trigger        = $8
+             WHERE id = $1
+               AND status = 'OPEN'
+         RETURNING id,
+                   user_id,
+                   qty,
+                   coin_buy_price,
+                   CAST($2 AS real)  AS coin_sale_price,
+                   CAST($4 AS numeric) AS pnl_percent,
+                   CAST($5 AS real)  AS pnl_usdt,
+                   CAST($6 AS real)  AS return_amount_usdt,
+                   side,
+                   trading_type,
+                   leverage,
+                   close_reason,
+                   close_trigger
+        """, order_id, sale_price, dt.datetime.utcnow(),
+             pnl_percent, pnl_usdt, return_amount,
+             close_reason, close_trigger)
         # Проверяем, был ли обновлен ордер (если ордер уже был закрыт, result будет None)
         if not result:
             print(f"Предупреждение: Ордер {order_id} не был обновлен (возможно уже закрыт). Отменяем транзакцию.")
