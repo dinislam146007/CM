@@ -187,7 +187,7 @@ async def get_open_order(user_id, exchange, symbol, interval):
     await conn.close()
     return row
 
-async def close_order(order_id, sale_price):
+async def close_order(order_id: int, sale_price: float, close_reason: str | None = None):
     """Закрытие ордера с расчетом прибыли/убытка, комиссиями и возвратом средств на баланс"""
     # Убедимся, что sale_price - число
     sale_price = float(sale_price)
