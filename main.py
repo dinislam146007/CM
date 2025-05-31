@@ -6,11 +6,13 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.bot import DefaultBotProperties
 from config import config
 from basic.handlers import router
-from db import create_tables
+from db.create_table import create_tables
 from db.update_schema import update_schema
 from telethon_handler.get_messages import telethon_channels_main
 from strategy_logic.admin_commands import trading_router
 from strategy_logic.cm_notification_processor import start_notification_processor
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from strategy_logic.get_all_coins import get_usdt_pairs
 
 logging.basicConfig(level=logging.INFO)
 
