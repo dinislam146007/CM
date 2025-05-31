@@ -2387,312 +2387,186 @@ async def start_cal(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith('cm'))
 async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    action = callback.data.split()[1]
+    action = callback.data.split()[1] if len(callback.data.split()) > 1 else None
     
     if action == 'reset':
-        # Сброс настроек CM индикатора к стандартным
-        reset_cm_settings(callback.from_user.id)
-        await callback.answer("Настройки CM индикатора сброшены к стандартным значениям")
+        # Reset CM settings to default
+        await reset_cm_settings(callback.from_user.id)
+        await callback.answer("Настройки CM сброшены к стандартным значениям")
         
-        # Получаем стандартные настройки
+        # Get default settings
         cm_settings = load_cm_settings(callback.from_user.id)
         
-        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
-        text += "Параметры сброшены к стандартным значениям.\n\n"
+        text = "⚙️ Настройки CM\\n\\n"
+        text += "Параметры сброшены к стандартным значениям.\\n\\n"
         
-        # Отображаем текущие параметры
-        text += "📊 Текущие параметры:\n"
-        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
-        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
-        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
-        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
-        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
-        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
-        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
+        # Display current parameters
+        text += "📊 Текущие параметры:\\n"
+        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\\n"
+        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\\n"
+        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']}\\n"
+        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']}\\n"
+        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\\n"
+        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\\n"
+        text += f"PCTILE: {cm_settings['PCTILE']}"
         
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=cm_params_inline()
-        )
-    
-    elif action == 'notifications':
-        # Включение/выключение уведомлений CM для пользователя
-        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
-        
-        if is_enabled:
-            # Если уведомления включены, выключаем их
-            await disable_cm_notifications(callback.from_user.id)
-            await callback.answer("Уведомления CM индикатора отключены")
-        else:
-            # Если уведомления выключены, включаем их
-            await enable_cm_notifications(callback.from_user.id)
-            await callback.answer("Уведомления CM индикатора включены")
-        
-        # Обновляем текст с учетом нового статуса уведомлений
-        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
-        is_group_enabled = await is_cm_group_notifications_enabled()
-        
-        # Загружаем настройки CM
-        cm_settings = load_cm_settings(callback.from_user.id)
-        
-        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
-        
-        # Отображаем текущие параметры
-        text += "📊 Текущие параметры:\n"
-        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
-        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
-        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
-        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
-        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
-        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
-        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
-        
-        # Статус уведомлений
-        text += f"Уведомления CM индикатора: {'✅ Включены' if is_enabled else '❌ Отключены'}\n"
-        text += f"Уведомления CM в группу: {'✅ Включены' if is_group_enabled else '❌ Отключены'}\n\n"
-        
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=cm_params_inline()
-        )
-    
-    elif action == 'group_notifications':
-        # Включение/выключение уведомлений CM для группы
-        # Проверяем, является ли пользователь администратором
-        user = await bot.get_chat_member(config.trading_group_id, callback.from_user.id)
-        is_admin = user.status in ['administrator', 'creator']
-        
-        if not is_admin:
-            await callback.answer("Только администраторы могут управлять уведомлениями для группы", show_alert=True)
-            return
-        
-        is_group_enabled = await is_cm_group_notifications_enabled()
-        
-        if is_group_enabled:
-            # Если уведомления для группы включены, выключаем их
-            await disable_cm_group_notifications()
-            await callback.answer("Уведомления CM индикатора для группы отключены")
-        else:
-            # Если уведомления для группы выключены, включаем их
-            await enable_cm_group_notifications()
-            await callback.answer("Уведомления CM индикатора для группы включены")
-        
-        # Обновляем текст с учетом нового статуса уведомлений
-        is_enabled = await is_cm_notifications_enabled(callback.from_user.id)
-        is_group_enabled = await is_cm_group_notifications_enabled()
-        
-        # Загружаем настройки CM
-        cm_settings = load_cm_settings(callback.from_user.id)
-        
-        text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
-        
-        # Отображаем текущие параметры
-        text += "📊 Текущие параметры:\n"
-        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
-        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
-        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
-        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
-        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
-        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
-        text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
-        
-        # Статус уведомлений
-        text += f"Уведомления CM индикатора: {'✅ Включены' if is_enabled else '❌ Отключены'}\n"
-        text += f"Уведомления CM в группу: {'✅ Включены' if is_group_enabled else '❌ Отключены'}\n\n"
-        
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=cm_params_inline()
-        )
-    
-    elif action in ['TakeProfit', 'StopLoss', 'SHORT_GAMMA', 'LONG_GAMMA', 'LOOKBACK_T', 'LOOKBACK_B', 'PCTILE']:
-        # Обработка редактирования параметров CM
-        # Получаем текущее значение параметра
-        cm_settings = load_cm_settings(callback.from_user.id)
-        current_value = cm_settings.get(action, 0)
-        
-        # Сохраняем параметр для формы редактирования
+        await callback.message.edit_text(text, reply_markup=cm_params_inline())
+        return
+
+    if action:
+        # Save the parameter name to state
+        await state.set_state(CMParamStates.edit_param)
         await state.update_data(param_name=action)
         
-        # Переходим в состояние редактирования параметра
-        await state.set_state(CMParamStates.edit_param)
+        text = f"Введите новое значение для параметра {action}:"
+        if action in ['TakeProfit', 'StopLoss']:
+            text = f"Введите новое значение для {'Take Profit' if action == 'TakeProfit' else 'Stop Loss'} в процентах:"
         
-        # Запрашиваем новое значение
-        param_description = {
-            'TakeProfit': 'Take Profit (%)',
-            'StopLoss': 'Stop Loss (%)',
-            'SHORT_GAMMA': 'SHORT_GAMMA',
-            'LONG_GAMMA': 'LONG_GAMMA',
-            'LOOKBACK_T': 'LOOKBACK_T',
-            'LOOKBACK_B': 'LOOKBACK_B',
-            'PCTILE': 'PCTILE'
-        }
-        
-        msg = await callback.message.edit_text(
-            f"Текущее значение {param_description.get(action, action)}: {current_value}\n\n"
-            f"Введите новое значение для {param_description.get(action, action)}:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Отмена', callback_data='settings cm')]
-            ])
+        await callback.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text='Отмена', callback_data='close_state')
+            ]])
         )
-        await state.update_data(last_msg=msg.message_id)
+        return
+
+    # Display current CM settings
+    cm_settings = load_cm_settings(callback.from_user.id)
+    
+    text = "⚙️ Настройки CM\\n\\n"
+    text += "📊 Текущие параметры:\\n"
+    text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\\n"
+    text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\\n"
+    text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']}\\n"
+    text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']}\\n"
+    text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\\n"
+    text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\\n"
+    text += f"PCTILE: {cm_settings['PCTILE']}"
+    
+    await callback.message.edit_text(text, reply_markup=cm_params_inline())
 
 @router.message(CMParamStates.edit_param)
 async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
+    # Get the parameter name from state
     data = await state.get_data()
     param_name = data.get('param_name')
     
+    if not param_name:
+        await message.answer("Ошибка: параметр не найден")
+        await state.clear()
+        return
+    
+    # Get the input value
+    param_value = message.text.strip()
+    
     try:
-        # Удаляем предыдущее сообщение
-        try:
-            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Удаляем сообщение пользователя с введенным значением
-        try:
-            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Преобразуем входное значение в нужный тип
-        param_value = float(message.text.strip())
-        
-        # Обновляем параметр
-        success = update_cm_setting(message.from_user.id, param_name, param_value)
-        
-        if success:
-            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
-            
-            # Получаем обновленные настройки
-            cm_settings = load_cm_settings(message.from_user.id)
-            
-            text = "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
-            
-            # Отображаем текущие параметры
-            text += "📊 Текущие параметры:\n"
-            text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
-            text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
-            text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
-            text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
-            text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
-            text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\n"
-            text += f"PCTILE: {cm_settings['PCTILE']}\n\n"
-            
-            text += "Выберите параметр для изменения:"
-            
-            # Показываем меню настроек CM с текущими параметрами
-            await message.answer(
-                text=text,
-                reply_markup=cm_params_inline()
-            )
-            
-            # Удаляем сообщение об успехе через 5 секунд
-            await asyncio.sleep(5)
-            try:
-                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
-            except Exception:
-                pass
+        # Convert value to float for numeric parameters
+        if param_name in ['TakeProfit', 'StopLoss', 'SHORT_GAMMA', 'LONG_GAMMA', 'PCTILE']:
+            param_value = float(param_value)
         else:
-            await message.answer(f"Не удалось обновить параметр {param_name}")
-            await message.answer(
-                "⚙️ Настройки индикатора CM (Congestion Measure)\n\n"
-                "Выберите параметр для изменения:",
-                reply_markup=cm_params_inline()
-            )
+            param_value = int(param_value)
+        
+        # Validate TakeProfit and StopLoss
+        if param_name == 'TakeProfit' and param_value <= 0:
+            await message.answer("Take Profit должен быть больше 0")
+            return
+        if param_name == 'StopLoss' and param_value >= 0:
+            await message.answer("Stop Loss должен быть меньше 0")
+            return
+        
+        # Update the parameter
+        await update_cm_setting(message.from_user.id, param_name, param_value)
+        
+        # Get updated settings
+        cm_settings = load_cm_settings(message.from_user.id)
+        
+        # Format message with updated settings
+        text = "⚙️ Настройки CM\\n\\n"
+        text += "📊 Текущие параметры:\\n"
+        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\\n"
+        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\\n"
+        text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']}\\n"
+        text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']}\\n"
+        text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\\n"
+        text += f"LOOKBACK_B: {cm_settings['LOOKBACK_B']}\\n"
+        text += f"PCTILE: {cm_settings['PCTILE']}"
+        
+        await message.answer(text, reply_markup=cm_params_inline())
+        await state.clear()
+        
     except ValueError:
         await message.answer(
-            "Ошибка: значение должно быть числом.\n"
-            "Попробуйте еще раз:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Назад', callback_data='settings cm')]
-            ])
+            "Ошибка: введите числовое значение",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text='Отмена', callback_data='close_state')
+            ]])
         )
-    
-    await state.clear()
 
 @router.callback_query(F.data.startswith('divergence'))
 async def divergence_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    action = callback.data.split()[1]
+    action = callback.data.split()[1] if len(callback.data.split()) > 1 else None
     
     if action == 'reset':
-        # Сброс настроек индикатора дивергенции к стандартным
-        reset_divergence_settings(callback.from_user.id)
-        await callback.answer("Настройки индикатора дивергенции сброшены к стандартным значениям")
+        # Reset divergence settings to default
+        await reset_divergence_settings(callback.from_user.id)
+        await callback.answer("Настройки дивергенции сброшены к стандартным значениям")
         
-        # Получаем стандартные настройки
+        # Get default settings
         divergence_settings = load_divergence_settings(callback.from_user.id)
         
-        text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
-        text += "Параметры сброшены к стандартным значениям.\n\n"
+        text = "⚙️ Настройки дивергенции\\n\\n"
+        text += "Параметры сброшены к стандартным значениям.\\n\\n"
         
-        # Отображаем текущие параметры
-        text += "📊 Текущие параметры:\n"
-        text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\n"
-        text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\n"
-        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
-        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
-        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
-        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
-        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
-        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
-        text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
-        text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
-        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
-        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
+        # Display current parameters
+        text += "📊 Текущие параметры:\\n"
+        text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\\n"
+        text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\\n"
+        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\\n"
+        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\\n"
+        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\\n"
+        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\\n"
+        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\\n"
+        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\\n"
+        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\\n"
+        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}"
         
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=divergence_params_inline()
-        )
-    elif action == 'STOP_LOSS_TYPE':
-        # Особая обработка для выбора типа стоп-лосса
-        await callback.message.edit_text(
-            "Выберите тип стоп-лосса:",
-            reply_markup=stop_loss_type_inline()
-        )
-        await state.set_state(DivergenceParamStates.edit_stop_loss_type)
-    elif action in ['TakeProfit', 'StopLoss', 'RSI_LENGTH', 'LB_RIGHT', 'LB_LEFT', 'RANGE_UPPER', 'RANGE_LOWER', 
-                   'TAKE_PROFIT_RSI_LEVEL', 'STOP_LOSS_PERC', 'ATR_LENGTH', 'ATR_MULTIPLIER']:
-        # Редактирование параметра дивергенции
-        divergence_settings = load_divergence_settings(callback.from_user.id)
-        current_value = divergence_settings.get(action, "не установлено")
-        
-        kb = [
-            [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
-        ]
-        
-        param_description = {
-            'TakeProfit': 'Take Profit (%)',
-            'StopLoss': 'Stop Loss (%)',
-            'RSI_LENGTH': 'RSI_LENGTH',
-            'LB_RIGHT': 'LB_RIGHT',
-            'LB_LEFT': 'LB_LEFT',
-            'RANGE_UPPER': 'RANGE_UPPER',
-            'RANGE_LOWER': 'RANGE_LOWER',
-            'TAKE_PROFIT_RSI_LEVEL': 'TAKE_PROFIT_RSI_LEVEL',
-            'STOP_LOSS_PERC': 'STOP_LOSS_PERC',
-            'ATR_LENGTH': 'ATR_LENGTH',
-            'ATR_MULTIPLIER': 'ATR_MULTIPLIER'
-        }
-        
-        msg = await callback.message.edit_text(
-            f"Изменение параметра: {param_description.get(action, action)}\n"
-            f"Текущее значение: {current_value}\n\n"
-            f"Введите новое значение:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-        )
-        
+        await callback.message.edit_text(text, reply_markup=divergence_params_inline())
+        return
+
+    if action:
+        # Save the parameter name to state
         await state.set_state(DivergenceParamStates.edit_param)
-        await state.update_data(param_name=action, last_msg=msg.message_id)
+        await state.update_data(param_name=action)
+        
+        text = f"Введите новое значение для параметра {action}:"
+        if action in ['TakeProfit', 'StopLoss']:
+            text = f"Введите новое значение для {'Take Profit' if action == 'TakeProfit' else 'Stop Loss'} в процентах:"
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text='Отмена', callback_data='close_state')
+            ]])
+        )
+        return
+
+    # Display current divergence settings
+    divergence_settings = load_divergence_settings(callback.from_user.id)
+    
+    text = "⚙️ Настройки дивергенции\\n\\n"
+    text += "📊 Текущие параметры:\\n"
+    text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\\n"
+    text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\\n"
+    text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\\n"
+    text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\\n"
+    text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\\n"
+    text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\\n"
+    text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\\n"
+    text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\\n"
+    text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\\n"
+    text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}"
+    
+    await callback.message.edit_text(text, reply_markup=divergence_params_inline())
 
 @router.callback_query(F.data.startswith('divergence_sl_type'))
 async def divergence_sl_type_select(callback: CallbackQuery, state: FSMContext):
@@ -2733,80 +2607,63 @@ async def divergence_sl_type_select(callback: CallbackQuery, state: FSMContext):
 
 @router.message(DivergenceParamStates.edit_param)
 async def process_divergence_param_edit(message: Message, state: FSMContext, bot: Bot):
+    # Get the parameter name from state
     data = await state.get_data()
     param_name = data.get('param_name')
     
+    if not param_name:
+        await message.answer("Ошибка: параметр не найден")
+        await state.clear()
+        return
+    
+    # Get the input value
+    param_value = message.text.strip()
+    
     try:
-        # Удаляем предыдущее сообщение
-        try:
-            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Удаляем сообщение пользователя с введенным значением
-        try:
-            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Преобразуем входное значение в нужный тип
-        param_value = float(message.text.strip())
-        
-        # Обновляем параметр
-        success = update_divergence_setting(message.from_user.id, param_name, param_value)
-        
-        if success:
-            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
-            
-            # Получаем обновленные настройки
-            divergence_settings = load_divergence_settings(message.from_user.id)
-            
-            text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
-            
-            # Отображаем текущие параметры
-            text += "📊 Текущие параметры:\n"
-            text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
-            text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
-            text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
-            text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
-            text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
-            text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
-            text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
-            text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
-            text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
-            text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
-            
-            text += "Выберите параметр для изменения:"
-            
-            # Показываем меню настроек с текущими параметрами
-            await message.answer(
-                text=text,
-                reply_markup=divergence_params_inline()
-            )
-            
-            # Удаляем сообщение об успехе через 5 секунд
-            await asyncio.sleep(5)
-            try:
-                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
-            except Exception:
-                pass
+        # Convert value to float for numeric parameters
+        if param_name in ['TakeProfit', 'StopLoss', 'ATR_MULTIPLIER', 'TAKE_PROFIT_RSI_LEVEL']:
+            param_value = float(param_value)
         else:
-            await message.answer(f"Не удалось обновить параметр {param_name}")
-            await message.answer(
-                "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
-                "Выберите параметр для изменения:",
-                reply_markup=divergence_params_inline()
-            )
+            param_value = int(param_value)
+        
+        # Validate TakeProfit and StopLoss
+        if param_name == 'TakeProfit' and param_value <= 0:
+            await message.answer("Take Profit должен быть больше 0")
+            return
+        if param_name == 'StopLoss' and param_value >= 0:
+            await message.answer("Stop Loss должен быть меньше 0")
+            return
+        
+        # Update the parameter
+        await update_divergence_setting(message.from_user.id, param_name, param_value)
+        
+        # Get updated settings
+        divergence_settings = load_divergence_settings(message.from_user.id)
+        
+        # Format message with updated settings
+        text = "⚙️ Настройки дивергенции\\n\\n"
+        text += "📊 Текущие параметры:\\n"
+        text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\\n"
+        text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\\n"
+        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\\n"
+        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\\n"
+        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\\n"
+        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\\n"
+        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\\n"
+        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\\n"
+        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\\n"
+        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}"
+        
+        await message.answer(text, reply_markup=divergence_params_inline())
+        await state.clear()
+        
     except ValueError:
         await message.answer(
-            "Ошибка: значение должно быть числом.\n"
-            "Попробуйте еще раз:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
-            ])
+            "Ошибка: введите числовое значение",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text='Отмена', callback_data='close_state')
+            ]])
         )
-    
-    await state.clear()
 
 @router.message(DivergenceParamStates.edit_stop_loss_type)
 async def process_divergence_stop_loss_type_edit(message: Message, state: FSMContext, bot: Bot):
@@ -2821,1093 +2678,6 @@ async def process_divergence_stop_loss_type_edit(message: Message, state: FSMCon
         
         # Удаляем сообщение пользователя с введенным значением
         try:
-            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        stop_loss_type = message.text.strip().upper()
-        
-        if stop_loss_type not in ["PERC", "ATR", "NONE"]:
-            await message.answer(
-                "Неверный тип стоп-лосса. Допустимые значения: PERC, ATR, NONE.\n"
-                "Попробуйте еще раз:",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
-                ])
-            )
-            return
-        
-        # Обновляем параметр
-        success = update_divergence_setting(message.from_user.id, 'STOP_LOSS_TYPE', stop_loss_type)
-        
-        if success:
-            success_msg = await message.answer(f"Тип стоп-лосса успешно обновлен на {stop_loss_type}")
-            
-            # Получаем обновленные настройки
-            divergence_settings = load_divergence_settings(message.from_user.id)
-            
-            text = "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
-            
-            # Отображаем текущие параметры
-            text += "📊 Текущие параметры:\n"
-            text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
-            text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
-            text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
-            text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\n"
-            text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\n"
-            text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\n"
-            text += f"STOP_LOSS_TYPE: {divergence_settings['STOP_LOSS_TYPE']}\n"
-            text += f"STOP_LOSS_PERC: {divergence_settings['STOP_LOSS_PERC']}\n"
-            text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\n"
-            text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}\n\n"
-            
-            text += "Выберите параметр для изменения:"
-            
-            # Показываем меню настроек с текущими параметрами
-            await message.answer(
-                text=text,
-                reply_markup=divergence_params_inline()
-            )
-            
-            # Удаляем сообщение об успехе через 5 секунд
-            await asyncio.sleep(5)
-            try:
-                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
-            except Exception:
-                pass
-        else:
-            await message.answer("Не удалось обновить тип стоп-лосса")
-            await message.answer(
-                "⚙️ Настройки индикатора дивергенции (RSI)\n\n"
-                "Выберите параметр для изменения:",
-                reply_markup=divergence_params_inline()
-            )
-    except Exception as e:
-        await message.answer(
-            f"Ошибка: {str(e)}.\n"
-            "Попробуйте еще раз:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
-            ])
-        )
-    
-    await state.clear()
-
-@router.callback_query(F.data.startswith('rsi'))
-async def rsi_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    action = callback.data.split()[1]
-    
-    if action == 'reset':
-        # Reset RSI indicator settings to default
-        reset_rsi_settings(callback.from_user.id)
-        await callback.answer("Настройки RSI индикатора сброшены к стандартным значениям")
-        
-        # Get default settings
-        rsi_settings = load_rsi_settings(callback.from_user.id)
-        
-        text = "⚙️ Настройки индикатора RSI\n\n"
-        text += "Параметры сброшены к стандартным значениям.\n\n"
-        
-        # Display current parameters
-        text += "📊 Текущие параметры:\n"
-        text += f"📈 Take Profit: {rsi_settings.get('TakeProfit', 3.0)}%\n"
-        text += f"📉 Stop Loss: {rsi_settings.get('StopLoss', -1.5)}%\n"
-        text += f"RSI_PERIOD: {rsi_settings['RSI_PERIOD']}\n"
-        text += f"RSI_OVERBOUGHT: {rsi_settings['RSI_OVERBOUGHT']}\n"
-        text += f"RSI_OVERSOLD: {rsi_settings['RSI_OVERSOLD']}\n"
-        text += f"EMA_FAST: {rsi_settings['EMA_FAST']}\n"
-        text += f"EMA_SLOW: {rsi_settings['EMA_SLOW']}\n\n"
-        
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=rsi_params_inline()
-        )
-    elif action in ['TakeProfit', 'StopLoss', 'RSI_PERIOD', 'RSI_OVERBOUGHT', 'RSI_OVERSOLD', 'EMA_FAST', 'EMA_SLOW']:
-        # Edit RSI parameter
-        rsi_settings = load_rsi_settings(callback.from_user.id)
-        current_value = rsi_settings.get(action, "не установлено")
-        
-        kb = [
-            [InlineKeyboardButton(text='Назад', callback_data='settings rsi')]
-        ]
-        
-        param_description = {
-            'TakeProfit': 'Take Profit (%)',
-            'StopLoss': 'Stop Loss (%)',
-            'RSI_PERIOD': 'RSI_PERIOD',
-            'RSI_OVERBOUGHT': 'RSI_OVERBOUGHT',
-            'RSI_OVERSOLD': 'RSI_OVERSOLD',
-            'EMA_FAST': 'EMA_FAST',
-            'EMA_SLOW': 'EMA_SLOW'
-        }
-        
-        msg = await callback.message.edit_text(
-            f"Изменение параметра: {param_description.get(action, action)}\n"
-            f"Текущее значение: {current_value}\n\n"
-            f"Введите новое значение:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-        )
-        
-        await state.set_state(RSIParamStates.edit_param)
-        await state.update_data(param_name=action, last_msg=msg.message_id)
-
-@router.message(RSIParamStates.edit_param)
-async def process_rsi_param_edit(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    param_name = data.get('param_name')
-    
-    try:
-        # Delete previous message
-        try:
-            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Удаляем сообщение пользователя с введенным значением
-        try:
-            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Convert input to proper type
-        param_value = float(message.text.strip())
-        
-        # Update parameter
-        success = update_rsi_setting(message.from_user.id, param_name, param_value)
-        
-        if success:
-            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
-            
-            # Get updated settings
-            rsi_settings = load_rsi_settings(message.from_user.id)
-            
-            text = "⚙️ Настройки индикатора RSI\n\n"
-            
-            # Display current parameters
-            text += "📊 Текущие параметры:\n"
-            text += f"📈 Take Profit: {rsi_settings.get('TakeProfit', 3.0)}%\n"
-            text += f"📉 Stop Loss: {rsi_settings.get('StopLoss', -1.5)}%\n"
-            text += f"RSI_PERIOD: {rsi_settings['RSI_PERIOD']}\n"
-            text += f"RSI_OVERBOUGHT: {rsi_settings['RSI_OVERBOUGHT']}\n"
-            text += f"RSI_OVERSOLD: {rsi_settings['RSI_OVERSOLD']}\n"
-            text += f"EMA_FAST: {rsi_settings['EMA_FAST']}\n"
-            text += f"EMA_SLOW: {rsi_settings['EMA_SLOW']}\n\n"
-            
-            text += "Выберите параметр для изменения:"
-            
-            # Show settings menu again with updated parameters
-            await message.answer(
-                text=text,
-                reply_markup=rsi_params_inline()
-            )
-            
-            # Удаляем сообщение об успехе через 5 секунд
-            await asyncio.sleep(5)
-            try:
-                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
-            except Exception:
-                pass
-        else:
-            await message.answer(f"Не удалось обновить параметр {param_name}")
-            await message.answer(
-                "⚙️ Настройки индикатора RSI\n\n"
-                "Выберите параметр для изменения:",
-                reply_markup=rsi_params_inline()
-            )
-    except ValueError:
-        await message.answer(
-            "Ошибка: значение должно быть числом.\n"
-            "Попробуйте еще раз:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Назад', callback_data='settings rsi')]
-            ])
-        )
-    
-    await state.clear()
-
-@router.callback_query(F.data.startswith('pump_dump'))
-async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    action = callback.data.split()[1]
-    
-    if action == 'reset':
-        # Reset pump_dump detector settings to default
-        reset_pump_dump_settings(callback.from_user.id)
-        await callback.answer("Настройки Pump/Dump детектора сброшены к стандартным значениям")
-        
-        # Get default settings
-        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
-        
-        text = "⚙️ Настройки Pump/Dump детектора\n\n"
-        text += "Параметры сброшены к стандартным значениям.\n\n"
-        
-        # Display current parameters
-        text += format_pump_dump_settings(pump_dump_settings, callback.from_user.id)
-        
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=pump_dump_params_inline()
-        )
-    elif action == 'subscribe':
-        # Subscribe to pump_dump notifications
-        success = add_subscriber(callback.from_user.id)
-        
-        if success:
-            await callback.answer("Вы успешно подписались на уведомления Pump/Dump")
-            # Redirect back to settings
-            await settings(callback, state, bot)
-        else:
-            await callback.answer("Ошибка при подписке на уведомления")
-    
-    elif action == 'unsubscribe':
-        # Unsubscribe from pump_dump notifications
-        success = remove_subscriber(callback.from_user.id)
-        
-        if success:
-            await callback.answer("Вы отписались от уведомлений Pump/Dump")
-            # Redirect back to settings
-            await settings(callback, state, bot)
-        else:
-            await callback.answer("Ошибка при отписке от уведомлений")
-    
-    elif action == 'TRADE_TYPE':
-        # Show trade type selection keyboard
-        await callback.message.edit_text(
-            "Выберите тип торговли:\n\n"
-            "SPOT - Спотовый рынок (без кредитного плеча)\n"
-            "FUTURES - Фьючерсы (с кредитным плечом)",
-            reply_markup=trade_type_inline()
-        )
-    
-    elif action in ['TakeProfit', 'StopLoss', 'VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'MONITOR_INTERVALS', 'ENABLED', 'LEVERAGE', 'ENABLE_SHORT_TRADES']:
-        # Edit pump_dump parameter
-        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
-        current_value = pump_dump_settings.get(action, "не установлено")
-        
-        # For list or boolean values, provide additional instructions
-        instructions = ""
-        if action == 'MONITOR_INTERVALS':
-            instructions = "\nВведите временные интервалы через запятую (например: 5m,15m,1h)"
-        elif action == 'ENABLED' or action == 'ENABLE_SHORT_TRADES':
-            instructions = "\nВведите 'true' для включения или 'false' для выключения"
-        elif action == 'LEVERAGE':
-            instructions = "\nВведите значение от 1 до 25 (целое число)"
-            # Check if trade type is SPOT, and if so, show warning
-            if pump_dump_settings.get('TRADE_TYPE') == 'SPOT':
-                instructions += "\n⚠️ Внимание: Кредитное плечо работает только в режиме FUTURES!"
-        
-        kb = [
-            [InlineKeyboardButton(text='Назад', callback_data='settings pump_dump')]
-        ]
-        
-        msg = await callback.message.edit_text(
-            f"Изменение параметра: {action}\n"
-            f"Текущее значение: {current_value}{instructions}\n\n"
-            f"Введите новое значение:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-        )
-        
-        await state.set_state(PumpDumpParamStates.edit_param)
-        await state.update_data(param_name=action, last_msg=msg.message_id)
-
-@router.callback_query(F.data.startswith('pump_dump_trade_type'))
-async def pump_dump_trade_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    trade_type = callback.data.split()[1]  # SPOT or FUTURES
-    
-    # Update the trade type parameter
-    success = update_pump_dump_setting(callback.from_user.id, 'TRADE_TYPE', trade_type)
-    
-    if success:
-        await callback.answer(f"Тип торговли изменен на {trade_type}")
-        
-        # Get updated settings
-        pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
-        
-        text = "⚙️ Настройки Pump/Dump детектора\n\n"
-        
-        # Display current parameters
-        text += format_pump_dump_settings(pump_dump_settings, callback.from_user.id)
-        
-        text += "Выберите параметр для изменения:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=pump_dump_params_inline()
-        )
-    else:
-        await callback.answer("Ошибка при изменении типа торговли")
-        await callback.message.edit_text(
-            "⚙️ Настройки Pump/Dump детектора\n\n"
-            "Выберите параметр для изменения:",
-            reply_markup=pump_dump_params_inline()
-        )
-
-@router.message(PumpDumpParamStates.edit_param)
-async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    param_name = data.get('param_name')
-    
-    try:
-        # Delete previous message
-        try:
-            await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Удаляем сообщение пользователя с введенным значением
-        try:
-            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
-        except Exception:
-            pass
-        
-        # Get the input value
-        raw_input_value = message.text.strip()
-        
-        # If параметр числовой, конвертируем в float
-        if param_name in ['TakeProfit', 'StopLoss', 'VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'LEVERAGE']:
-            try:
-                param_value = float(raw_input_value)
-            except ValueError:
-                await message.answer("Ошибка: введите числовое значение")
-                return
-        else:
-            param_value = raw_input_value
-        
-        # Update parameter
-        success = update_pump_dump_setting(message.from_user.id, param_name, param_value)
-        
-        if success:
-            success_msg = await message.answer(f"Параметр {param_name} успешно обновлен на {param_value}")
-            
-            # Get updated settings
-            pump_dump_settings = load_pump_dump_settings(message.from_user.id)
-            
-            text = "⚙️ Настройки Pump/Dump детектора\n\n"
-            
-            # Display current parameters
-            text += format_pump_dump_settings(pump_dump_settings, message.from_user.id)
-            
-            text += "Выберите параметр для изменения:"
-            
-            # Show settings menu again with updated parameters
-            await message.answer(
-                text=text,
-                reply_markup=pump_dump_params_inline()
-            )
-            
-            # Удаляем сообщение об успехе через 5 секунд
-            await asyncio.sleep(5)
-            try:
-                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
-            except Exception:
-                pass
-        else:
-            await message.answer(f"Не удалось обновить параметр {param_name}")
-            await message.answer(
-                "⚙️ Настройки Pump/Dump детектора\n\n"
-                "Выберите параметр для изменения:",
-                reply_markup=pump_dump_params_inline()
-            )
-    except ValueError:
-        await message.answer(
-            "Ошибка: значение должно соответствовать типу параметра.\n"
-            "Попробуйте еще раз:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text='Назад', callback_data='settings pump_dump')]
-            ])
-        )
-    
-    await state.clear()
-
-# Helper function to format pump_dump settings display
-def format_pump_dump_settings(settings, user_id):
-    text = "📊 Текущие параметры:\n"
-    text += f"📈 TakeProfit: {settings.get('TakeProfit', 3.0)}%\n"
-    text += f"📉 StopLoss: {settings.get('StopLoss', -1.5)}%\n"
-    text += f"VOLUME_THRESHOLD: {settings['VOLUME_THRESHOLD']:.1f}x\n"
-    text += f"PRICE_CHANGE_THRESHOLD: {settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
-    text += f"TIME_WINDOW: {settings['TIME_WINDOW']} минут\n"
-    text += f"MONITOR_INTERVALS: {', '.join(settings['MONITOR_INTERVALS'])}\n"
-    text += f"ENABLED: {'Включено' if settings['ENABLED'] else 'Выключено'}\n"
-    text += f"TRADE_TYPE: {settings['TRADE_TYPE']} ({'Спот' if settings['TRADE_TYPE'] == 'SPOT' else 'Фьючерсы'})\n"
-    text += f"LEVERAGE: {settings['LEVERAGE']}x"
-    if settings['TRADE_TYPE'] == 'SPOT':
-        text += " (не используется в режиме SPOT)\n"
-    else:
-        text += "\n"
-    text += f"ENABLE_SHORT_TRADES: {'Включено' if settings['ENABLE_SHORT_TRADES'] else 'Выключено'}\n\n"
-    
-    is_subbed = is_subscribed(user_id)
-    text += f"Статус подписки на уведомления: {'Подписаны ✅' if is_subbed else 'Не подписаны ❌'}\n\n"
-    
-    return text
-
-@router.callback_query(F.data.startswith('trading_type'))
-async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    trading_type = None
-    
-    # Handle both formats: "trading_type spot" and "set_trading_type:spot"
-    if ':' in callback.data:
-        # Format: "set_trading_type:spot"
-        trading_type = callback.data.split(':')[1]
-    else:
-        # Format: "trading_type spot"
-        parts = callback.data.split()
-        if len(parts) >= 2:
-            trading_type = parts[1]
-    
-    if not trading_type:
-        await callback.answer("Ошибка в формате данных. Пожалуйста, попробуйте снова.")
-        # Redirect back to settings
-        await settings(callback, state, bot)
-        return
-    
-    # Import from our centralized user_settings module
-    from user_settings import update_trading_type_setting, load_trading_type_settings
-    
-    # Update the trading type setting - make sure to await it
-    success = await update_trading_type_setting(callback.from_user.id, trading_type)
-    
-    if success:
-        await callback.answer(f"Тип торговли изменен на {trading_type}")
-        
-        # Get updated settings
-        trading_type_settings = load_trading_type_settings(callback.from_user.id)
-        
-        text = "⚙️ Настройки типа торговли\n\n"
-        
-        # Display current setting
-        text += f"Текущий тип торговли: {trading_type_settings['TRADING_TYPE']}\n\n"
-        
-        text += "Выберите тип торговли:"
-        
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=trading_type_settings_inline()
-        )
-    else:
-        await callback.answer("Ошибка при изменении типа торговли")
-        await callback.message.edit_text(
-            "⚙️ Настройки типа торговли\n\n"
-            "Выберите тип торговли:",
-            reply_markup=trading_type_settings_inline()
-        )
-
-@router.callback_query(F.data == 'trading_type_leverage')
-async def trading_type_leverage(callback: CallbackQuery):
-    try:
-        # Отладка для проверки callback
-        print(f"Обработка кнопки плеча, callback.data: {callback.data}")
-        
-        # Получаем информацию о пользователе
-        user = await get_user(callback.from_user.id)
-        print(f"Showing leverage options for user: {user}")
-        
-        # Создаем UI
-        text = "⚙️ Настройки кредитного плеча\n\n"
-        text += f"Текущее кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите значение кредитного плеча:"
-        
-        # Значения плеча
-        leverage_values = [1, 2, 3, 5, 10, 20]
-        
-        # Создаем кнопки в два ряда
-        buttons = []
-        row = []
-        for value in leverage_values:
-            row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"leverage_{value}"))
-            if len(row) == 3:
-                buttons.append(row)
-                row = []
-        
-        # Добавляем оставшиеся кнопки
-        if row:
-            buttons.append(row)
-            
-        # Добавляем кнопку назад
-        buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings trading")])
-        
-        # Отправляем сообщение
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-        )
-    except Exception as e:
-        print(f"Ошибка в trading_type_leverage: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при настройке плеча: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
-
-@router.callback_query(F.data.startswith('set_leverage'))
-async def set_leverage(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    # Handle both formats: "set_leverage 10" and "set_leverage:10"
-    try:
-        if ':' in callback.data:
-            leverage = int(callback.data.split(':')[1])
-        else:
-            leverage = int(callback.data.split()[1])
-        
-        # Import the module - now we're using our centralized user_settings module
-        from user_settings import update_leverage_setting, load_trading_settings
-        
-        # Debug log
-        print(f"Setting leverage to {leverage} for user {callback.from_user.id}")
-        
-        try:
-            # Update the leverage setting - make sure to await it
-            success = await update_leverage_setting(callback.from_user.id, leverage)
-            
-            if success:
-                await callback.answer(f"Кредитное плечо изменено на {leverage}x")
-                
-                # Get updated settings
-                trading_settings = load_trading_settings(callback.from_user.id)
-                
-                # Create UI with consistent format - matching the handle_trading_settings function
-                from user_settings import load_trading_types
-                current_types = load_trading_types(callback.from_user.id)
-                
-                text = "📊 Настройки торговли\n\n"
-                text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-                text += f"🔹 Кредитное плечо: x{trading_settings['leverage']}\n\n"
-                text += "Выберите параметр для изменения:"
-                
-                # Create keyboard that matches the format
-                from keyboard.inline import trading_type_settings_inline
-                keyboard = trading_type_settings_inline(callback.from_user.id)
-                
-                # EDIT message
-                await callback.message.edit_text(text=text, reply_markup=keyboard)
-            else:
-                # Error message
-                await callback.answer("Ошибка при изменении кредитного плеча")
-                
-                # Return to leverage selection
-                text = "⚙️ Настройки кредитного плеча\n\n"
-                text += f"Текущее кредитное плечо: {load_trading_settings(callback.from_user.id)['leverage']}x\n\n"
-                text += "Выберите значение кредитного плеча:"
-                
-                # Create leverage keyboard inline
-                leverage_values = [1, 2, 3, 5, 10, 20, 50, 100]
-                
-                # Split buttons into rows of 4
-                buttons = []
-                current_row = []
-                
-                for value in leverage_values:
-                    current_row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"set_leverage:{value}"))
-                    
-                    if len(current_row) == 4:
-                        buttons.append(current_row)
-                        current_row = []
-                
-                # Add any remaining buttons
-                if current_row:
-                    buttons.append(current_row)
-                
-                # Add back button
-                buttons.append([InlineKeyboardButton(text="« Назад", callback_data="trading_settings")])
-                
-                await callback.message.edit_text(
-                    text=text,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-                )
-        except Exception as inner_e:
-            print(f"Exception updating leverage setting: {inner_e}")
-            await callback.answer(f"Ошибка: {str(inner_e)}")
-            await callback.message.edit_text(
-                f"Произошла ошибка при изменении плеча: {str(inner_e)}. Пожалуйста, попробуйте позже.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="trading_settings")]])
-            )
-            
-    except (IndexError, ValueError) as e:
-        await callback.answer(f"Ошибка при обработке выбора плеча: {str(e)}", show_alert=True)
-        print(f"Error parsing leverage value: {e}")
-        await callback.message.edit_text(
-            "Произошла ошибка при выборе плеча. Пожалуйста, вернитесь назад и попробуйте снова.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="trading_settings")]])
-        )
-
-@router.callback_query(F.data == 'trading_settings')
-async def show_trading_types(callback: CallbackQuery):
-    try:
-        from user_settings import load_trading_types
-        from keyboard.inline import trading_type_settings_inline
-        
-        # Отладка для проверки callback
-        print(f"В обработчике show_trading_types, callback.data={callback.data}")
-        
-        user_id = callback.from_user.id
-        
-        # Получаем текущие типы торговли
-        current_types = load_trading_types(user_id)
-        
-        # Получаем информацию о пользователе для плеча
-        user = await get_user(user_id)
-        
-        # Создаем UI
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите типы торговли (можно выбрать несколько):"
-        
-        # Используем новую клавиатуру с множественным выбором
-        keyboard = trading_type_settings_inline(user_id)
-        
-        # Отправляем сообщение
-        await callback.message.edit_text(text=text, reply_markup=keyboard)
-        
-    except Exception as e:
-        print(f"Ошибка в show_trading_types: {e}")
-        await callback.answer("Произошла ошибка. Попробуйте снова.")
-        # Возвращаемся в меню настроек
-        await callback.message.edit_text(
-            f"Ошибка при отображении типов торговли: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings trading")]])
-        )
-
-@router.callback_query(F.data.startswith('trading_type_'))
-async def trading_type_select(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    try:
-        trading_type = callback.data.split('_')[2].lower()  # Это будет 'spot' или 'futures'
-        
-        # Обновляем настройку пользователя
-        user = await get_user(callback.from_user.id)
-        user['trading_type'] = trading_type
-        await update_user_setting(callback.from_user.id, 'trading_type', trading_type)
-        
-        # Отображаем настройки торговли
-        from user_settings import load_trading_types
-        from keyboard.inline import trading_type_settings_inline
-        current_types = load_trading_types(callback.from_user.id)
-        
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите типы торговли (можно выбрать несколько):"
-        
-        # Создаем клавиатуру
-        keyboard = trading_type_settings_inline(callback.from_user.id)
-        
-        # Отправляем сообщение
-        await callback.message.edit_text(text=text, reply_markup=keyboard)
-        
-        await callback.answer(f"Тип торговли изменен на {trading_type.upper()}")
-    except Exception as e:
-        print(f"Ошибка при изменении типа торговли: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при изменении типа торговли: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
-
-@router.callback_query(F.data.startswith('leverage_'))
-async def set_leverage_simple(callback: CallbackQuery):
-    try:
-        # Получаем значение плеча из callback_data
-        leverage = int(callback.data.split('_')[1])
-        
-        # Debug: печатаем callback.data и результат парсинга
-        print(f"Callback data: {callback.data}, parsed leverage: {leverage}")
-        
-        # Обновляем настройку пользователя
-        user = await get_user(callback.from_user.id)
-        await update_user_setting(callback.from_user.id, 'leverage', leverage)
-        
-        # Проверяем что настройка обновилась
-        updated_user = await get_user(callback.from_user.id)
-        print(f"Updated leverage value: {updated_user.get('leverage')}")
-        
-        # Отображаем настройки торговли
-        from user_settings import load_trading_types
-        from keyboard.inline import trading_type_settings_inline
-        current_types = load_trading_types(callback.from_user.id)
-        
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-        text += f"🔹 Кредитное плечо: x{leverage}\n\n"
-        text += "Выберите типы торговли (можно выбрать несколько):"
-        
-        # Создаем клавиатуру
-        keyboard = trading_type_settings_inline(callback.from_user.id)
-        
-        await callback.message.edit_text(text=text, reply_markup=keyboard)
-        
-        await callback.answer(f"Кредитное плечо изменено на x{leverage}")
-    except Exception as e:
-        print(f"Ошибка при изменении плеча: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при изменении плеча: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
-
-@router.callback_query(F.data == 'settings trading')
-async def settings_trading(callback: CallbackQuery):
-    try:
-        # Получаем информацию о пользователе
-        user = await get_user(callback.from_user.id)
-        print(f"Showing trading settings for user: {user}")
-        
-        # Создаем UI
-        from user_settings import load_trading_types
-        from keyboard.inline import trading_type_settings_inline
-        current_types = load_trading_types(callback.from_user.id)
-        
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите типы торговли (можно выбрать несколько):"
-        
-        # Создаем клавиатуру
-        keyboard = trading_type_settings_inline(callback.from_user.id)
-        
-        # Отправляем сообщение
-        await callback.message.edit_text(text=text, reply_markup=keyboard)
-    except Exception as e:
-        print(f"Ошибка в settings_trading: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при отображении настроек торговли: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
-
-@router.callback_query(F.data == 'show_leverage_options')
-async def show_leverage_options(callback: CallbackQuery):
-    try:
-        # Получаем информацию о пользователе
-        user = await get_user(callback.from_user.id)
-        print(f"Showing leverage options for user: {user}")
-        
-        # Создаем UI
-        text = "⚙️ Настройки кредитного плеча\n\n"
-        text += f"Текущее кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите значение кредитного плеча:"
-        
-        # Значения плеча
-        leverage_values = [1, 2, 3, 5, 10, 20]
-        
-        # Создаем кнопки в два ряда
-        buttons = []
-        row = []
-        for value in leverage_values:
-            row.append(InlineKeyboardButton(text=f"x{value}", callback_data=f"leverage_{value}"))
-            if len(row) == 3:
-                buttons.append(row)
-                row = []
-        
-        # Добавляем оставшиеся кнопки
-        if row:
-            buttons.append(row)
-        
-        # Добавляем кнопку для ввода произвольного значения
-        buttons.append([InlineKeyboardButton(text="Ввести другое значение", callback_data="custom_leverage")])
-            
-        # Добавляем кнопку назад
-        buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings trading")])
-        
-        # Отправляем сообщение
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-        )
-    except Exception as e:
-        print(f"Ошибка в show_leverage_options: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при настройке плеча: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
-
-# Добавляем состояние для ввода плеча
-class LeverageState(StatesGroup):
-    waiting_for_leverage = State()
-
-@router.callback_query(F.data == 'custom_leverage')
-async def ask_for_custom_leverage(callback: CallbackQuery, state: FSMContext):
-    try:
-        # Получаем информацию о пользователе для отображения текущего плеча
-        user = await get_user(callback.from_user.id)
-        current_leverage = user.get('leverage', 1)
-        
-        # Показываем инструкцию для ввода
-        msg = await callback.message.edit_text(
-            f"Введите значение кредитного плеча (от 1 до 125)\n\n"
-            f"Текущее значение: x{current_leverage}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="show_leverage_options")]
-            ])
-        )
-        
-        # Устанавливаем состояние ожидания ввода
-        await state.set_state(LeverageState.waiting_for_leverage)
-        await state.update_data(message_id=msg.message_id)
-    except Exception as e:
-        print(f"Ошибка при запросе произвольного плеча: {e}")
-        await callback.message.edit_text(
-            f"Ошибка: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="show_leverage_options")]
-            ])
-        )
-
-@router.message(LeverageState.waiting_for_leverage)
-async def process_custom_leverage(message: Message, state: FSMContext, bot: Bot):
-    try:
-        # Получаем ID сообщения с инструкцией для удаления
-        data = await state.get_data()
-        msg_id = data.get('message_id')
-        
-        # Удаляем предыдущее сообщение с инструкцией
-        try:
-            await bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
-        except Exception:
-            print("Не удалось удалить предыдущее сообщение")
-        
-        # Удаляем сообщение пользователя с введенным значением
-        try:
-            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-        except Exception:
-            print("Не удалось удалить сообщение пользователя")
-        
-        # Очищаем состояние
-        await state.clear()
-        
-        # Пробуем преобразовать введенное значение в число
-        try:
-            leverage = int(message.text.strip())
-            if leverage < 1 or leverage > 125:
-                raise ValueError("Плечо должно быть от 1 до 125")
-        except ValueError as e:
-            await message.answer(
-                f"Ошибка: {e}. Пожалуйста, введите число от 1 до 125.",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Попробовать снова", callback_data="custom_leverage")],
-                    [InlineKeyboardButton(text="« Назад", callback_data="show_leverage_options")]
-                ])
-            )
-            return
-        
-        # Обновляем настройку пользователя
-        user = await get_user(message.from_user.id)
-        await update_user_setting(message.from_user.id, 'leverage', leverage)
-        
-        # Проверяем что настройка обновилась
-        updated_user = await get_user(message.from_user.id)
-        print(f"Updated leverage value: {updated_user.get('leverage')}")
-        
-        # Отображаем настройки торговли
-        from user_settings import load_trading_types
-        from keyboard.inline import trading_type_settings_inline
-        current_types = load_trading_types(message.from_user.id)
-        
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-        text += f"🔹 Кредитное плечо: x{leverage}\n\n"
-        text += "Выберите типы торговли (можно выбрать несколько):"
-        
-        # Создаем клавиатуру
-        keyboard = trading_type_settings_inline(message.from_user.id)
-        
-        # Отправляем сообщение
-        await message.answer(text=text, reply_markup=keyboard)
-        
-        # Сообщаем об успешном изменении
-        await message.answer(f"Кредитное плечо изменено на x{leverage}", reply_markup=ReplyKeyboardRemove())
-    except Exception as e:
-        print(f"Ошибка при установке произвольного плеча: {e}")
-        await message.answer(
-            f"Ошибка при установке плеча: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
-            ])
-        )
-
-@router.callback_query(F.data.startswith('set_trading_type:'))
-async def set_trading_type_by_button(callback: CallbackQuery):
-    try:
-        # Извлекаем тип торговли из callback_data
-        trading_type = callback.data.split(':')[1].lower()
-        print(f"Изменение типа торговли на: {trading_type}")
-        
-        # Обновляем настройку пользователя
-        user = await get_user(callback.from_user.id)
-        await update_user_setting(callback.from_user.id, 'trading_type', trading_type)
-        
-        # Отображаем настройки торговли
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Тип торговли: {trading_type.upper()}\n"
-        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите действие:"
-        
-        # Создаем клавиатуру
-        kb = [
-            [InlineKeyboardButton(text="Изменить тип торговли", callback_data="trading_settings")],
-            [InlineKeyboardButton(text="Изменить кредитное плечо", callback_data="show_leverage_options")],
-            [InlineKeyboardButton(text="« Назад", callback_data="settings start")]
-        ]
-        
-        # Отправляем сообщение
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
-        )
-        
-        await callback.answer(f"Тип торговли изменен на {trading_type.upper()}")
-    except Exception as e:
-        print(f"Ошибка при изменении типа торговли кнопкой: {e}")
-        await callback.message.edit_text(
-            f"Ошибка при изменении типа торговли: {e}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« Назад", callback_data="settings start")]])
-        )
-
-@router.callback_query(F.data.startswith('toggle_trading_type:'))
-async def toggle_trading_type_handler(callback: CallbackQuery):
-    """Handle toggling of trading types for multiple selection"""
-    try:
-        from user_settings import toggle_trading_type, load_trading_types
-        
-        # Извлекаем тип торговли из callback_data
-        trading_type = callback.data.split(':')[1].lower()
-        user_id = callback.from_user.id
-        
-        print(f"Переключение типа торговли: {trading_type} для пользователя {user_id}")
-        
-        # Переключаем тип торговли
-        success = await toggle_trading_type(user_id, trading_type)
-        
-        if not success:
-            await callback.answer("❌ Нельзя убрать единственный тип торговли!", show_alert=True)
-            return
-        
-        # Получаем обновленные типы торговли
-        current_types = load_trading_types(user_id)
-        
-        # Формируем текст с текущими настройками
-        text = "📊 Настройки торговли\n\n"
-        text += f"🔹 Активные типы торговли: {', '.join([t.upper() for t in current_types])}\n"
-        
-        # Получаем настройки пользователя для отображения плеча
-        user = await get_user(user_id)
-        text += f"🔹 Кредитное плечо: x{user.get('leverage', 1)}\n\n"
-        text += "Выберите типы торговли (можно выбрать несколько):"
-        
-        # Обновляем клавиатуру с новыми состояниями
-        from keyboard.inline import trading_type_settings_inline
-        keyboard = trading_type_settings_inline(user_id)
-        
-        # Обновляем сообщение
-        await callback.message.edit_text(text=text, reply_markup=keyboard)
-        
-        # Показываем уведомление
-        if trading_type in current_types:
-            await callback.answer(f"✅ {trading_type.upper()} добавлен")
-        else:
-            await callback.answer(f"❌ {trading_type.upper()} убран")
-            
-    except Exception as e:
-        print(f"Ошибка при переключении типа торговли: {e}")
-        await callback.answer("❌ Произошла ошибка при изменении настроек", show_alert=True)
-
-@router.callback_query(F.data == 'settings exchanges')
-async def show_exchanges_settings(callback: CallbackQuery):
-    # Get exchanges information
-    user_exchanges = await get_user_exchanges(callback.from_user.id)
-    await callback.answer(f"Текущие биржи: {user_exchanges}")
-    
-    all_exchanges = ['Binance', 'Bybit', 'MEXC']
-    
-    # Create UI
-    text = "🏛️ Настройки бирж\n\n"
-    text += "Выберите биржи для торговли:"
-    
-    # Create keyboard for toggling exchange status
-    buttons = []
-    for exchange in all_exchanges:
-        status_icon = "✅" if exchange in user_exchanges else "❌"
-        buttons.append([InlineKeyboardButton(text=f"{status_icon} {exchange}", callback_data=f"toggle_exchange_{exchange}")])
-    
-    # Add back button
-    buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
-    
-    
-    # Send message
-    await callback.message.edit_text(
-        text=text,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
-
-@router.callback_query(F.data.startswith('toggle_exchange_'))
-async def toggle_exchange_status(callback: CallbackQuery):
-    exchange = callback.data.split('_')[2]
-    
-    old_user_exchanges = await get_user_exchanges(callback.from_user.id)
-    
-    await toggle_exchange(callback.from_user.id, exchange)
-    
-    user_exchanges = await get_user_exchanges(callback.from_user.id)
-    
-    if not user_exchanges:
-        await update_user_exchanges(callback.from_user.id, ['Binance'])
-        await callback.answer("Должна быть выбрана хотя бы одна биржа. Binance установлена по умолчанию.")
-        user_exchanges = ['Binance']
-    
-    # Проверяем, изменилось ли состояние
-    if set(old_user_exchanges) == set(user_exchanges):
-        await callback.answer(f"Статус биржи {exchange} не изменился")
-        return
-    
-    all_exchanges = ['Binance', 'Bybit', 'MEXC']
-    
-    # Create UI text
-    text = "🏛️ Настройки бирж\n\n"
-    text += "Выберите биржи для торговли:"
-    
-    # Create keyboard for toggling exchange status
-    buttons = []
-    for exch in all_exchanges:
-        status_icon = "✅" if exch in user_exchanges else "❌"
-        buttons.append([InlineKeyboardButton(text=f"{status_icon} {exch}", callback_data=f"toggle_exchange_{exch}")])
-    
-    # Add back button
-    buttons.append([InlineKeyboardButton(text="« Назад", callback_data="settings start")])
-    
-    # Update message with try-except block для обработки ошибки "message is not modified"
-    try:
-        await callback.message.edit_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-        )
-    except TelegramBadRequest as e:
-        if "message is not modified" in str(e):
-            # Игнорируем ошибку о неизмененном сообщении
-            await callback.answer(f"Статус биржи {exchange} обновлен")
-        else:
-            # Для других ошибок выводим в лог
-            print(f"Ошибка при обновлении сообщения: {e}")
-            await callback.answer("Произошла ошибка при обновлении интерфейса")
-    
-
-# States for setting user balance
-class SetBalanceStates(StatesGroup):
-    waiting_for_balance = State()
-
-@router.message(Command("setbalance"))
-async def cmd_set_balance(message: Message, state: FSMContext):
-    msg = await message.answer("Пожалуйста, введите новое значение баланса (например, 1000.50):")
-    await state.set_state(SetBalanceStates.waiting_for_balance)
-    await state.update_data(last_msg=msg.message_id)
-
-@router.message(SetBalanceStates.waiting_for_balance)
-async def process_balance_input(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    
-    # Удаляем временное сообщение с запросом ввода
-    try:
-        await bot.delete_message(message_id=data.get('last_msg'), chat_id=message.from_user.id)
-    except Exception:
-        pass
-    
     try:
         new_balance = float(message.text)
         if new_balance < 0:

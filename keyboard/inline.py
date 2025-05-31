@@ -284,10 +284,9 @@ def divergence_params_inline():
         [InlineKeyboardButton(text='RANGE_UPPER', callback_data='divergence RANGE_UPPER')],
         [InlineKeyboardButton(text='RANGE_LOWER', callback_data='divergence RANGE_LOWER')],
         [InlineKeyboardButton(text='TAKE_PROFIT_RSI_LEVEL', callback_data='divergence TAKE_PROFIT_RSI_LEVEL')],
-        [InlineKeyboardButton(text='STOP_LOSS_TYPE', callback_data='divergence STOP_LOSS_TYPE')],
-        [InlineKeyboardButton(text='STOP_LOSS_PERC', callback_data='divergence STOP_LOSS_PERC')],
         [InlineKeyboardButton(text='ATR_LENGTH', callback_data='divergence ATR_LENGTH')],
         [InlineKeyboardButton(text='ATR_MULTIPLIER', callback_data='divergence ATR_MULTIPLIER')],
+        [InlineKeyboardButton(text='Тип Stop Loss', callback_data='divergence_sl_type')],
         [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='divergence reset')],
         [InlineKeyboardButton(text='Назад', callback_data='settings start')]
     ]
@@ -323,8 +322,7 @@ def pump_dump_params_inline():
         [InlineKeyboardButton(text='VOLUME_THRESHOLD', callback_data='pump_dump VOLUME_THRESHOLD')],
         [InlineKeyboardButton(text='PRICE_CHANGE_THRESHOLD', callback_data='pump_dump PRICE_CHANGE_THRESHOLD')],
         [InlineKeyboardButton(text='TIME_WINDOW', callback_data='pump_dump TIME_WINDOW')],
-        [InlineKeyboardButton(text='MONITOR_INTERVALS', callback_data='pump_dump MONITOR_INTERVALS')],
-        [InlineKeyboardButton(text='ENABLED', callback_data='pump_dump ENABLED')],
+        [InlineKeyboardButton(text='Тип торговли', callback_data='pump_dump_trade_type')],
         [InlineKeyboardButton(text='Сбросить к стандартным', callback_data='pump_dump reset')],
         [InlineKeyboardButton(text='Назад', callback_data='settings start')]
     ]
