@@ -20,8 +20,8 @@ from basic.state import *
 from config import config
 from states import SubscriptionStates, EditDepositPercent, StatPeriodStates, StrategyParamStates, CMParamStates, DivergenceParamStates, RSIParamStates, PumpDumpParamStates
 import re
-from db import get_user as get_user_db
-from db import set_user as set_user_db
+from user_settings import get_user as get_user_db
+from user_settings import set_user as set_user_db
 from db.orders import ( 
                     get_all_orders,
                     set_user_balance
