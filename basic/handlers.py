@@ -2678,44 +2678,51 @@ async def process_divergence_stop_loss_type_edit(message: Message, state: FSMCon
         
         # Удаляем сообщение пользователя с введенным значением
         try:
-    try:
-        new_balance = float(message.text)
-        if new_balance < 0:
-            await message.answer("Баланс не может быть отрицательным. Пожалуйста, введите корректное значение.")
-            return
-
-        user_id = message.from_user.id
-        try:
-            await set_user_balance(user_id, new_balance)
-            
-            # Отправляем сообщение об успехе
-            success_msg = await message.answer(f"Ваш баланс успешно обновлен на {new_balance:.2f} USDT.")
-            
-            # Сразу показываем меню настроек
+            await bot.delete_message(message_id=message.message_id, chat_id=message.from_user.id)
+        except Exception:
+            pass
+        
+        # Обновляем тип стоп-лосса
+        stop_loss_type = message.text.strip().upper()
+        if stop_loss_type not in ['PERC', 'ATR']:
             await message.answer(
-                "Настройки\n\n"
-                "Выберите раздел:",
-                reply_markup=settings_inline()
+                "Некорректный тип стоп-лосса. Допустимые значения: PERC, ATR",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text='Отмена', callback_data='close_state')
+                ]])
             )
-            
-            # Удаляем сообщение об успехе через 5 секунд
-            await asyncio.sleep(5)
-            try:
-                await bot.delete_message(message_id=success_msg.message_id, chat_id=message.from_user.id)
-            except Exception:
-                pass
-                
-        except Exception as e:
-            await message.answer(f"Произошла ошибка при обновлении баланса: {e}")
-            print(f"Ошибка при вызове set_user_balance для user_id {user_id}: {e}")
-
+            return
+        
+        # Обновляем настройку
+        await update_divergence_setting(message.from_user.id, 'STOP_LOSS_TYPE', stop_loss_type)
+        
+        # Получаем обновленные настройки
+        divergence_settings = load_divergence_settings(message.from_user.id)
+        
+        # Форматируем сообщение с обновленными настройками
+        text = "⚙️ Настройки дивергенции\\n\\n"
+        text += "📊 Текущие параметры:\\n"
+        text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\\n"
+        text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\\n"
+        text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\\n"
+        text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\\n"
+        text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\\n"
+        text += f"RANGE_UPPER: {divergence_settings['RANGE_UPPER']}\\n"
+        text += f"RANGE_LOWER: {divergence_settings['RANGE_LOWER']}\\n"
+        text += f"TAKE_PROFIT_RSI_LEVEL: {divergence_settings['TAKE_PROFIT_RSI_LEVEL']}\\n"
+        text += f"ATR_LENGTH: {divergence_settings['ATR_LENGTH']}\\n"
+        text += f"ATR_MULTIPLIER: {divergence_settings['ATR_MULTIPLIER']}"
+        
+        await message.answer(text, reply_markup=divergence_params_inline())
         await state.clear()
-
-    except ValueError:
-        await message.answer("Некорректный ввод. Пожалуйста, введите числовое значение для баланса.")
+        
     except Exception as e:
-        await message.answer("Произошла непредвиденная ошибка. Попробуйте еще раз.")
-        print(f"Непредвиденная ошибка в process_balance_input: {e}")
+        await message.answer(
+            f"Произошла ошибка при обновлении типа стоп-лосса: {e}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text='Отмена', callback_data='close_state')
+            ]])
+        )
         await state.clear()
 
 @router.message(EditDepositPercent.new)
