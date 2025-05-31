@@ -262,6 +262,8 @@ def stat_period_inline():
 
 def cm_params_inline():
     kb = [
+        [InlineKeyboardButton(text='📈 Take Profit (%)', callback_data='cm TakeProfit')],
+        [InlineKeyboardButton(text='📉 Stop Loss (%)', callback_data='cm StopLoss')],
         [InlineKeyboardButton(text='SHORT_GAMMA', callback_data='cm SHORT_GAMMA')],
         [InlineKeyboardButton(text='LONG_GAMMA', callback_data='cm LONG_GAMMA')],
         [InlineKeyboardButton(text='LOOKBACK_T', callback_data='cm LOOKBACK_T')],
@@ -274,6 +276,8 @@ def cm_params_inline():
 
 def divergence_params_inline():
     kb = [
+        [InlineKeyboardButton(text='📈 Take Profit (%)', callback_data='divergence TakeProfit')],
+        [InlineKeyboardButton(text='📉 Stop Loss (%)', callback_data='divergence StopLoss')],
         [InlineKeyboardButton(text='RSI_LENGTH', callback_data='divergence RSI_LENGTH')],
         [InlineKeyboardButton(text='LB_RIGHT', callback_data='divergence LB_RIGHT')],
         [InlineKeyboardButton(text='LB_LEFT', callback_data='divergence LB_LEFT')],
@@ -291,6 +295,8 @@ def divergence_params_inline():
 
 def rsi_params_inline():
     kb = [
+        [InlineKeyboardButton(text='📈 Take Profit (%)', callback_data='rsi TakeProfit')],
+        [InlineKeyboardButton(text='📉 Stop Loss (%)', callback_data='rsi StopLoss')],
         [InlineKeyboardButton(text='RSI_PERIOD', callback_data='rsi RSI_PERIOD')],
         [InlineKeyboardButton(text='RSI_OVERBOUGHT', callback_data='rsi RSI_OVERBOUGHT')],
         [InlineKeyboardButton(text='RSI_OVERSOLD', callback_data='rsi RSI_OVERSOLD')],
@@ -312,6 +318,8 @@ def stop_loss_type_inline():
 
 def pump_dump_params_inline():
     kb = [
+        [InlineKeyboardButton(text='📈 Take Profit (%)', callback_data='pump_dump TakeProfit')],
+        [InlineKeyboardButton(text='📉 Stop Loss (%)', callback_data='pump_dump StopLoss')],
         [InlineKeyboardButton(text='VOLUME_THRESHOLD', callback_data='pump_dump VOLUME_THRESHOLD')],
         [InlineKeyboardButton(text='PRICE_CHANGE_THRESHOLD', callback_data='pump_dump PRICE_CHANGE_THRESHOLD')],
         [InlineKeyboardButton(text='TIME_WINDOW', callback_data='pump_dump TIME_WINDOW')],

@@ -2004,6 +2004,8 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Отображаем текущие параметры CM
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
         text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
         text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
         text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
@@ -2028,6 +2030,8 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Отображаем текущие параметры
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\n"
         text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
         text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
         text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
@@ -2053,6 +2057,8 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Display current parameters
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {rsi_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {rsi_settings.get('StopLoss', -1.5)}%\n"
         text += f"RSI_PERIOD: {rsi_settings['RSI_PERIOD']}\n"
         text += f"RSI_OVERBOUGHT: {rsi_settings['RSI_OVERBOUGHT']}\n"
         text += f"RSI_OVERSOLD: {rsi_settings['RSI_OVERSOLD']}\n"
@@ -2073,6 +2079,8 @@ async def settings(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Display current parameters
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {pump_dump_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {pump_dump_settings.get('StopLoss', -1.5)}%\n"
         text += f"VOLUME_THRESHOLD: {pump_dump_settings['VOLUME_THRESHOLD']:.1f}x\n"
         text += f"PRICE_CHANGE_THRESHOLD: {pump_dump_settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
         text += f"TIME_WINDOW: {pump_dump_settings['TIME_WINDOW']} минут\n"
@@ -2394,6 +2402,8 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Отображаем текущие параметры
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
         text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
         text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
         text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
@@ -2431,6 +2441,8 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Отображаем текущие параметры
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
         text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
         text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
         text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
@@ -2480,6 +2492,8 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Отображаем текущие параметры
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
         text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
         text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
         text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
@@ -2497,11 +2511,11 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
             reply_markup=cm_params_inline()
         )
     
-    elif action in ['SHORT_GAMMA', 'LONG_GAMMA', 'LOOKBACK_T', 'LOOKBACK_B', 'PCTILE']:
-        # Обработка редактирования других параметров CM (существующая логика)
+    elif action in ['TakeProfit', 'StopLoss', 'SHORT_GAMMA', 'LONG_GAMMA', 'LOOKBACK_T', 'LOOKBACK_B', 'PCTILE']:
+        # Обработка редактирования параметров CM
         # Получаем текущее значение параметра
         cm_settings = load_cm_settings(callback.from_user.id)
-        current_value = cm_settings[action]
+        current_value = cm_settings.get(action, 0)
         
         # Сохраняем параметр для формы редактирования
         await state.update_data(param_name=action)
@@ -2510,9 +2524,19 @@ async def cm_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await state.set_state(CMParamStates.edit_param)
         
         # Запрашиваем новое значение
+        param_description = {
+            'TakeProfit': 'Take Profit (%)',
+            'StopLoss': 'Stop Loss (%)',
+            'SHORT_GAMMA': 'SHORT_GAMMA',
+            'LONG_GAMMA': 'LONG_GAMMA',
+            'LOOKBACK_T': 'LOOKBACK_T',
+            'LOOKBACK_B': 'LOOKBACK_B',
+            'PCTILE': 'PCTILE'
+        }
+        
         msg = await callback.message.edit_text(
-            f"Текущее значение {action}: {current_value}\n\n"
-            f"Введите новое значение для {action}:",
+            f"Текущее значение {param_description.get(action, action)}: {current_value}\n\n"
+            f"Введите новое значение для {param_description.get(action, action)}:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text='Отмена', callback_data='settings cm')]
             ])
@@ -2553,6 +2577,8 @@ async def process_cm_param_edit(message: Message, state: FSMContext, bot: Bot):
             
             # Отображаем текущие параметры
             text += "📊 Текущие параметры:\n"
+            text += f"📈 Take Profit: {cm_settings.get('TakeProfit', 3.0)}%\n"
+            text += f"📉 Stop Loss: {cm_settings.get('StopLoss', -1.5)}%\n"
             text += f"SHORT_GAMMA: {cm_settings['SHORT_GAMMA']:.2f}\n"
             text += f"LONG_GAMMA: {cm_settings['LONG_GAMMA']:.2f}\n"
             text += f"LOOKBACK_T: {cm_settings['LOOKBACK_T']}\n"
@@ -2608,6 +2634,8 @@ async def divergence_params(callback: CallbackQuery, state: FSMContext, bot: Bot
         
         # Отображаем текущие параметры
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {divergence_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {divergence_settings.get('StopLoss', -1.5)}%\n"
         text += f"RSI_LENGTH: {divergence_settings['RSI_LENGTH']}\n"
         text += f"LB_RIGHT: {divergence_settings['LB_RIGHT']}\n"
         text += f"LB_LEFT: {divergence_settings['LB_LEFT']}\n"
@@ -2632,7 +2660,7 @@ async def divergence_params(callback: CallbackQuery, state: FSMContext, bot: Bot
             reply_markup=stop_loss_type_inline()
         )
         await state.set_state(DivergenceParamStates.edit_stop_loss_type)
-    elif action in ['RSI_LENGTH', 'LB_RIGHT', 'LB_LEFT', 'RANGE_UPPER', 'RANGE_LOWER', 
+    elif action in ['TakeProfit', 'StopLoss', 'RSI_LENGTH', 'LB_RIGHT', 'LB_LEFT', 'RANGE_UPPER', 'RANGE_LOWER', 
                    'TAKE_PROFIT_RSI_LEVEL', 'STOP_LOSS_PERC', 'ATR_LENGTH', 'ATR_MULTIPLIER']:
         # Редактирование параметра дивергенции
         divergence_settings = load_divergence_settings(callback.from_user.id)
@@ -2642,8 +2670,22 @@ async def divergence_params(callback: CallbackQuery, state: FSMContext, bot: Bot
             [InlineKeyboardButton(text='Назад', callback_data='settings divergence')]
         ]
         
+        param_description = {
+            'TakeProfit': 'Take Profit (%)',
+            'StopLoss': 'Stop Loss (%)',
+            'RSI_LENGTH': 'RSI_LENGTH',
+            'LB_RIGHT': 'LB_RIGHT',
+            'LB_LEFT': 'LB_LEFT',
+            'RANGE_UPPER': 'RANGE_UPPER',
+            'RANGE_LOWER': 'RANGE_LOWER',
+            'TAKE_PROFIT_RSI_LEVEL': 'TAKE_PROFIT_RSI_LEVEL',
+            'STOP_LOSS_PERC': 'STOP_LOSS_PERC',
+            'ATR_LENGTH': 'ATR_LENGTH',
+            'ATR_MULTIPLIER': 'ATR_MULTIPLIER'
+        }
+        
         msg = await callback.message.edit_text(
-            f"Изменение параметра: {action}\n"
+            f"Изменение параметра: {param_description.get(action, action)}\n"
             f"Текущее значение: {current_value}\n\n"
             f"Введите новое значение:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
@@ -2868,6 +2910,8 @@ async def rsi_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
         
         # Display current parameters
         text += "📊 Текущие параметры:\n"
+        text += f"📈 Take Profit: {rsi_settings.get('TakeProfit', 3.0)}%\n"
+        text += f"📉 Stop Loss: {rsi_settings.get('StopLoss', -1.5)}%\n"
         text += f"RSI_PERIOD: {rsi_settings['RSI_PERIOD']}\n"
         text += f"RSI_OVERBOUGHT: {rsi_settings['RSI_OVERBOUGHT']}\n"
         text += f"RSI_OVERSOLD: {rsi_settings['RSI_OVERSOLD']}\n"
@@ -2880,7 +2924,7 @@ async def rsi_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
             text=text,
             reply_markup=rsi_params_inline()
         )
-    elif action in ['RSI_PERIOD', 'RSI_OVERBOUGHT', 'RSI_OVERSOLD', 'EMA_FAST', 'EMA_SLOW']:
+    elif action in ['TakeProfit', 'StopLoss', 'RSI_PERIOD', 'RSI_OVERBOUGHT', 'RSI_OVERSOLD', 'EMA_FAST', 'EMA_SLOW']:
         # Edit RSI parameter
         rsi_settings = load_rsi_settings(callback.from_user.id)
         current_value = rsi_settings.get(action, "не установлено")
@@ -2889,8 +2933,18 @@ async def rsi_params(callback: CallbackQuery, state: FSMContext, bot: Bot):
             [InlineKeyboardButton(text='Назад', callback_data='settings rsi')]
         ]
         
+        param_description = {
+            'TakeProfit': 'Take Profit (%)',
+            'StopLoss': 'Stop Loss (%)',
+            'RSI_PERIOD': 'RSI_PERIOD',
+            'RSI_OVERBOUGHT': 'RSI_OVERBOUGHT',
+            'RSI_OVERSOLD': 'RSI_OVERSOLD',
+            'EMA_FAST': 'EMA_FAST',
+            'EMA_SLOW': 'EMA_SLOW'
+        }
+        
         msg = await callback.message.edit_text(
-            f"Изменение параметра: {action}\n"
+            f"Изменение параметра: {param_description.get(action, action)}\n"
             f"Текущее значение: {current_value}\n\n"
             f"Введите новое значение:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=kb)
@@ -2933,6 +2987,8 @@ async def process_rsi_param_edit(message: Message, state: FSMContext, bot: Bot):
             
             # Display current parameters
             text += "📊 Текущие параметры:\n"
+            text += f"📈 Take Profit: {rsi_settings.get('TakeProfit', 3.0)}%\n"
+            text += f"📉 Stop Loss: {rsi_settings.get('StopLoss', -1.5)}%\n"
             text += f"RSI_PERIOD: {rsi_settings['RSI_PERIOD']}\n"
             text += f"RSI_OVERBOUGHT: {rsi_settings['RSI_OVERBOUGHT']}\n"
             text += f"RSI_OVERSOLD: {rsi_settings['RSI_OVERSOLD']}\n"
@@ -3026,7 +3082,7 @@ async def pump_dump_params(callback: CallbackQuery, state: FSMContext, bot: Bot)
             reply_markup=trade_type_inline()
         )
     
-    elif action in ['VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'MONITOR_INTERVALS', 'ENABLED', 'LEVERAGE', 'ENABLE_SHORT_TRADES']:
+    elif action in ['TakeProfit', 'StopLoss', 'VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'MONITOR_INTERVALS', 'ENABLED', 'LEVERAGE', 'ENABLE_SHORT_TRADES']:
         # Edit pump_dump parameter
         pump_dump_settings = load_pump_dump_settings(callback.from_user.id)
         current_value = pump_dump_settings.get(action, "не установлено")
@@ -3108,7 +3164,17 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
             pass
         
         # Get the input value
-        param_value = message.text.strip()
+        raw_input_value = message.text.strip()
+        
+        # If параметр числовой, конвертируем в float
+        if param_name in ['TakeProfit', 'StopLoss', 'VOLUME_THRESHOLD', 'PRICE_CHANGE_THRESHOLD', 'TIME_WINDOW', 'LEVERAGE']:
+            try:
+                param_value = float(raw_input_value)
+            except ValueError:
+                await message.answer("Ошибка: введите числовое значение")
+                return
+        else:
+            param_value = raw_input_value
         
         # Update parameter
         success = update_pump_dump_setting(message.from_user.id, param_name, param_value)
@@ -3159,6 +3225,8 @@ async def process_pump_dump_param_edit(message: Message, state: FSMContext, bot:
 # Helper function to format pump_dump settings display
 def format_pump_dump_settings(settings, user_id):
     text = "📊 Текущие параметры:\n"
+    text += f"📈 TakeProfit: {settings.get('TakeProfit', 3.0)}%\n"
+    text += f"📉 StopLoss: {settings.get('StopLoss', -1.5)}%\n"
     text += f"VOLUME_THRESHOLD: {settings['VOLUME_THRESHOLD']:.1f}x\n"
     text += f"PRICE_CHANGE_THRESHOLD: {settings['PRICE_CHANGE_THRESHOLD']:.1f}%\n"
     text += f"TIME_WINDOW: {settings['TIME_WINDOW']} минут\n"

@@ -30,7 +30,9 @@ DEFAULT_SETTINGS = {
         "LONG_GAMMA": 0.8,
         "LOOKBACK_T": 21,
         "LOOKBACK_B": 15,
-        "PCTILE": 90
+        "PCTILE": 90,
+        "TakeProfit": 3.0,
+        "StopLoss": -1.5
     },
     "divergence": {
         "RSI_LENGTH": 7,
@@ -42,14 +44,18 @@ DEFAULT_SETTINGS = {
         "STOP_LOSS_TYPE": "PERC",
         "STOP_LOSS_PERC": 5.0,
         "ATR_LENGTH": 14,
-        "ATR_MULTIPLIER": 3.5
+        "ATR_MULTIPLIER": 3.5,
+        "TakeProfit": 3.0,
+        "StopLoss": -1.5
     },
     "rsi": {
         "RSI_PERIOD": 14,
         "RSI_OVERBOUGHT": 70,
         "RSI_OVERSOLD": 30,
         "EMA_FAST": 9,
-        "EMA_SLOW": 21
+        "EMA_SLOW": 21,
+        "TakeProfit": 3.0,
+        "StopLoss": -1.5
     },
     "pump_dump": {
         "VOLUME_THRESHOLD": 3.0,
@@ -59,7 +65,9 @@ DEFAULT_SETTINGS = {
         "ENABLED": True,
         "TRADE_TYPE": "SPOT",
         "LEVERAGE": 3,
-        "ENABLE_SHORT_TRADES": False
+        "ENABLE_SHORT_TRADES": False,
+        "TakeProfit": 3.0,
+        "StopLoss": -1.5
     },
     "trading": {
         "trading_types": ["spot"],  # Массив типов торговли

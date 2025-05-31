@@ -361,7 +361,6 @@ async def get_all_orders(user_id, order_type, from_date=None):
                 ORDER BY buy_time DESC
             """, user_id)
         elif order_type == 'close':
-            # If from_date is provided, filter by sale_time
             if from_date is not None:
                 rows = await conn.fetch("""
                     SELECT * FROM orders
